@@ -15,7 +15,7 @@ namespace
 {
 #define SRTM_SOURCES_PATH "srtm/e4ftl01.cr.usgs.gov/SRTM/SRTMGL1.003/2000.02.11/"
 
-UNIT_TEST(SRTMCoverageChecker)
+UNIT_TEST(SrtmCoverageChecker)
 {
   vector<platform::LocalCountryFile> localFiles;
   platform::FindAllLocalMapsAndCleanup(numeric_limits<int64_t>::max() /* latestVersion */,
@@ -47,7 +47,9 @@ UNIT_TEST(SRTMCoverageChecker)
     segMapping.Map(container);
 
     Platform & platform = GetPlatform();
-    SrtmFileManager manager(my::JoinFoldersToPath(platform.WritableDir(), SRTM_SOURCES_PATH));
+    generator::SrtmFileManager manager(
+        my::JoinFoldersToPath(platform.WritableDir(), SRTM_SOURCES_PATH));
+
     size_t all = 0;
     size_t good = 0;
 
@@ -85,9 +87,9 @@ UNIT_TEST(SRTMCoverageChecker)
         }
         for (auto point : path)
         {
-          auto height = manager.GetCoordHeight(MercatorBounds::ToLatLon(point));
+          auto const height = manager.GetHeight(MercatorBounds::ToLatLon(point));
           all++;
-          if (height != kInvalidSRTMHeight)
+          if (height != generator::SrtmFile::kInvalidHeight)
             good++;
         }
       }
@@ -95,8 +97,10 @@ UNIT_TEST(SRTMCoverageChecker)
     auto const delta = all - good;
     auto const percent = delta * 100.0 / all;
     if (percent > 10.0)
+    {
       LOG(LINFO, ("Huge error rate in:", file.GetCountryName(), "Good:", good, "All:", all,
                   "Delta:", delta, "%:", percent));
+    }
   }
 }
 }  // namespace
