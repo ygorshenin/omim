@@ -231,4 +231,12 @@ size_t Hash(T1 const & t1, T2 const & t2)
   return (hash<T1>()(t1) ^ (hash<T2>()(t2) << 1));
 }
 
+template <typename Number,
+          typename ENABLE_IF = typename enable_if<
+            is_integral<Number>::value || is_floating_point<Number>::value,
+            void>::type>
+int Sign(Number const number)
+{
+  return number == 0 ? 0 : number > 0 ? 1 : -1;
+}
 }

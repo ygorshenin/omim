@@ -23,7 +23,7 @@ HEADERS += defines.hpp
   CONFIG *= desktop
 }
 
-SUBDIRS = 3party base coding geometry editor indexer routing search
+SUBDIRS = 3party base coding geometry editor indexer routing search openlr
 
 !CONFIG(osrm) {
   SUBDIRS *= platform stats storage
@@ -34,6 +34,10 @@ SUBDIRS = 3party base coding geometry editor indexer routing search
     generator_tool.subdir = generator/generator_tool
     generator_tool.depends = $$SUBDIRS
     SUBDIRS *= generator_tool
+
+    openlr_stat.subdir = openlr/openlr_stat
+    openlr_stat.depends = $$SUBDIRS
+    SUBDIRS *= openlr_stat
   }
 
   # Integration tests dependencies for gtool.
