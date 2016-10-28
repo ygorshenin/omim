@@ -85,6 +85,7 @@ int main(int argc, char * argv[])
   {
     return infoGetter->GetRegionCountryId(pt);
   };
+
   routing::CarRouter router(&index, countryFileGetter,
                             routing::CreateCarAStarBidirectionalRouter(index, countryFileGetter));
 

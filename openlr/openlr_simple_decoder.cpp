@@ -15,6 +15,9 @@
 
 #include "geometry/latlon.hpp"
 
+#include "std/algorithm.hpp"
+#include "std/fstream.hpp"
+
 // double constexpr kMwmRoadCrossingRadiusMeters = 2.0;
 // m2::RectD const rect = MercatorBounds::RectByCenterXYAndSizeInMeters(cross, kMwmRoadCrossingRadiusMeters);
 //   m_index.ForEachInRect(featuresLoader, rect, GetStreetReadScale());
@@ -43,7 +46,12 @@ pugi::xml_node GetLinearLocationReference(pugi::xml_node const & node)
 {
   // TODO(mgsergio): Check format (how many optional linear location reference childred
   // are in loation reference tag).
-  auto const locations =
+  auto locations =
+      node.select_nodes(".//olr:locationReference");
+  // TODO(mgsergio): remove me.
+  ASSERT_EQUAL(locations.size(), 1, ());
+
+  locations =
       node.select_nodes(".//olr:locationReference/olr:optionLinearLocationReference");
   // TODO(mgsergio): remove me.
   ASSERT_EQUAL(locations.size(), 1, ());
@@ -179,6 +187,107 @@ routing::IRoadGraph::TEdgeVector GetIngoingEdges(routing::FeaturesRoadGraph cons
 
   return edges;
 }
+
+bool CalculateRoute(routing::IRouter & router, ms::LatLon const & first,
+                    ms::LatLon const & last, routing::Route & route)
+{
+  routing::RouterDelegate delegate;
+  auto const result =
+      router.CalculateRoute(MercatorBounds::FromLatLon(first), {0.0, 0.0},
+                            MercatorBounds::FromLatLon(last), delegate, route);
+  if (result != routing::IRouter::ResultCode::NoError)
+  {
+    LOG(LDEBUG, ("Can't calculate route for points", first, last, ", code:", result));
+    return false;
+  }
+  return true;
+}
+
+void LeaveEdgesStartedFrom(routing::Junction const & junction, routing::IRoadGraph::TEdgeVector & edges)
+{
+  auto count = 0;
+  auto const it = remove_if(begin(edges), end(edges), [&junction, &count](routing::Edge const & e)
+  {
+    bool const eq = !AlmostEqualAbs(e.GetStartJunction(), junction);
+    LOG(LDEBUG, (e.GetStartJunction().GetPoint(), "!=", junction.GetPoint(), "->", eq));
+    count += eq;
+    return eq;
+  });
+  LOG(LDEBUG, (count, "values should be removed from vector of legth", edges.size()));
+
+  if (it != end(edges))
+    edges.erase(it, end(edges));
+
+  LOG(LDEBUG, ("edges current size", edges.size()));
+}
+
+routing::Junction JunctionFromPoint(m2::PointD const & p)
+{
+  return {p, feature::kDefaultAltitudeMeters};
+}
+
+struct Stats
+{
+  uint32_t m_shortRoutes = 0;
+  uint32_t m_zeroCanditates = 0;
+  uint32_t m_moreThanOneCandidates = 0;
+  uint32_t m_routeIsNotCalculated = 0;
+  uint32_t m_total = 0;
+};
+
+routing::IRoadGraph::TEdgeVector ReconstructPath(routing::IRoadGraph const & graph,
+                                                 routing::Route & route, Stats & stats)
+{
+  routing::IRoadGraph::TEdgeVector path;
+
+  auto poly = route.GetPoly().GetPoints();
+  // There are zero-length linear features, so poly can contain adhucent duplications.
+  poly.erase(unique(begin(poly), end(poly), [](m2::PointD const & a, m2::PointD const & b)
+  {
+    return my::AlmostEqualAbs(a, b, routing::kPointsEqualEpsilon);
+  }), end(poly));
+
+  // TODO(mgsergio): A rote may strart/end at poits other than edge ends, this situation
+  // shoud be handled separately.
+  if (poly.size() < 4)
+  {
+    ++stats.m_shortRoutes;
+    LOG(LINFO, ("Short polylines are not handled yet."));
+    return {};
+  }
+
+  routing::IRoadGraph::TEdgeVector edges;
+  // Start from the second point of the route that is the start of the egge for shure.
+  auto it = next(begin(poly));
+  auto prevJunction = JunctionFromPoint(*it++);
+
+  // Stop at the last point that is the end of the edge for shure.
+  for (; it != prev(end(poly)); prevJunction = JunctionFromPoint(*it++))
+  {
+    // TODO(mgsergio): Check edges are not fake;
+    graph.GetIngoingEdges(JunctionFromPoint(*it), edges);
+    LOG(LDEBUG, ("Edges extracted:", edges.size()));
+    LeaveEdgesStartedFrom(prevJunction, edges);
+    if (edges.size() > 1)
+    {
+      ++stats.m_moreThanOneCandidates;
+      LOG(LDEBUG, ("More than one edge candidate."));
+    }
+    else if (edges.size() == 0)
+    {
+      ++stats.m_zeroCanditates;
+      LOG(LDEBUG, ("Zero edge candidate extracted."));
+      // Sometimes a feature may be duplicated in two or more mwms: MAPSME-2816.
+      // ASSERT_GREATER_OR_EQUAL(edges.size(), 1,
+      //                         ("There should be at least one adge. (One in normal case)"));
+      return {};
+    }
+    path.push_back(edges.front());
+    edges.clear();
+  }
+
+  return path;
+}
 }  // namespace
 
 namespace openlr
@@ -197,8 +306,11 @@ void OpenLRSimpleDecoder::Decode()
 {
   routing::FeaturesRoadGraph roadGraph(m_index, routing::IRoadGraph::Mode::ObeyOnewayTag,
                                        make_unique<routing::CarModelFactory>());
+  Stats stats;
 
-  uint32_t count = 0;
+  // TODO(mgsergio): Refactor (separate logical parts).
+  ofstream sample("inrix_vs_mwm.txt");
+
   for (auto const xpath_node : m_document.select_nodes("//reportSegments"))
   {
     auto const node = xpath_node.node();
@@ -241,7 +353,7 @@ void OpenLRSimpleDecoder::Decode()
       continue;
     }
 
-    ++count;
+    ++stats.m_total;
 
     // auto const outgoingEdges = GetOutgoingEdges(roadGraph, first);
     // auto const ingoingEdges = GetIngoingEdges(roadGraph, last);
@@ -252,30 +364,42 @@ void OpenLRSimpleDecoder::Decode()
     // auto const featuresForFirst = GetRoadFeaturesAtPoint(m_index, roadGraph, first);
     // auto const featuresForLast = GetRoadFeaturesAtPoint(m_index, roadGraph, last);
 
-    /// Calculate route
-    first = ms::LatLon(55.712814774096798942, 37.381468803977099924);
-    last = ms::LatLon(55.713313757543446059, 37.384826761461006583);
-    routing::RouterDelegate delegate;
-    auto route = make_shared<routing::Route>("openlr");
-    auto const result =
-        m_router.CalculateRoute(MercatorBounds::FromLatLon(first), {0.0, 0.0},
-                                MercatorBounds::FromLatLon(last), delegate, *route.get());
-    if (result != routing::IRouter::ResultCode::NoError)
-    {
-      LOG(LDEBUG, ("Can't calculate route for points", first, last, ", code:", result));
-      continue;
-    }
-
-    return;
-    /// ---
-
     // cout << "Features: " << featuresForFirst.size() << "\tfor point" << DebugPrint(first) << endl;
     // cout << "Features: " << featuresForLast.size() << "\tfor point" << DebugPrint(last) << endl;
 
     // LOG(LINFO, ("Number of features", featuresForFirst.size(), "for first point: ", first));
     // LOG(LINFO, ("Number of features", featuresForLast.size(), "for last point: ", last));
+
+    LOG(LDEBUG, ("Calculating route from ", first, last, "for segment:", segmentID));
+    routing::Route route("openlr");
+    if (!CalculateRoute(m_router, first, last, route))
+    {
+      ++stats.m_routeIsNotCalculated;
+      continue;
+    }
+
+    auto const path = ReconstructPath(roadGraph, route, stats);
+    LOG(LINFO, ("Route point count:", route.GetPoly().GetSize(), "path legth: ", path.size()));
+
+    if (path.size() == 0)
+      continue;
+
+    sample << segmentID << '\t';
+    for (auto it = begin(path); it != end(path); ++it)
+    {
+      auto const & fid = it->GetFeatureId();
+      sample << fid.m_mwmId.GetInfo()->GetCountryName() << '-'
+             << fid.m_index << '-' << it->GetSegId();
+      if (next(it) != end(path))
+        sample << '\t';
+    }
+    sample << endl;
   }
 
-  LOG(LINFO, (count, "Segments found"));
+  LOG(LINFO, ("Parsed inrix regments:", stats.m_total,
+              "Routes failed:", stats.m_routeIsNotCalculated,
+              "Short routes:", stats.m_shortRoutes,
+              "Ambiguous routes:", stats.m_moreThanOneCandidates,
+              "Path is not reconstructed:", stats.m_zeroCanditates));
 }
 }  // namespace openlr
