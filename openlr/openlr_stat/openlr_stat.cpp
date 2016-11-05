@@ -3,6 +3,9 @@
 #include "routing/car_router.hpp"
 #include "routing/road_graph_router.hpp"
 #include "routing/router.hpp"
+#include "routing/single_mwm_router.hpp"
+
+#include "traffic/traffic_cache.hpp"
 
 #include "storage/country_info_getter.hpp"
 
@@ -86,8 +89,10 @@ int main(int argc, char * argv[])
     return infoGetter->GetRegionCountryId(pt);
   };
 
-  routing::CarRouter router(&index, countryFileGetter,
-                            routing::CreateCarAStarBidirectionalRouter(index, countryFileGetter));
+  traffic::TrafficCache trafficCache;
+
+  routing::CarRouter router(index, countryFileGetter,
+                            routing::SingleMwmRouter::CreateCarRouter(index, trafficCache));
 
   OpenLRSimpleDecoder decoder(argv[1], index, router);
   decoder.Decode();

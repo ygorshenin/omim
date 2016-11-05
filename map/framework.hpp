@@ -276,6 +276,9 @@ public:
   storage::CountryInfoGetter & GetCountryInfoGetter() { return *m_infoGetter; }
   StorageDownloadingPolicy & GetDownloadingPolicy() { return m_storageDownloadingPolicy; }
 
+
+  Index const & GetIndex() const { return m_model.GetIndex(); }
+
   /// @name Bookmarks, Tracks and other UserMarks
   //@{
   /// Scans and loads all kml files with bookmarks in WritableDir.

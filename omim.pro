@@ -64,6 +64,10 @@ SUBDIRS = 3party base coding geometry editor indexer routing search openlr
     feature_segments_checker.subdir = generator/feature_segments_checker
     feature_segments_checker.depends = $$SUBDIRS routing
     SUBDIRS *= routing_integration_tests routing_consistency_tests srtm_coverage_checker feature_segments_checker
+
+    openlr_tests.subdir = openlr/openlr_tests
+    opnelr_tests.depends = $$SUBDIRS
+    SUBDIRS *= openlr_tests
   }
 }
 

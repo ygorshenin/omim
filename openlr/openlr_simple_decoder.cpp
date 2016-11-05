@@ -391,7 +391,7 @@ void OpenLRSimpleDecoder::Decode()
       sample << fid.m_mwmId.GetInfo()->GetCountryName() << '-'
              << fid.m_index << '-' << it->GetSegId();
       if (next(it) != end(path))
-        sample << '\t';
+        sample << '=';
     }
     sample << endl;
   }

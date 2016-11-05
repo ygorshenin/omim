@@ -5,17 +5,22 @@
 #include "qt/preferences_dialog.hpp"
 #include "qt/search_panel.hpp"
 #include "qt/slider_ctrl.hpp"
+#include "qt/traffic_panel.hpp"
+#include "qt/trafficmodeinitdlg.h"
 
 #include "defines.hpp"
 
 #include "platform/settings.hpp"
 #include "platform/platform.hpp"
 
+#include "openlr/openlr_sample.hpp"
+
 #include "std/bind.hpp"
 #include "std/sstream.hpp"
 #include "std/target_os.hpp"
 
 #include <QtGui/QCloseEvent>
+#include <QFileDialog>
 
 #if QT_VERSION < QT_VERSION_CHECK(5, 0, 0)
   #include <QtGui/QAction>
@@ -61,7 +66,9 @@ namespace qt
 extern char const * kTokenKeySetting;
 extern char const * kTokenSecretSetting;
 
-MainWindow::MainWindow() : m_locationService(CreateDesktopLocationService(*this))
+MainWindow::MainWindow()
+  : m_Docks{}
+  , m_locationService(CreateDesktopLocationService(*this))
 {
   // Always runs on the first desktop
   QDesktopWidget const * desktop(QApplication::desktop());
@@ -97,6 +104,21 @@ MainWindow::MainWindow() : m_locationService(CreateDesktopLocationService(*this)
 
   setWindowTitle(tr("MAPS.ME"));
   setWindowIcon(QIcon(":/ui/logo.png"));
+
+  QMenu * trafficMarkup = new QMenu(tr("Traffic"), this);
+  menuBar()->addMenu(trafficMarkup);
+  trafficMarkup->addAction(tr("Open sample"), this, SLOT(OnOpenTrafficSample()));
+  m_saveTrafficSampleAction = trafficMarkup->addAction(tr("Save sample"), this,
+                                                       SLOT(OnSaveTrafficSample()));
+  m_saveTrafficSampleAction->setEnabled(false);
+
+  m_quitTrafficModeAction = new QAction(tr("Quit traffic mode"), this);
+  // On Macos actions with names started with quit or exit are threadet specially,
+  // see QMenuBar documentation.
+  m_quitTrafficModeAction->setMenuRole(QAction::MenuRole::NoRole);
+  m_quitTrafficModeAction->setEnabled(false);
+  connect(m_quitTrafficModeAction, SIGNAL(triggered()), this, SLOT(OnQuitTrafficMode()));
+  trafficMarkup->addAction(m_quitTrafficModeAction);
 
 #ifndef OMIM_OS_WINDOWS
   QMenu * helpMenu = new QMenu(tr("Help"), this);
@@ -560,7 +582,7 @@ void MainWindow::CreateSearchBarAndPanel()
 void MainWindow::CreatePanelImpl(size_t i, Qt::DockWidgetArea area, QString const & name,
                                  QKeySequence const & hotkey, char const * slot)
 {
-  ASSERT_LESS(i, ARRAY_SIZE(m_Docks), ());
+  ASSERT_LESS(i, m_Docks.size(), ());
   m_Docks[i] = new QDockWidget(name, this);
 
   addDockWidget(area, m_Docks[i]);
@@ -576,6 +598,20 @@ void MainWindow::CreatePanelImpl(size_t i, Qt::DockWidgetArea area, QString cons
     connect(pAct, SIGNAL(triggered()), this, slot);
     addAction(pAct);
   }
+}
+
+void MainWindow::CreateTrafficPanel()
+{
+  CreatePanelImpl(1, Qt::RightDockWidgetArea, tr("Traffic"), QKeySequence(), nullptr);
+  m_Docks[1]->setWidget(new TrafficPanel(*m_trafficMode, m_Docks[1]));
+  m_Docks[2]->adjustSize();
+}
+
+void MainWindow::DestroyTrafficPanel()
+{
+  removeDockWidget(m_Docks[1]);
+  delete m_Docks[1];
+  m_Docks[1] = nullptr;
 }
 
 void MainWindow::closeEvent(QCloseEvent * e)
@@ -594,6 +630,7 @@ void MainWindow::OnRetryDownloadClicked()
   m_pDrawWidget->RetryToDownloadCountry(m_lastCountry);
 }
 
+
 void MainWindow::OnTrafficEnabled()
 {
   bool const enabled = m_trafficEnableAction->isChecked();
@@ -601,4 +638,32 @@ void MainWindow::OnTrafficEnabled()
   m_pDrawWidget->GetFramework().SaveTrafficEnabled(enabled);
 }
 
+void MainWindow::OnOpenTrafficSample()
+{
+  TrafficModeInitDlg dlg;
+  dlg.exec();
+  if (dlg.result() == QDialog::DialogCode::Accepted)
+    m_trafficMode = make_unique<openlr::TrafficMode>(dlg.GetDataFilePath(), dlg.GetSampleFilePath(),
+                                                     m_pDrawWidget->GetFramework().GetIndex());
+
+  CreateTrafficPanel();
+  m_quitTrafficModeAction->setEnabled(true);
+  m_saveTrafficSampleAction->setEnabled(true);
+  m_Docks[1]->show();
 }
+
+void MainWindow::OnSaveTrafficSample()
+{
+  // open savefiledialog
+}
+
+void MainWindow::OnQuitTrafficMode()
+{
+  // If not saved, ask user if he/she want to save.
+  // OnSaveTrafficSample()
+  m_quitTrafficModeAction->setEnabled(false);
+  m_saveTrafficSampleAction->setEnabled(false);
+  DestroyTrafficPanel();
+  //m_trafficSample.clear();
+}
+}  // namespace qt
