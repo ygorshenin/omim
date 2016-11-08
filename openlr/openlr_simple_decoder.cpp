@@ -1,4 +1,5 @@
 #include "openlr/openlr_simple_decoder.hpp"
+#include "openlr/openlr_simple_parser.hpp"
 
 #include "routing/car_model.hpp"
 #include "routing/car_router.hpp"
@@ -22,79 +23,6 @@
 // m2::RectD const rect = MercatorBounds::RectByCenterXYAndSizeInMeters(cross, kMwmRoadCrossingRadiusMeters);
 //   m_index.ForEachInRect(featuresLoader, rect, GetStreetReadScale());
 // }
-
-namespace  // Primitive utilities to handle simple INRI OpenLR XML data.
-{
-bool GetLatLon(pugi::xml_node node, int32_t & lat, int32_t & lon)
-{
-  node = node.child("olr:coordinate");
-  auto const latNode = node.child("olr:latitude");
-  if (!latNode)
-    return false;
-
-  auto const lonNode = node.child("olr:longitude");
-  if (!lonNode)
-    return false;
-
-  lat = latNode.text().as_int();
-  lon = lonNode.text().as_int();
-
-  return true;
-}
-
-pugi::xml_node GetLinearLocationReference(pugi::xml_node const & node)
-{
-  // TODO(mgsergio): Check format (how many optional linear location reference childred
-  // are in loation reference tag).
-  auto locations =
-      node.select_nodes(".//olr:locationReference");
-  // TODO(mgsergio): remove me.
-  ASSERT_EQUAL(locations.size(), 1, ());
-
-  locations =
-      node.select_nodes(".//olr:locationReference/olr:optionLinearLocationReference");
-  // TODO(mgsergio): remove me.
-  ASSERT_EQUAL(locations.size(), 1, ());
-
-  return node.select_node(".//olr:locationReference/olr:optionLinearLocationReference").node();
-}
-
-bool GetSegmentId(pugi::xml_node const & node, uint64_t & id)
-{
-  auto const idNode = node.child("ReportSegmentID");
-  if (!idNode)
-    return false;
-  id = idNode.text().as_uint();
-  return true;
-}
-}  // namespace
-
-namespace  // OpenLR tools and abstractions
-{
-bool GetFirstCoordinate(pugi::xml_node const & node, ms::LatLon & latLon)
-{
-  int32_t lat, lon;
-  if (!GetLatLon(node, lat, lon))
-    return false;
-
-  latLon.lat = ((lat - (my::Sign(lat) * 0.5)) * 360) / (1 << 24);
-  latLon.lon = ((lon - (my::Sign(lon) * 0.5)) * 360) / (1 << 24);
-
-  return true;
-}
-
-bool GetCoordinate(pugi::xml_node const & node, ms::LatLon const & firstCoord, ms::LatLon & latLon)
-{
-  int32_t lat, lon;
-  if (!GetLatLon(node, lat, lon))
-    return false;
-
-  latLon.lat = firstCoord.lat + static_cast<double>(lat) / 100000;
-  latLon.lon = firstCoord.lon + static_cast<double>(lon) / 100000;
-
-  return true;
-}
-}  // namespace
 
 namespace  // A staff to get road data.
 {
@@ -308,51 +236,16 @@ void OpenLRSimpleDecoder::Decode()
                                        make_unique<routing::CarModelFactory>());
   Stats stats;
 
-  // TODO(mgsergio): Refactor (separate logical parts).
   ofstream sample("inrix_vs_mwm.txt");
 
-  for (auto const xpath_node : m_document.select_nodes("//reportSegments"))
+  // TODO(mgsergio): Feed segments derectly to the decoder. Parsing sholud not
+  // take place inside decoder process.
+  vector<Segment> segments;
+  if (!ParseOpenlr(m_document, segments))
+    MYTHROW(DecoderError, ("Can't parse data."));
+
+  for (auto const & segment : segments)
   {
-    auto const node = xpath_node.node();
-    uint64_t segmentID;
-    if (!GetSegmentId(node, segmentID))
-    {
-      LOG(LERROR, ("Cant't parse segment id"));
-      continue;
-    }
-
-    auto const locRefNode = GetLinearLocationReference(node);
-    if (!locRefNode)
-    {
-      LOG(LERROR, ("Can't get loaction reference"));
-      continue;
-    }
-
-    if (locRefNode.child("olr:intermediates"))
-    {
-      LOG(LDEBUG, ("Intermediate points encounted. Skipping the whole segment."));
-      continue;
-    }
-
-    ms::LatLon first, last;
-    if (!GetFirstCoordinate(locRefNode.child("olr:first"), first))
-    {
-      LOG(LERROR, ("Can't get firts coordinate"));
-      continue;
-    }
-
-    if (!GetCoordinate(locRefNode.child("olr:last"), first, last))
-    {
-      LOG(LERROR, ("Can't get last coordinate"));
-      continue;
-    }
-
-    if (first.EqualDxDy(last, 1e-4))
-    {
-      LOG(LDEBUG, ("Frist and last points are to close: ", first, last));
-      continue;
-    }
-
     ++stats.m_total;
 
     // auto const outgoingEdges = GetOutgoingEdges(roadGraph, first);
@@ -370,9 +263,12 @@ void OpenLRSimpleDecoder::Decode()
     // LOG(LINFO, ("Number of features", featuresForFirst.size(), "for first point: ", first));
     // LOG(LINFO, ("Number of features", featuresForLast.size(), "for last point: ", last));
 
-    LOG(LDEBUG, ("Calculating route from ", first, last, "for segment:", segmentID));
+    auto const firstPoint = segment.m_locationReference.m_points.front().m_latLon;
+    auto const lastPoint = segment.m_locationReference.m_points.back().m_latLon;
+    auto const segmentID = segment.m_segmentId;
+    LOG(LDEBUG, ("Calculating route from ", firstPoint, lastPoint, "for segment:", segmentID));
     routing::Route route("openlr");
-    if (!CalculateRoute(m_router, first, last, route))
+    if (!CalculateRoute(m_router, firstPoint, lastPoint, route))
     {
       ++stats.m_routeIsNotCalculated;
       continue;
