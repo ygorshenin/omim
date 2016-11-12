@@ -112,8 +112,7 @@ bool ParseLinearLocationReference(pugi::xml_node const & locRefNode,
   // TODO(mgsergio): Handle intermediate points.
   if (locRefNode.child("olr:intermediates"))
   {
-    LOG(LDEBUG, ("Intermediate points encounted. Skipping the whole segment."));
-    return false;
+    LOG(LDEBUG, ("Intermediate points encounted."));
   }
 
   {
@@ -126,8 +125,8 @@ bool ParseLinearLocationReference(pugi::xml_node const & locRefNode,
   // We relay on we get olr::last really last in this loop. Since it shoud be last in
   // olr::optionalLinearLocationReference and select_nodes should not change the order of
   // node in the document.
-  // TODO(mgsergio): Test intermediate case.
-  for (auto const pointNode : locRefNode.select_nodes("olr:intermediates|olr:last"))
+  // TODO(mgsergio): Test intermediate case. Add this to select_nodes xpath: olr:intermediates|
+  for (auto const pointNode : locRefNode.select_nodes("olr:last"))
   {
     openlr::LocationReferencePoint point;
     if (!ParseLocationReferencePoint(pointNode.node(), locRef.m_points.front().m_latLon, point))
@@ -144,7 +143,7 @@ bool ParseLinearLocationReference(pugi::xml_node const & locRefNode,
   return true;
 }
 
-bool ParseSegment(pugi::xml_node const & segmentNode, openlr::Segment & segment)
+bool ParseSegment(pugi::xml_node const & segmentNode, openlr::LinearSegment & segment)
 {
   auto const node = segmentNode;
   if (!GetSegmentId(node, segment.m_segmentId))
@@ -162,11 +161,11 @@ bool ParseSegment(pugi::xml_node const & segmentNode, openlr::Segment & segment)
 
 namespace openlr
 {
-bool ParseOpenlr(pugi::xml_document const & document, vector<Segment> & segments)
+bool ParseOpenlr(pugi::xml_document const & document, vector<LinearSegment> & segments)
 {
   for (auto const segmentXpathNode : document.select_nodes("//reportSegments"))
   {
-    Segment segment;
+    LinearSegment segment;
     if (!ParseSegment(segmentXpathNode.node(), segment))
       return false;
     segments.push_back(segment);

@@ -26,8 +26,8 @@ TrafficModeInitDlg::~TrafficModeInitDlg()
 
 void TrafficModeInitDlg::accept()
 {
-  m_dataFileName = ui->dataFileName->text().toStdString();
-  m_sampleFileName = ui->sampleFileName->text().toStdString();
+  m_dataFileName = ui->dataFileName->text().trimmed().toStdString();
+  m_sampleFileName = ui->sampleFileName->text().trimmed().toStdString();
   QDialog::accept();
 }
 

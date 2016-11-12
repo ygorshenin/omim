@@ -24,7 +24,7 @@ struct LinearLocationReference
   uint32_t m_negativeOffsetMeters;
 };
 
-struct Segment
+struct LinearSegment
 {
   uint32_t m_segmentId;
   // TODO(mgsergio): Make sure that one segment cannot contain
@@ -34,5 +34,5 @@ struct Segment
   // uint32_t m_segmentRefSpeed;  Always null in Inrix data. (No docs found).
 };
 
-bool ParseOpenlr(pugi::xml_document const & document, vector<Segment> & segments);
+bool ParseOpenlr(pugi::xml_document const & document, vector<LinearSegment> & segments);
 }  // namespace openlr

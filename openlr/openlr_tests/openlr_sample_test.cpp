@@ -81,7 +81,7 @@ UNIT_TEST(ParseOpenlr)
       "  </Dictionary>"
       "</Inrix>";
 
-  vector<openlr::Segment> segments;
+  vector<openlr::LinearSegment> segments;
   pugi::xml_document doc;
   TEST_EQUAL(doc.load(openlrData), pugi::xml_parse_status::status_ok, ());
   TEST(openlr::ParseOpenlr(doc, segments), ());
@@ -120,10 +120,11 @@ UNIT_TEST(LoadSamplePool_Test)
 
   TEST_EQUAL(pool.size(), 7, ());
 
-  TEST(!pool[0].m_evaluation, ());
-  TEST_EQUAL(pool[0].m_parterSegmentId.Get(), 50670599, ());
-  TEST_EQUAL(pool[1].m_parterSegmentId.Get(), 50670604, ());
-  TEST_EQUAL(pool[2].m_parterSegmentId.Get(), 50670916, ());
+  TEST(pool[0].m_evaluation == openlr::ItemEvaluation::Unevaluated,
+       ("pool[0].m_evaluation != openlr::ItemEvaluation::Unevaluated"));
+  TEST_EQUAL(pool[0].m_partnerSegmentId.Get(), 50670599, ());
+  TEST_EQUAL(pool[1].m_partnerSegmentId.Get(), 50670604, ());
+  TEST_EQUAL(pool[2].m_partnerSegmentId.Get(), 50670916, ());
 
   TEST_EQUAL(pool[0].m_segments.size(), 3, ());
   TEST_EQUAL(pool[1].m_segments.size(), 4, ());

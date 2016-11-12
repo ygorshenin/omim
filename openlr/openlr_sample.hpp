@@ -14,6 +14,13 @@ namespace openlr
 {
 NEWTYPE(uint32_t, PartnerSegmentId);
 
+enum class ItemEvaluation
+{
+  Unevaluated,
+  Positive,
+  Negative
+};
+
 struct SampleItem
 {
   struct MWMSegemnt
@@ -23,11 +30,10 @@ struct SampleItem
     uint32_t m_segId;
   };
 
-
-  PartnerSegmentId m_parterSegmentId;
+  PartnerSegmentId m_partnerSegmentId;
   vector<MWMSegemnt> m_segments;
   // May become a number later.
-  bool m_evaluation;
+  ItemEvaluation m_evaluation;
 };
 
 DECLARE_EXCEPTION(SamplePoolLoadError, RootException);

@@ -316,7 +316,7 @@ public:
   m2::PointD GetSearchMarkSize(SearchMarkType searchMarkType);
 
   // Utilities
-  void VizualizeRoadsInRect(m2::RectD const & rect);
+  void VisualizeRoadsInRect(m2::RectD const & rect);
 
 protected:
   // search::ViewportSearchCallback::Delegate overrides:

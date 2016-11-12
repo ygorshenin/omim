@@ -54,10 +54,10 @@ void ParseSampleItem(string const & line, uint32_t const lineNumber, openlr::Sam
   }
   else
   {
-    item.m_evaluation = false;
+    item.m_evaluation = openlr::ItemEvaluation::Unevaluated;
   }
 
-  if (!strings::to_uint(parts[nextFieldIndex], item.m_parterSegmentId.Get()))
+  if (!strings::to_uint(parts[nextFieldIndex], item.m_partnerSegmentId.Get()))
   {
     MYTHROW(openlr::SamplePoolLoadError, ("Error: can't parse field", nextFieldIndex,
                                           "(number expected) in line:", lineNumber));

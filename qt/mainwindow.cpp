@@ -59,6 +59,48 @@
 #endif // NO_DOWNLOADER
 
 
+namespace
+{
+class TrafficDrawerDelegate : public ITrafficDrawerDelegate
+{
+public:
+  explicit TrafficDrawerDelegate(qt::DrawWidget * drawWidget)
+    : m_framework(drawWidget->GetFramework())
+    , m_drapeApi(m_framework.GetDrapeApi())
+  {
+  }
+
+  // TrafficDrawerDelegate(TrafficDrawerDelegate const &) = delete;
+  // TrafficDrawerDelegate(TrafficDrawerDelegate &&) = delete;
+
+  // TrafficDrawerDelegate & operator=(TrafficDrawerDelegate const &) = delete;
+  // TrafficDrawerDelegate & operator=(TrafficDrawerDelegate &&) = delete;
+
+  // ~TrafficDrawerDelegate() = default;
+
+  void SetViewportCenter(m2::PointD const & center) override
+  {
+    m_framework.SetViewportCenter(center);
+  }
+
+  void DrawDecodedSegments(DecodedSampleItem const & item) override
+  {
+  }
+
+  void DrawEncodedSegment(Segment const & segment) override
+  {
+  }
+
+  void Clear() override
+  {
+  }
+
+private:
+  Framework & m_framework;
+  df::DrapeApi & m_drapeApi;
+};
+}  // namespace
+
 namespace qt
 {
 
@@ -600,10 +642,14 @@ void MainWindow::CreatePanelImpl(size_t i, Qt::DockWidgetArea area, QString cons
   }
 }
 
-void MainWindow::CreateTrafficPanel()
+void MainWindow::CreateTrafficPanel(string const & dataFilePath, string const & sampleFilePath)
 {
   CreatePanelImpl(1, Qt::RightDockWidgetArea, tr("Traffic"), QKeySequence(), nullptr);
-  m_Docks[1]->setWidget(new TrafficPanel(*m_trafficMode, m_Docks[1]));
+
+  auto trafficMode = new TrafficMode(dataFilePath, sampleFilePath,
+                                     m_pDrawWidget->GetFramework().GetIndex(),
+                                     make_unique<TrafficDrawerDelegate>(m_pDrawWidget));
+  m_Docks[1]->setWidget(new TrafficPanel(trafficMode, m_Docks[1]));
   m_Docks[2]->adjustSize();
 }
 
@@ -642,11 +688,11 @@ void MainWindow::OnOpenTrafficSample()
 {
   TrafficModeInitDlg dlg;
   dlg.exec();
-  if (dlg.result() == QDialog::DialogCode::Accepted)
-    m_trafficMode = make_unique<openlr::TrafficMode>(dlg.GetDataFilePath(), dlg.GetSampleFilePath(),
-                                                     m_pDrawWidget->GetFramework().GetIndex());
+  if (dlg.result() != QDialog::DialogCode::Accepted)
+    return;
 
-  CreateTrafficPanel();
+  LOG(LDEBUG, ("Traffic mode enabled"));
+  CreateTrafficPanel(dlg.GetDataFilePath(), dlg.GetSampleFilePath());
   m_quitTrafficModeAction->setEnabled(true);
   m_saveTrafficSampleAction->setEnabled(true);
   m_Docks[1]->show();

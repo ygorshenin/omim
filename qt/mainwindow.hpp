@@ -5,7 +5,7 @@
 #include "platform/location.hpp"
 #include "platform/location_service.hpp"
 
-#include "openlr/traffic_mode.hpp"
+#include "qt/traffic_mode.hpp"
 
 #include "std/array.hpp"
 #include "std/unique_ptr.hpp"
@@ -49,8 +49,6 @@ namespace qt
 
     unique_ptr<location::LocationService> const m_locationService;
 
-    unique_ptr<openlr::TrafficMode> m_trafficMode;
-
     Q_OBJECT
 
   public:
@@ -71,7 +69,7 @@ namespace qt
     void CreateSearchBarAndPanel();
     void CreateCountryStatusControls();
 
-    void CreateTrafficPanel();
+    void CreateTrafficPanel(string const & dataFilePath, string const & sampleFilePath);
     void DestroyTrafficPanel();
 
 #if defined(Q_WS_WIN)

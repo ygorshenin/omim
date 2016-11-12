@@ -240,7 +240,7 @@ void OpenLRSimpleDecoder::Decode()
 
   // TODO(mgsergio): Feed segments derectly to the decoder. Parsing sholud not
   // take place inside decoder process.
-  vector<Segment> segments;
+  vector<LinearSegment> segments;
   if (!ParseOpenlr(m_document, segments))
     MYTHROW(DecoderError, ("Can't parse data."));
 

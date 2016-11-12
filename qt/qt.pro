@@ -117,6 +117,7 @@ SOURCES += \
     search_panel.cpp \
     slider_ctrl.cpp \
     update_dialog.cpp \
+    traffic_mode.cpp \
     traffic_panel.cpp \
     trafficmodeinitdlg.cpp
 
@@ -136,6 +137,7 @@ HEADERS += \
     search_panel.hpp \
     slider_ctrl.hpp \
     update_dialog.hpp \
+    traffic_mode.hpp \
     traffic_panel.hpp \
     trafficmodeinitdlg.h
 
