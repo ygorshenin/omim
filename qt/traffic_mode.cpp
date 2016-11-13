@@ -58,10 +58,15 @@ TrafficMode::TrafficMode(string const & dataFileName, string const & sampleFileN
     return;
   }
 
-  if (!ParseOpenlr(doc, m_partnerSegments))
+  vector<openlr::LinearSegment> segments;
+  if (!ParseOpenlr(doc, segments))
   {
     LOG(LERROR, ("Can't parse data:", dataFileName));
     return;
+  }
+  for (auto const & segment : segments)
+  {
+    m_partnerSegments[segment.m_segmentId] = segment;
   }
 
   m_valid = true;
@@ -105,7 +110,19 @@ void TrafficMode::OnItemSelected(QItemSelection const & selected, QItemSelection
   auto const row = selected.front().top();
   // TODO(mgsergio): Use algo for center calculation.
   // Now viewport is set to the first point of the first segment.
-  auto const & firstSegmentFeatureId = m_decodedSample->m_decodedItems[row].m_segments[0].m_fid;
+  auto const partnerSegmentId = m_decodedSample->m_decodedItems[row].m_partnerSegmentId;
+  auto const & firstSegment = m_decodedSample->m_decodedItems[row].m_segments[0];
+  auto const & firstSegmentFeatureId = firstSegment.m_fid;
   auto const & firstSegmentFeature = m_decodedSample->m_features.at(firstSegmentFeatureId);
-  m_drawerDelegate->SetViewportCenter(firstSegmentFeature.GetPoint(0));
+
+  LOG(LDEBUG, ("PartnerSegmentId:", partnerSegmentId.Get(),
+               "Segment points:", m_partnerSegments[partnerSegmentId.Get()].GetMercatorPoints(),
+               "Featrue segment id", firstSegment.m_segId,
+               "Feature segment points", firstSegmentFeature.GetPoint(firstSegment.m_segId),
+                                         firstSegmentFeature.GetPoint(firstSegment.m_segId + 1)));
+
+  m_drawerDelegate->Clear();
+  m_drawerDelegate->SetViewportCenter(firstSegmentFeature.GetPoint(firstSegment.m_segId));
+  m_drawerDelegate->DrawEncodedSegment(m_partnerSegments[partnerSegmentId.Get()]);
+  m_drawerDelegate->DrawDecodedSegments(*m_decodedSample, row);
 }

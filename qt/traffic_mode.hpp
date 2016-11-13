@@ -5,8 +5,9 @@
 #include "openlr/openlr_sample.hpp"
 #include "openlr/openlr_simple_parser.hpp"
 
-#include "std/unique_ptr.hpp"
 #include "std/string.hpp"
+#include "std/unique_ptr.hpp"
+#include "std/unordered_map.hpp"
 
 #include <QAbstractTableModel>
 
@@ -43,8 +44,8 @@ public:
 
   virtual void SetViewportCenter(m2::PointD const & center) = 0;
 
-  virtual void DrawDecodedSegments(DecodedSampleItem const & item) = 0;
-  virtual void DrawEncodedSegment(Segment const & segment) = 0;
+  virtual void DrawDecodedSegments(DecodedSample const & sample, int sampleIndex) = 0;
+  virtual void DrawEncodedSegment(openlr::LinearSegment const & segment) = 0;
   virtual void Clear() = 0;
 };
 
@@ -73,7 +74,7 @@ public slots:
 private:
   unique_ptr<DecodedSample> m_decodedSample;
   // TODO(mgsergio): use map instead of vector.
-  vector<openlr::LinearSegment> m_partnerSegments;
+  unordered_map<decltype(openlr::LinearSegment::m_segmentId), openlr::LinearSegment> m_partnerSegments;
 
   unique_ptr<ITrafficDrawerDelegate> m_drawerDelegate;
 

@@ -1,5 +1,7 @@
 #include "openlr/openlr_simple_parser.hpp"
 
+#include "geometry/mercator.hpp"
+
 #include "base/logging.hpp"
 
 #include "3party/pugixml/src/pugixml.hpp"
@@ -161,6 +163,17 @@ bool ParseSegment(pugi::xml_node const & segmentNode, openlr::LinearSegment & se
 
 namespace openlr
 {
+// LinearSegment -----------------------------------------------------------------------------------
+vector<m2::PointD> LinearSegment::GetMercatorPoints() const
+{
+  vector<m2::PointD> points;
+  auto const & referencePoints = m_locationReference.m_points;
+  for (auto const & point : referencePoints)
+    points.push_back(MercatorBounds::FromLatLon(point.m_latLon));
+  return points;
+}
+
+// Functions ---------------------------------------------------------------------------------------
 bool ParseOpenlr(pugi::xml_document const & document, vector<LinearSegment> & segments)
 {
   for (auto const segmentXpathNode : document.select_nodes("//reportSegments"))

@@ -169,7 +169,7 @@ routing::IRoadGraph::TEdgeVector ReconstructPath(routing::IRoadGraph const & gra
   routing::IRoadGraph::TEdgeVector path;
 
   auto poly = route.GetPoly().GetPoints();
-  // There are zero-length linear features, so poly can contain adhucent duplications.
+  // There are zero-length linear features, so poly can contain adjucent duplications.
   poly.erase(unique(begin(poly), end(poly), [](m2::PointD const & a, m2::PointD const & b)
   {
     return my::AlmostEqualAbs(a, b, routing::kPointsEqualEpsilon);

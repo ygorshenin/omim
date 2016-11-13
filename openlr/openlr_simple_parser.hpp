@@ -1,11 +1,12 @@
 #pragma once
 
 #include "geometry/latlon.hpp"
+#include "geometry/point2d.hpp"
 
 namespace pugi
 {
 class xml_document;
-};
+}  // namespace pugi
 
 namespace openlr
 {
@@ -26,6 +27,9 @@ struct LinearLocationReference
 
 struct LinearSegment
 {
+  vector<m2::PointD> GetMercatorPoints() const;
+
+  // TODO(mgsergio): Think of using openlr::PartnerSegmentId
   uint32_t m_segmentId;
   // TODO(mgsergio): Make sure that one segment cannot contain
   // more than one location reference.
