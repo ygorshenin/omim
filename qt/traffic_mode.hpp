@@ -68,6 +68,9 @@ public:
   // QVariant headerData(int section, Qt::Orientation orientation,
   //                     int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
 
+  Qt::ItemFlags flags(QModelIndex const & index) const Q_DECL_OVERRIDE;
+  bool setData(QModelIndex const & index, QVariant const & value, int role = Qt::EditRole) Q_DECL_OVERRIDE;
+
 public slots:
   void OnItemSelected(QItemSelection const & selected, QItemSelection const &);
 

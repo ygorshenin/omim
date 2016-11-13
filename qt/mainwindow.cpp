@@ -181,7 +181,9 @@ public:
       FeatureID lastFid = it->m_fid;
       auto lastSegId = it->m_segId;
       auto const & feature = sample.m_features.find(it->m_fid)->second;
-      ASSERT_NOT_EQUAL(it->m_segId, next(it)->m_segId, ());
+
+      // Does not make sence without FeatrueId comparison.
+      // ASSERT_NOT_EQUAL(it->m_segId, next(it)->m_segId, ());
       auto const isAscending = it->m_segId < next(it)->m_segId;
       if (!isAscending)
         points.push_back(feature.GetPoint(lastSegId - 1));

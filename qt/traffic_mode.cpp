@@ -92,11 +92,18 @@ QVariant TrafficMode::data(const QModelIndex & index, int role) const
   if (index.row() >= rowCount())
     return QVariant();
 
-  if (role != Qt::DisplayRole)
+  if (role != Qt::DisplayRole && role != Qt::EditRole)
     return QVariant();
 
   if (index.column() == 0)
-    return "Unevaluated";//m_decodedSample->m_decodedItems[index.row()].m_evaluation;
+  {
+    switch (m_decodedSample->m_decodedItems[index.row()].m_evaluation)
+    {
+    case openlr::ItemEvaluation::Unevaluated: return "Unevaluated";
+    case openlr::ItemEvaluation::Positive: return "Positive";
+    case openlr::ItemEvaluation::Negative: return "Negative";
+    }
+  }
 
   if (index.column() == 1)
     return m_decodedSample->m_decodedItems[index.row()].m_partnerSegmentId.Get();
@@ -125,4 +132,35 @@ void TrafficMode::OnItemSelected(QItemSelection const & selected, QItemSelection
   m_drawerDelegate->SetViewportCenter(firstSegmentFeature.GetPoint(firstSegment.m_segId));
   m_drawerDelegate->DrawEncodedSegment(m_partnerSegments[partnerSegmentId.Get()]);
   m_drawerDelegate->DrawDecodedSegments(*m_decodedSample, row);
+}
+
+Qt::ItemFlags TrafficMode::flags(QModelIndex const & index) const
+{
+  if (!index.isValid())
+    return Qt::ItemIsEnabled;
+
+  if (index.column() != 0)
+    QAbstractItemModel::flags(index);
+
+  return QAbstractItemModel::flags(index) | Qt::ItemIsEditable;
+}
+
+bool TrafficMode::setData(QModelIndex const & index, QVariant const & value, int const role)
+{
+  if (!index.isValid() || role != Qt::EditRole)
+    return false;
+
+  auto const newValue = value.toString();
+  auto & evaluation = m_decodedSample->m_decodedItems[index.row()].m_evaluation;;
+  if (newValue == "Unevaluated")
+    evaluation = openlr::ItemEvaluation::Unevaluated;
+  else if (newValue == "Positive")
+    evaluation = openlr::ItemEvaluation::Positive;
+  else if (newValue == "Negative")
+    evaluation = openlr::ItemEvaluation::Negative;
+  else
+    return false;
+
+  emit dataChanged(index, index);
+  return true;
 }

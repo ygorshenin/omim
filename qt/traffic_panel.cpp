@@ -5,16 +5,51 @@
 
 #include <QAbstractTableModel>
 #include <QBoxLayout>
-#include <QCheckBox>
+#include <QComboBox>
 #include <QHeaderView>
-#include <QLabel>
+#include <QStyledItemDelegate>
 #include <QTableView>
 
+// ComboBoxDelegate --------------------------------------------------------------------------------
+ComboBoxDelegate::ComboBoxDelegate(QObject * parent)
+  : QStyledItemDelegate(parent)
+{
+}
+
+QWidget * ComboBoxDelegate::createEditor(QWidget * parent, QStyleOptionViewItem const & option,
+                                         QModelIndex const & index) const
+{
+  auto * editor = new QComboBox(parent);
+  editor->setFrame(false);
+  editor->setEditable(false);
+  editor->addItems({"Unevaluated", "Positive", "Negative"});
+
+  return editor;
+}
+
+void ComboBoxDelegate::setEditorData(QWidget * editor, QModelIndex const & index) const
+{
+  auto const value = index.model()->data(index, Qt::EditRole).toString();
+  static_cast<QComboBox*>(editor)->setCurrentText(value);
+}
+
+void ComboBoxDelegate::setModelData(QWidget * editor, QAbstractItemModel * model,
+                                    QModelIndex const & index) const
+{
+  model->setData(index, static_cast<QComboBox*>(editor)->currentText(), Qt::EditRole);
+}
+
+void ComboBoxDelegate::updateEditorGeometry(QWidget * editor, QStyleOptionViewItem const & option,
+                                            QModelIndex const & index) const
+{
+  editor->setGeometry(option.rect);
+}
+
+// TrafficPanel ------------------------------------------------------------------------------------
 TrafficPanel::TrafficPanel(QAbstractItemModel * trafficModel, QWidget * parent)
   : QWidget(parent)
 {
   CreateTable(trafficModel);
-  FillTable();
 
   auto layout = new QVBoxLayout();
   layout->addWidget(m_table);
@@ -34,39 +69,9 @@ void TrafficPanel::CreateTable(QAbstractItemModel * trafficModel)
   m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 
   m_table->setModel(trafficModel);
+  m_table->setItemDelegate(new ComboBoxDelegate());
 
   connect(m_table->selectionModel(),
           SIGNAL(selectionChanged(QItemSelection const &, QItemSelection const &)),
           trafficModel, SLOT(OnItemSelected(QItemSelection const &, QItemSelection const &)));
 }
-
-void TrafficPanel::FillTable()
-{
-  // for (auto const & item : m_samplePool)
-  // {
-  //   // TODO(mgsergio): Collaps segments so thay can be shown in table.
-  //   auto const row = m_table->rowCount();
-  //   m_table->insertRow(row);
-
-  //   auto checkBox = new QCheckBox(tr("Valid"));
-  //   checkBox->setCheckState(item.m_evaluation ? Qt::CheckState::Checked : Qt::CheckState::Unchecked);
-  //   connect(checkBox, &QCheckBox::stateChanged, [this, row](int const state)
-  //   {
-  //     emit OnCheckBoxClicked(row, state);
-  //   });
-  //   m_table->setCellWidget(row, 0, checkBox);
-
-  //   auto const partnerId = QString::number(item.m_parterSegmentId.Get());
-  //   m_table->setCellWidget(row, 1, new QLabel(partnerId));
-  // }
-}
-
-// void TrafficPanel::OnCheckBoxClicked(int row, int state)
-// {
-//   // if (state == Qt::CheckState::Unchecked)
-//   // {
-//   //   m_samplePool[row].m_evaluation = false;
-//   //   return;
-//   // }
-//   // m_samplePool[row].m_evaluation = true;
-// }
