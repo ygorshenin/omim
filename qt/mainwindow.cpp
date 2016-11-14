@@ -62,95 +62,107 @@
 
 namespace
 {
-// struct GroupedSegments
-// {
-//   FeatureID m_fid;
-//   vector<uint32_t> m_segments;
-//   bool m_asc;
-// };
+struct GroupedSegments
+{
+  FeatureID m_fid;
+  vector<uint32_t> m_segments;
+  bool m_asc;
+};
 
-// vector<GroupedSegments>
-// GroupSegmentsByFeatureIDAndDirection(DecodedSampleItem const & item,
-//                                      map<FeatureID, FeatureType> const & features)
-// {
-//   // TODO(mgsergio): Grouped segments.
-//   vector<GroupedSegments> groupedSegmentsPool;
+vector<GroupedSegments>
+GroupSegmentsByFeatureIDAndDirection(DecodedSampleItem const & item,
+                                     map<FeatureID, FeatureType> const & features)
+{
+  // TODO(mgsergio): Grouped segments.
+  vector<GroupedSegments> groupedSegmentsPool;
 
-//   auto it = begin(item.m_segments);
-//   auto lastFeatureId = it->m_fid;
+  using SegIdIt = typename vector<uint32_t>::const_iterator;
 
-//   if (it != end(item.m_segments))
-//   {
-//     groupedSegmentsPool.emplace_back();
-//     groupedSegmentsPool.back().m_fid = it->m_fid;
-//     groupedSegmentsPool.back().m_segments.push_back(it->m_segId);
-//   }
+  auto const checkMonotone = [](vector<uint32_t> const & v, bool & isFirstAsc) -> vector<SegIdIt>
+  {
+    // Any sequence of the length less than 3 is always monotone.
+    if (v.size() < 3)
+    {
+      if (v.size() == 2)
+        isFirstAsc = v[0] < v[1];
+      else
+        // Let't assume that points of sigle feature segmetn should be traversed in ascenging order.
+        // I.e. segId = 1 consists of points p1 and p2, but not p0 and p1.
+        isFirstAsc = true;
+      return {};
+    }
 
-//   using SegIdIt = typename vector<uint32_t>::const_iterator;
+    vector<SegIdIt> inverses;
 
-//   auto const checkMonotone = [](vector<uint32_t> const & v) -> vector<SegIdIt>
-//   {
-//     // Any sequence of the length less than 3 is always monotone.
-//     if (v.size() < 3)
-//       return {};
+    auto firstIt = begin(v);
+    auto secondIt = next(firstIt);
+    bool asc = *firstIt < *secondIt;
+    isFirstAsc = asc;
+    for (; secondIt != end(v); ++firstIt, ++secondIt)
+    {
+      if (asc != *firstIt < *secondIt)
+      {
+        inverses.push_back(secondIt);
+        asc = !asc;
+      }
+    }
 
-//     vector<SegIdIt> inverses;
+    inverses.push_back(end(v));
 
-//     auto firstIt = begin(v);
-//     auto secondIt = next(firstIt);
-//     bool asc = *firstIt < *secondIt;
-//     for (; secondIt != end(v); ++firstIt, ++secondIt)
-//     {
-//       if (asc != *firstIt < *secondIt)
-//       {
-//         inverses.push_back(secondIt);
-//         asc = !asc;
-//       }
-//     }
+    return inverses;
+  };
 
-//     inverses.push_back(end(v));
+  auto const fixMonotone = [&groupedSegmentsPool, &checkMonotone]()
+  {
+    auto const & inverses = checkMonotone(groupedSegmentsPool.back().m_segments,
+                                          groupedSegmentsPool.back().m_asc);
+    if (inverses.empty())
+      return;
 
-//     return inverses;
-//   };
+    auto & segmentsWithInverses = groupedSegmentsPool.back();
 
-//   auto const fixMonotone = [&groupedSegmentsPool, &checkMonotone]()
-//   {
-//     bool checkNext = true;
-//     auto const & inverses = checkMonotone(groupedSegmentsPool.back().m_segments);
-//     if (inverses.empty())
-//       return;
+    auto inverseBegin = begin(inverses);
+    auto inverseEnd = next(inverseBegin);
+    for (;inverseEnd != end(inverses); ++inverseBegin, ++inverseEnd)
+    {
+      GroupedSegments grouped;
+      grouped.m_fid = segmentsWithInverses.m_fid;
+      copy(*inverseBegin, *inverseEnd, back_inserter(grouped.m_segments));
+      groupedSegmentsPool.push_back(grouped);
+    }
+    segmentsWithInverses.m_segments.erase(*begin(inverses), end(segmentsWithInverses.m_segments));
+  };
 
-//     auto & segmentsWithInverses = groupedSegmentsPool.back();
+  auto it = begin(item.m_segments);
+  auto lastFeatureId = it->m_fid;
 
-//     auto inverseBegin = begin(inverses);
-//     auto inverseEnd = next(inverseBegin);
-//     for (;inverseEnd != end(inverses); ++inverseBegin, ++inverseEnd)
-//     {
-//       GroupedSegments grouped;
-//       grouped.m_fid = segmentsWithInverses.m_fid;
-//       copy(*inverseBegin, *inverseEnd, back_inserter(grouped.m_segments));
-//       groupedSegmentsPool.push_back(grouped);
-//     }
-//     segmentsWithInverses.m_segments.erase(*begin(inverses), end(segmentsWithInverses.m_segments));
-//   };
+  if (it != end(item.m_segments))
+  {
+    groupedSegmentsPool.emplace_back();
+    groupedSegmentsPool.back().m_fid = it->m_fid;
+    groupedSegmentsPool.back().m_segments.push_back(it->m_segId);
+    ++it;
+  }
 
-//   for (;it != end(item.m_segments); ++it)
-//   {
-//     if (it->m_fid != groupedSegmentsPool.back().m_fid)
-//     {
-//       fixMonotone();
-//       groupedSegmentsPool.emplace_back();
-//       groupedSegmentsPool.back().m_fid = it->m_fid;
-//       groupedSegmentsPool.back().m_segments.push_back(it->m_segId);
-//       continue;
-//     }
-//     groupedSegmentsPool.back().m_segments.push_back(it->m_segId);
-//   }
-//   fixMonotone();
+  for (;it != end(item.m_segments); ++it)
+  {
+    if (it->m_fid != groupedSegmentsPool.back().m_fid)
+    {
+      fixMonotone();
+      groupedSegmentsPool.emplace_back();
+      groupedSegmentsPool.back().m_fid = it->m_fid;
+      groupedSegmentsPool.back().m_segments.push_back(it->m_segId);
+      continue;
+    }
+    groupedSegmentsPool.back().m_segments.push_back(it->m_segId);
+  }
+  fixMonotone();
 
-//   return groupedSegmentsPool;
-// }
+  return groupedSegmentsPool;
+}
 
+// TODO(mgsergio): Consider getting rid of this class: just put everything
+// in TrafficMode.
 class TrafficDrawerDelegate : public ITrafficDrawerDelegate
 {
 public:
@@ -175,61 +187,34 @@ public:
 
   void DrawDecodedSegments(DecodedSample const & sample, int sampleIndex) override
   {
-    auto const & segments = sample.m_decodedItems[sampleIndex].m_segments;
-    for (auto it = begin(segments); it != end(segments);)
+    auto const & groupedSegments = GroupSegmentsByFeatureIDAndDirection(
+        sample.m_decodedItems[sampleIndex],
+        sample.m_features);
+    for (auto const & group : groupedSegments)
     {
       vector<m2::PointD> points;
-      FeatureID lastFid = it->m_fid;
-      auto lastSegId = it->m_segId;
-      auto const & feature = sample.m_features.find(it->m_fid)->second;
+      auto const & feature = sample.m_features.find(group.m_fid)->second;
 
-      // Does not make sence without FeatrueId comparison.
-      // ASSERT_NOT_EQUAL(it->m_segId, next(it)->m_segId, ());
-      auto const isAscending = it->m_segId < next(it)->m_segId;
-      if (!isAscending)
-        points.push_back(feature.GetPoint(lastSegId - 1));
-      for (;it != end(segments); ++it)
+      auto lastSegId = group.m_segments.front();
+      if (!group.m_asc)
+        points.push_back(feature.GetPoint(lastSegId + 1));
+      for (auto const & segId : group.m_segments)
       {
-        if (it->m_fid != lastFid)
-        {
-          if (isAscending)
-            points.push_back(feature.GetPoint(lastSegId + 1));
-          LOG(LDEBUG, ("lastSegId +", isAscending, lastSegId + isAscending, "segId", it->m_segId,
-                       "point", feature.GetPoint(lastSegId + isAscending)));
-          LOG(LDEBUG, ("Going to print", points));
-          m_drapeApi.AddLine(NextLineId(),
-                             df::DrapeApiLineData(points, dp::Color(0, 255, 0, 255))
-                               .Width(3.0f).ShowPoints(true));//.ShowId());
-
-          lastFid = it->m_fid;
-          break;
-        }
-
-        LOG(LDEBUG, ("lastSegId", lastSegId, "segId", it->m_segId, "point",
-                     feature.GetPoint(it->m_segId)));
-        points.push_back(feature.GetPoint(it->m_segId));
-        lastSegId = it->m_segId;
-
-        if (it == prev(end(segments)))
-        {
-          if (isAscending)
-            points.push_back(feature.GetPoint(lastSegId + 1));
-          LOG(LDEBUG, ("lastSegId +", isAscending, lastSegId + isAscending, "segId", it->m_segId,
-                       "point", feature.GetPoint(lastSegId + isAscending)));
-          LOG(LDEBUG, ("it == prev(end(segments)) Going to print", points));
-          m_drapeApi.AddLine(NextLineId(),
-                             df::DrapeApiLineData(points, dp::Color(0, 255, 0, 255))
-                             .Width(3.0f).ShowPoints(true));//.ShowId());
-
-        }
+        points.push_back(feature.GetPoint(segId));
+        lastSegId = segId;
       }
+      if (group.m_asc)
+        points.push_back(feature.GetPoint(lastSegId + 1));
+
+      m_drapeApi.AddLine(NextLineId(),
+                         df::DrapeApiLineData(points, dp::Color(0, 0, 255, 255))
+                         .Width(3.0f).ShowPoints(true));//.ShowId());
     }
   }
 
   void DrawEncodedSegment(openlr::LinearSegment const & segment) override
   {
     auto const & points = segment.GetMercatorPoints();
-    LOG(LDEBUG, ("Drawing segment", segment.m_segmentId, "with", points.size(), "points."));
     m_drapeApi.AddLine(NextLineId(),
                        df::DrapeApiLineData(points, dp::Color(255, 0, 0, 255))
                          .Width(3.0f).ShowPoints(true));//.ShowId());
