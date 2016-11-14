@@ -21,6 +21,7 @@ struct Segment
   uint32_t m_segId;
 };
 
+// TODO(mgsergio): Use openlr::SampleItem.
 struct DecodedSampleItem
 {
   openlr::PartnerSegmentId m_partnerSegmentId;
@@ -31,6 +32,8 @@ struct DecodedSampleItem
 struct DecodedSample
 {
   DecodedSample(Index const & index, openlr::SamplePool const & sample);
+
+  openlr::SamplePool ToOpenlrSamplePool() const;
 
   map<FeatureID, FeatureType> m_features;
   vector<DecodedSampleItem> m_decodedItems;
@@ -59,6 +62,7 @@ public:
   TrafficMode(string const & dataFileName, string const & sampleFileName, Index const & index,
               unique_ptr<ITrafficDrawerDelegate> drawerDelagate, QObject * parent = Q_NULLPTR);
 
+  bool SaveSampleAs(string const & fileName) const;
   bool IsValid() const { return m_valid; }
 
   int rowCount(const QModelIndex & parent = QModelIndex()) const Q_DECL_OVERRIDE;

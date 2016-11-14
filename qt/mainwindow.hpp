@@ -5,8 +5,6 @@
 #include "platform/location.hpp"
 #include "platform/location_service.hpp"
 
-#include "qt/traffic_mode.hpp"
-
 #include "std/array.hpp"
 #include "std/unique_ptr.hpp"
 
@@ -20,6 +18,7 @@
 class QDockWidget;
 class QPushButton;
 class QLabel;
+class TrafficMode;
 
 namespace search { class Result; }
 
@@ -48,6 +47,9 @@ namespace qt
     storage::TCountryId m_lastCountry;
 
     unique_ptr<location::LocationService> const m_locationService;
+
+    // This object is managet by Qt memory system.
+    TrafficMode * m_trafficMode = nullptr;
 
     Q_OBJECT
 

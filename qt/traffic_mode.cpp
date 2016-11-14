@@ -33,6 +33,21 @@ DecodedSample::DecodedSample(Index const & index, openlr::SamplePool const & sam
   }
 }
 
+openlr::SamplePool DecodedSample::ToOpenlrSamplePool() const
+{
+  openlr::SamplePool pool;
+  for (auto const & decodedItem : m_decodedItems)
+  {
+    openlr::SampleItem item;
+    item.m_partnerSegmentId = decodedItem.m_partnerSegmentId;
+    item.m_evaluation = decodedItem.m_evaluation;
+    for (auto const & segment : decodedItem.m_segments)
+      item.m_segments.push_back({segment.m_fid, segment.m_segId});
+    pool.push_back(item);
+  }
+  return pool;
+}
+
 // TrfficMode --------------------------------------------------------------------------------------
 TrafficMode::TrafficMode(string const & dataFileName, string const & sampleFileName,
                          Index const & index, unique_ptr<ITrafficDrawerDelegate> drawerDelagate,
@@ -70,6 +85,21 @@ TrafficMode::TrafficMode(string const & dataFileName, string const & sampleFileN
   }
 
   m_valid = true;
+}
+
+bool TrafficMode::SaveSampleAs(string const & fileName) const
+{
+  try
+  {
+    auto const & samplePool = m_decodedSample->ToOpenlrSamplePool();
+    openlr::SaveSamplePool(fileName, samplePool);
+  }
+  catch (openlr::SamplePoolSaveError const & e)
+  {
+    LOG(LERROR, (e.Msg()));
+    return false;
+  }
+  return true;
 }
 
 int TrafficMode::rowCount(const QModelIndex & parent) const

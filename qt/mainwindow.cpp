@@ -5,6 +5,7 @@
 #include "qt/preferences_dialog.hpp"
 #include "qt/search_panel.hpp"
 #include "qt/slider_ctrl.hpp"
+#include "qt/traffic_mode.hpp"
 #include "qt/traffic_panel.hpp"
 #include "qt/trafficmodeinitdlg.h"
 
@@ -794,10 +795,10 @@ void MainWindow::CreateTrafficPanel(string const & dataFilePath, string const & 
 {
   CreatePanelImpl(1, Qt::RightDockWidgetArea, tr("Traffic"), QKeySequence(), nullptr);
 
-  auto trafficMode = new TrafficMode(dataFilePath, sampleFilePath,
+  m_trafficMode = new TrafficMode(dataFilePath, sampleFilePath,
                                      m_pDrawWidget->GetFramework().GetIndex(),
                                      make_unique<TrafficDrawerDelegate>(m_pDrawWidget));
-  m_Docks[1]->setWidget(new TrafficPanel(trafficMode, m_Docks[1]));
+  m_Docks[1]->setWidget(new TrafficPanel(m_trafficMode, m_Docks[1]));
   m_Docks[2]->adjustSize();
 }
 
@@ -848,16 +849,21 @@ void MainWindow::OnOpenTrafficSample()
 
 void MainWindow::OnSaveTrafficSample()
 {
-  // open savefiledialog
+  auto const & fileName = QFileDialog::getSaveFileName(this, tr("Save sample"));
+  if (fileName.isEmpty())
+    return;
+
+  if (!m_trafficMode->SaveSampleAs(fileName.toStdString()))
+    ;// TODO(mgsergio): Show error dlg;
 }
 
 void MainWindow::OnQuitTrafficMode()
 {
-  // If not saved, ask user if he/she want to save.
+  // If not saved, ask a user if he/she wants to save.
   // OnSaveTrafficSample()
   m_quitTrafficModeAction->setEnabled(false);
   m_saveTrafficSampleAction->setEnabled(false);
   DestroyTrafficPanel();
-  //m_trafficSample.clear();
+  m_trafficMode = nullptr;
 }
 }  // namespace qt
