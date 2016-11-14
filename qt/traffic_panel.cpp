@@ -22,7 +22,7 @@ QWidget * ComboBoxDelegate::createEditor(QWidget * parent, QStyleOptionViewItem 
   auto * editor = new QComboBox(parent);
   editor->setFrame(false);
   editor->setEditable(false);
-  editor->addItems({"Unevaluated", "Positive", "Negative"});
+  editor->addItems({"Unevaluated", "Positive", "Negative", "Ignore"});
 
   return editor;
 }

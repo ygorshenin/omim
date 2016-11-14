@@ -18,7 +18,8 @@ enum class ItemEvaluation
 {
   Unevaluated,
   Positive,
-  Negative
+  Negative,
+  Ignore
 };
 
 struct SampleItem
