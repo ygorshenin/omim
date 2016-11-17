@@ -37,7 +37,7 @@ UNIT_TEST(ParseOpenlr)
       "                    </olr:bearing>"
       "                  </olr:lineProperties>"
       "                  <olr:pathProperties>"
-      "                    <olr:lfrcnp olr:table=\"olr001_FunctionalRoadClass\" olr:code=\"6\"/>"
+      "                    <olr:lfrcnp olr:table=\"olr001_FunctionalRoadClass\" olr:code=\"7\"/>"
       "                    <olr:dnp>"
       "                      <olr:value>3572</olr:value>"
       "                    </olr:dnp>"
@@ -90,6 +90,7 @@ UNIT_TEST(ParseOpenlr)
 
   auto const & segment = segments.front();
   TEST_EQUAL(segment.m_segmentId, 8446643, ());
+  TEST_EQUAL(segment.m_segmentLengthMeters, 1018, ());
 
   auto const locRef = segment.m_locationReference;
   TEST_EQUAL(locRef.m_points.size(), 2, ());
@@ -102,6 +103,8 @@ UNIT_TEST(ParseOpenlr)
        ("Wrong form of a way."));
   TEST(firstPoint.m_functionalRoadClass == openlr::FunctionalRoadClass::FRC6,
        ("Wrong functional road class."));
+  TEST_EQUAL(firstPoint.m_distanceToNextPoint, 3572, ());
+  TEST(firstPoint.m_lfrcnp == openlr::FunctionalRoadClass::FRC7, ("Wrong functional road class."));
 
   auto const secondPoint = locRef.m_points.back();
   expectedLatLon = ms::LatLon{55.33541, 37.29530};

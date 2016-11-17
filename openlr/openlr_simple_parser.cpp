@@ -4,24 +4,44 @@
 
 #include "base/logging.hpp"
 
+#include "std/type_traits.hpp"
+
 #include "3party/pugixml/src/pugixml.hpp"
 
 namespace  // Primitive utilities to handle simple INRIX OpenLR XML data.
 {
-bool GetLatLon(pugi::xml_node node, int32_t & lat, int32_t & lon)
+template <typename Value>
+bool ParseInteger(pugi::xml_node const & node, Value & value)
 {
-  node = node.child("olr:coordinate");
-  auto const latNode = node.child("olr:latitude");
-  if (!latNode)
+  if (!node)
     return false;
+  value = static_cast<Value>(is_signed<Value>::value
+                             ? node.text().as_int()
+                             : node.text().as_uint());
+  return true;
+}
 
-  auto const lonNode = node.child("olr:longitude");
-  if (!lonNode)
+bool GetLatLon(pugi::xml_node const & node, int32_t & lat, int32_t & lon)
+{
+  if (!ParseInteger(node.child("olr:latitude"), lat) ||
+      !ParseInteger(node.child("olr:longitude"), lon))
+  {
     return false;
+  }
 
-  lat = latNode.text().as_int();
-  lon = lonNode.text().as_int();
+  return true;
+}
 
+// This helper is used to parse records like this:
+// <olr:lfrcnp olr:table="olr001_FunctionalRoadClass" olr:code="4"/>
+template <typename Value>
+bool ParseTableValue(pugi::xml_node const & node, Value & value)
+{
+  if (!node)
+    return false;
+  value = static_cast<Value>(is_signed<Value>::value
+                             ? node.attribute("olr:code").as_int()
+                             : node.attribute("olr:code").as_uint());
   return true;
 }
 
@@ -42,15 +62,6 @@ pugi::xml_node GetLinearLocationReference(pugi::xml_node const & node)
   return node.select_node(".//olr:locationReference/olr:optionLinearLocationReference").node();
 }
 
-bool GetSegmentId(pugi::xml_node const & node, uint32_t & id)
-{
-  auto const idNode = node.child("ReportSegmentID");
-  if (!idNode)
-    return false;
-  id = idNode.text().as_uint();
-  return true;
-}
-
 // This helper is used do deal with xml nodes of the form
 // <node>
 //   <value>integer<value>
@@ -59,10 +70,15 @@ template <typename Value>
 bool ParseValue(pugi::xml_node const & node, Value & value)
 {
   auto const valueNode = node.child("olr:value");
-  if (!valueNode)
-    return false;
-  value = static_cast<Value>(valueNode.text().as_int());
-  return true;
+  return ParseInteger(valueNode, value);
+}
+
+template <typename Value>
+bool ParseValueIfExists(pugi::xml_node const & node, Value & value)
+{
+  if (!node)
+    return true;
+  return ParseValue(node, value);
 }
 }  // namespace
 
@@ -71,7 +87,7 @@ namespace  // OpenLR tools and abstractions
 bool GetFirstCoordinate(pugi::xml_node const & node, ms::LatLon & latLon)
 {
   int32_t lat, lon;
-  if (!GetLatLon(node, lat, lon))
+  if (!GetLatLon(node.child("olr:coordinate"), lat, lon))
     return false;
 
   latLon.lat = ((lat - my::Sign(lat) * 0.5) * 360) / (1 << 24);
@@ -83,7 +99,7 @@ bool GetFirstCoordinate(pugi::xml_node const & node, ms::LatLon & latLon)
 bool GetCoordinate(pugi::xml_node const & node, ms::LatLon const & firstCoord, ms::LatLon & latLon)
 {
   int32_t lat, lon;
-  if (!GetLatLon(node, lat, lon))
+  if (!GetLatLon(node.child("olr:coordinate"), lat, lon))
     return false;
 
   latLon.lat = firstCoord.lat + static_cast<double>(lat) / 100000;
@@ -92,8 +108,8 @@ bool GetCoordinate(pugi::xml_node const & node, ms::LatLon const & firstCoord, m
   return true;
 }
 
-bool ParseLocationReferencePointCommon(pugi::xml_node const & linePropNode,
-                                       openlr::LocationReferencePoint & locPoint)
+bool ParseLineProperties(pugi::xml_node const & linePropNode,
+                         openlr::LocationReferencePoint & locPoint)
 {
   if (!linePropNode)
   {
@@ -101,27 +117,50 @@ bool ParseLocationReferencePointCommon(pugi::xml_node const & linePropNode,
     return false;
   }
 
-  auto const functionalRoadClassNode = linePropNode.child("olr:frc");
-  if (!functionalRoadClassNode)
+  if (!ParseTableValue(linePropNode.child("olr:frc"), locPoint.m_functionalRoadClass))
   {
     LOG(LERROR, ("Can't parse functional road class"));
     return false;
   }
-  auto const frcCode = functionalRoadClassNode.attribute("olr:code").as_int();
-  locPoint.m_functionalRoadClass = static_cast<openlr::FunctionalRoadClass>(frcCode);
 
-  auto const formOfAWayNode = linePropNode.child("olr:fow");
-  if (!formOfAWayNode)
+  if (!ParseTableValue(linePropNode.child("olr:fow"), locPoint.m_formOfAWay))
   {
     LOG(LERROR, ("Can't parse form of a way"));
     return false;
   }
-  auto const fowCode = formOfAWayNode.attribute("olr:code").as_int();
-  locPoint.m_formOfAWay = static_cast<openlr::FormOfAWay>(fowCode);
 
   if (!ParseValue(linePropNode.child("olr:bearing"), locPoint.m_bearing))
   {
     LOG(LERROR, ("Can't parse bearing"));
+    return false;
+  }
+
+  return true;
+}
+
+bool ParsePathProperties(pugi::xml_node const & locPointNode,
+                         openlr::LocationReferencePoint & locPoint)
+{
+  // Last point does not contain path properties.
+  if (strcmp(locPointNode.name(), "olr:last") == 0)
+    return true;
+
+  auto const propNode = locPointNode.child("olr:pathProperties");
+  if (!propNode)
+  {
+    LOG(LERROR, ("Can't parse path properties"));
+    return false;
+  }
+
+  if (!ParseValue(propNode.child("olr:dnp"), locPoint.m_distanceToNextPoint))
+  {
+    LOG(LERROR, ("Can't parse dnp"));
+    return false;
+  }
+
+  if (!ParseTableValue(propNode.child("olr:lfrcnp"), locPoint.m_lfrcnp))
+  {
+    LOG(LERROR, ("Can't parse lfrcnp"));
     return false;
   }
 
@@ -137,7 +176,8 @@ bool ParseLocationReferencePoint(pugi::xml_node const & locPointNode,
     return false;
   }
 
-  return ParseLocationReferencePointCommon(locPointNode.child("olr:lineProperties"), locPoint);
+  return ParseLineProperties(locPointNode.child("olr:lineProperties"), locPoint) &&
+      ParsePathProperties(locPointNode, locPoint);
 }
 
 bool ParseLocationReferencePoint(pugi::xml_node const & locPointNode, ms::LatLon const & firstPoint,
@@ -149,7 +189,8 @@ bool ParseLocationReferencePoint(pugi::xml_node const & locPointNode, ms::LatLon
     return false;
   }
 
-  return ParseLocationReferencePointCommon(locPointNode.child("olr:lineProperties"), locPoint);
+  return ParseLineProperties(locPointNode.child("olr:lineProperties"), locPoint) &&
+      ParsePathProperties(locPointNode, locPoint);
 }
 
 bool ParseLinearLocationReference(pugi::xml_node const & locRefNode,
@@ -193,31 +234,16 @@ bool ParseLinearLocationReference(pugi::xml_node const & locRefNode,
   //   return false;
   // }
 
-
-  if (auto const positiveOffsetNode = locRefNode.child("olr:positiveOffset"))
+  if (!ParseValueIfExists(locRefNode.child("olr:positiveOffset"), locRef.m_positiveOffsetMeters))
   {
-    if (!ParseValue(positiveOffsetNode, locRef.m_positiveOffsetMeters))
-    {
-      LOG(LERROR, ("Can't parse positive offset"));
-      return false;
-    }
-  }
-  else
-  {
-    locRef.m_positiveOffsetMeters = 0;
+    LOG(LERROR, ("Can't parse positive offset"));
+    return false;
   }
 
-  if (auto const negativeOffsetNode = locRefNode.child("olr:negativeOffset"))
+  if(!ParseValueIfExists(locRefNode.child("olr:negativeOffset"), locRef.m_negativeOffsetMeters))
   {
-    if(!ParseValue(negativeOffsetNode, locRef.m_negativeOffsetMeters))
-    {
-      LOG(LERROR, ("Can't parse negative offset"));
-      return false;
-    }
-  }
-  else
-  {
-    locRef.m_negativeOffsetMeters = 0;
+    LOG(LERROR, ("Can't parse negative offset"));
+    return false;
   }
 
   return true;
@@ -225,16 +251,19 @@ bool ParseLinearLocationReference(pugi::xml_node const & locRefNode,
 
 bool ParseSegment(pugi::xml_node const & segmentNode, openlr::LinearSegment & segment)
 {
-  auto const node = segmentNode;
-  if (!GetSegmentId(node, segment.m_segmentId))
+  if (!ParseInteger(segmentNode.child("ReportSegmentID"), segment.m_segmentId))
   {
     LOG(LERROR, ("Can't parse segment id"));
     return false;
   }
 
-  // TODO(mgsergio): Parse segmentLengthMetes;
+  if (!ParseInteger(segmentNode.child("segmentLength"), segment.m_segmentLengthMeters))
+  {
+    LOG(LERROR, ("Can't parse segment length"));
+    return false;
+  }
 
-  auto const locRefNode = GetLinearLocationReference(node);
+  auto const locRefNode = GetLinearLocationReference(segmentNode);
   return ParseLinearLocationReference(locRefNode, segment.m_locationReference);
 }
 }  // namespace

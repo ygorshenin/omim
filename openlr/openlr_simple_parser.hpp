@@ -3,6 +3,8 @@
 #include "geometry/latlon.hpp"
 #include "geometry/point2d.hpp"
 
+#include "std/limits.hpp"
+
 namespace pugi
 {
 class xml_document;
@@ -35,7 +37,8 @@ enum class FormOfAWay
   // A path only allowed for bikes.
   BIKE_PATH,
   // A path only allowed for pedestrians.
-  FOOTPATH
+  FOOTPATH,
+  NOT_A_VALUE
 };
 
 enum class FunctionalRoadClass
@@ -46,14 +49,15 @@ enum class FunctionalRoadClass
   // First class road.
   FRC1,
 
-  // Other classes.
+  // Other road classes.
 
   FRC2,
   FRC3,
   FRC4,
   FRC5,
   FRC6,
-  FRC7
+  FRC7,
+  NOT_A_VALUE
 };
 
 // TODO(mgsergio): Add comments.
@@ -61,27 +65,35 @@ struct LocationReferencePoint
 {
   ms::LatLon m_latLon;
   uint8_t m_bearing;
-  FunctionalRoadClass m_functionalRoadClass;
-  FormOfAWay m_formOfAWay;
+  FunctionalRoadClass m_functionalRoadClass = FunctionalRoadClass::NOT_A_VALUE;
+  FormOfAWay m_formOfAWay = FormOfAWay::NOT_A_VALUE;
+
+  // Should not be used in the last point of a segment.
+  uint32_t m_distanceToNextPoint = 0;
+  // Should not be used in the last point of a segment.
+  FunctionalRoadClass m_lfrcnp = FunctionalRoadClass::NOT_A_VALUE;
+  //<olr:againstDrivingDirection>false</olr:againstDrivingDirection>
 };
 
 struct LinearLocationReference
 {
   vector<LocationReferencePoint> m_points;
-  uint32_t m_positiveOffsetMeters;
-  uint32_t m_negativeOffsetMeters;
+  uint32_t m_positiveOffsetMeters = 0;
+  uint32_t m_negativeOffsetMeters = 0;
 };
 
 struct LinearSegment
 {
+  static auto constexpr kInvalidSegmentId = numeric_limits<uint32_t>::max();
+
   vector<m2::PointD> GetMercatorPoints() const;
 
   // TODO(mgsergio): Think of using openlr::PartnerSegmentId
-  uint32_t m_segmentId;
+  uint32_t m_segmentId = kInvalidSegmentId;
   // TODO(mgsergio): Make sure that one segment cannot contain
   // more than one location reference.
   LinearLocationReference m_locationReference;
-  uint32_t m_segmentLengthMeters;
+  uint32_t m_segmentLengthMeters = 0;
   // uint32_t m_segmentRefSpeed;  Always null in Inrix data. (No docs found).
 };
 
