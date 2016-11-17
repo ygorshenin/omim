@@ -110,6 +110,9 @@ UNIT_TEST(ParseOpenlr)
   TEST(secondPoint.m_formOfAWay == openlr::FormOfAWay::SINGLE_CARRIAGEWAY, ("Wrong form of a way."));
   TEST(secondPoint.m_functionalRoadClass == openlr::FunctionalRoadClass::FRC7,
        ("Wrong functional road class."));
+
+  TEST_EQUAL(locRef.m_positiveOffsetMeters, 1637, ());
+  TEST_EQUAL(locRef.m_negativeOffsetMeters, 919, ());
 }
 
 UNIT_TEST(LoadSamplePool_Test)

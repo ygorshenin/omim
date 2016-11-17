@@ -50,6 +50,20 @@ bool GetSegmentId(pugi::xml_node const & node, uint32_t & id)
   id = idNode.text().as_uint();
   return true;
 }
+
+// This helper is used do deal with xml nodes of the form
+// <node>
+//   <value>integer<value>
+// </node>
+template <typename Value>
+bool ParseValue(pugi::xml_node const & node, Value & value)
+{
+  auto const valueNode = node.child("olr:value");
+  if (!valueNode)
+    return false;
+  value = static_cast<Value>(valueNode.text().as_int());
+  return true;
+}
 }  // namespace
 
 namespace  // OpenLR tools and abstractions
@@ -105,14 +119,11 @@ bool ParseLocationReferencePointCommon(pugi::xml_node const & linePropNode,
   auto const fowCode = formOfAWayNode.attribute("olr:code").as_int();
   locPoint.m_formOfAWay = static_cast<openlr::FormOfAWay>(fowCode);
 
-  auto const bearingValueNode = linePropNode.child("olr:bearing").child("olr:value");
-  if (!bearingValueNode)
+  if (!ParseValue(linePropNode.child("olr:bearing"), locPoint.m_bearing))
   {
     LOG(LERROR, ("Can't parse bearing"));
     return false;
   }
-
-  locPoint.m_bearing = static_cast<uint8_t>(bearingValueNode.text().as_uint());
 
   return true;
 }
@@ -181,6 +192,34 @@ bool ParseLinearLocationReference(pugi::xml_node const & locRefNode,
   //   LOG(LDEBUG, ("Frist and last points are to close: ", first, last));
   //   return false;
   // }
+
+
+  if (auto const positiveOffsetNode = locRefNode.child("olr:positiveOffset"))
+  {
+    if (!ParseValue(positiveOffsetNode, locRef.m_positiveOffsetMeters))
+    {
+      LOG(LERROR, ("Can't parse positive offset"));
+      return false;
+    }
+  }
+  else
+  {
+    locRef.m_positiveOffsetMeters = 0;
+  }
+
+  if (auto const negativeOffsetNode = locRefNode.child("olr:negativeOffset"))
+  {
+    if(!ParseValue(negativeOffsetNode, locRef.m_negativeOffsetMeters))
+    {
+      LOG(LERROR, ("Can't parse negative offset"));
+      return false;
+    }
+  }
+  else
+  {
+    locRef.m_negativeOffsetMeters = 0;
+  }
+
   return true;
 }
 
