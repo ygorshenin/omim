@@ -6,8 +6,8 @@ ROOT_DIR = ../..
 #                coding base freetype expat fribidi tomcrypt jansson protobuf osrm stats_client \
 #                minizip succinct pugixml tess2 gflags oauthcpp
 
-DEPENDENCIES = routing traffic search storage indexer editor platform geometry coding base protobuf \
-               osrm stats_client pugixml openlr jansson succinct
+DEPENDENCIES = routing search traffic storage indexer editor platform geometry coding base protobuf \
+               osrm stats_client pugixml openlr jansson succinct gflags
 
 include($$ROOT_DIR/common.pri)
 

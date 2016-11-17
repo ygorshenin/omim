@@ -19,6 +19,13 @@
 #include "coding/file_name_utils.hpp"
 
 #include "std/iostream.hpp"
+#include "std/limits.hpp"
+
+#include "3party/gflags/src/gflags/gflags.h"
+
+DEFINE_string(olr_data_path, "", "Path to OpenLR file.");
+
+using namespace openlr;
 
 namespace
 {
@@ -26,31 +33,8 @@ void LoadIndex(Index & index)
 {
   vector<platform::LocalCountryFile> localFiles;
 
-  string const dir = GetPlatform().WritableDir();
-  auto const latestVersion = numeric_limits<uint64_t>::max();
-  FindAllLocalMapsInDirectoryAndCleanup(dir, 0 /* version */, latestVersion, localFiles);
-
-  Platform::TFilesWithType fwts;
-  Platform::GetFilesByType(dir, Platform::FILE_TYPE_DIRECTORY, fwts);
-  for (auto const & fwt : fwts)
-  {
-    string const & subdir = fwt.first;
-    int64_t version;
-    if (!platform::ParseVersion(subdir, version) || version > latestVersion)
-      continue;
-
-    string const fullPath = my::JoinFoldersToPath(dir, subdir);
-    FindAllLocalMapsInDirectoryAndCleanup(fullPath, version, latestVersion, localFiles);
-    Platform::EError err = Platform::RmDir(fullPath);
-    if (err != Platform::ERR_OK && err != Platform::ERR_DIRECTORY_NOT_EMPTY)
-      LOG(LWARNING, ("Can't remove directory:", fullPath, err));
-  }
-
-
-  // platform::FindAllLocalMapsInDirectoryAndCleanup(
-  //     platform.WritableDir(), 0 /* version */,
-  //     numeric_limits<uint64_t>::max() /* latestVersion */,
-  //     localFiles);
+  auto const latestVersion = numeric_limits<int64_t>::max();
+  FindAllLocalMapsAndCleanup(latestVersion, localFiles);
 
   for (platform::LocalCountryFile & localFile : localFiles)
   {
@@ -58,7 +42,8 @@ void LoadIndex(Index & index)
     try
     {
       localFile.SyncWithDisk();
-      index.RegisterMap(localFile);
+      auto const result = index.RegisterMap(localFile);
+      CHECK_EQUAL(result.second, MwmSet::RegResult::Success, ("Can't register mwm:", localFile));
     }
     catch (RootException const & ex)
     {
@@ -68,20 +53,15 @@ void LoadIndex(Index & index)
 }
 }  // namespace
 
-using namespace openlr;
-
 int main(int argc, char * argv[])
 {
-  if (argc != 2)
-  {
-    cout << "USAGE: " << argv[0] << " openlrdata" << endl;
-    exit(0);
-  }
+  google::SetUsageMessage("OpenLR stats tool.");
+  google::ParseCommandLineFlags(&argc, &argv, true);
+
+  classificator::Load();
 
   Index index;
   LoadIndex(index);
-
-  classificator::Load();
 
   auto const infoGetter = storage::CountryInfoReader::CreateCountryInfoReader(GetPlatform());
   auto const countryFileGetter = [&infoGetter](m2::PointD const & pt)
@@ -94,7 +74,7 @@ int main(int argc, char * argv[])
   routing::CarRouter router(index, countryFileGetter,
                             routing::SingleMwmRouter::CreateCarRouter(index, trafficCache));
 
-  OpenLRSimpleDecoder decoder(argv[1], index, router);
+  OpenLRSimpleDecoder decoder(FLAGS_olr_data_path, index, router);
   decoder.Decode();
 
   return 0;
