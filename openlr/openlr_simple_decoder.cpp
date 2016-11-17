@@ -4,6 +4,7 @@
 #include "routing/car_model.hpp"
 #include "routing/car_router.hpp"
 #include "routing/features_road_graph.hpp"
+#include "routing/road_graph.hpp"
 #include "routing/router_delegate.hpp"
 
 #include "indexer/index.hpp"
@@ -18,6 +19,9 @@
 
 #include "std/algorithm.hpp"
 #include "std/fstream.hpp"
+#include "std/queue.hpp"
+
+using namespace routing;
 
 // double constexpr kMwmRoadCrossingRadiusMeters = 2.0;
 // m2::RectD const rect = MercatorBounds::RectByCenterXYAndSizeInMeters(cross, kMwmRoadCrossingRadiusMeters);
@@ -26,6 +30,113 @@
 
 namespace  // A staff to get road data.
 {
+class DijkstraRouter
+{
+public:
+  size_t const kMaxRoadCandidates = 10;
+  double const kEps = 1e-9;
+  double const kMaxPathLengthM = 6000;
+
+  DijkstraRouter(FeaturesRoadGraph & graph) : m_graph(graph) {}
+
+  bool Go(m2::PointD const & source, m2::PointD const & target, vector<Edge> & path)
+  {
+    m_graph.ResetFakes();
+
+    Junction const s(source, 0 /* altitude */);
+    Junction const t(target, 0 /* altitude */);
+
+    {
+      vector<pair<Edge, Junction>> sourceVicinity;
+      m_graph.FindClosestEdges(source, kMaxRoadCandidates, sourceVicinity);
+      m_graph.AddFakeEdges(s, sourceVicinity);
+    }
+    {
+      vector<pair<Edge, Junction>> targetVicinity;
+      m_graph.FindClosestEdges(target, kMaxRoadCandidates, targetVicinity);
+      m_graph.AddFakeEdges(t, targetVicinity);
+    }
+
+    priority_queue<pair<double, Junction>> queue;
+    map<Junction, double> distances;
+    map<Junction, Edge> links;
+
+    queue.emplace(0, s);
+    distances[s] = 0;
+
+    while (!queue.empty())
+    {
+      auto const p = queue.top();
+      queue.pop();
+
+      double const du = -p.first;
+      Junction const u = p.second;
+
+      if (du > distances[u] + kEps)
+        continue;
+
+      if (u == t)
+      {
+        auto cur = t;
+        while (!(cur == s))
+        {
+          auto const & edge = links[cur];
+          path.push_back(edge);
+          cur = edge.GetStartJunction();
+        }
+        reverse(path.begin(), path.end());
+        return true;
+      }
+
+      if (du + Distance(s, t) - Distance(u, t) > kMaxPathLengthM)
+        continue;
+
+      IRoadGraph::TEdgeVector edges;
+      m_graph.GetOutgoingEdges(u, edges);
+      for (auto const & edge : edges)
+      {
+        auto const & v = edge.GetEndJunction();
+        double const dv = du + GetReducedWeight(edge, t);
+        if (distances.count(v) == 0 || distances[v] > dv + kEps)
+        {
+          distances[v] = dv;
+          links[v] = edge;
+          queue.emplace(-dv, v);
+        }
+      }
+    }
+
+    return false;
+  }
+
+private:
+  double Distance(Junction const & u, Junction const & v) const
+  {
+    return MercatorBounds::DistanceOnEarth(u.GetPoint(), v.GetPoint());
+  }
+
+  double GetWeight(Edge const & e) const
+  {
+    double const w = Distance(e.GetStartJunction(), e.GetEndJunction());
+    if (e.GetFeatureId().IsValid())
+      return w;
+
+    // A penalty for fake edges, actually, there can be any constant
+    // greater than one.
+    return (1 + kEps) * w;
+  }
+
+  double GetReducedWeight(Edge const & e, Junction const & t) const
+  {
+    double const w = GetWeight(e);
+    double const piU = Distance(e.GetStartJunction(), t);
+    double const piV = Distance(e.GetEndJunction(), t);
+    return max(w + piV - piU, 0.0);
+  }
+
+  FeaturesRoadGraph & m_graph;
+};
+
 vector<m2::PointD> GetFeaturePoints(FeatureType const & ft)
 {
   vector<m2::PointD> points;
@@ -44,7 +155,7 @@ double GetDistanceToLinearFeature(m2::PointD const & p, FeatureType const & ft)
 }
 
 vector<FeatureType> GetRoadFeaturesAtPoint(Index const & index,
-                                           routing::FeaturesRoadGraph & roadGraph,
+                                           FeaturesRoadGraph & roadGraph,
                                            ms::LatLon const latLon)
 {
   vector<FeatureType> features;
@@ -94,47 +205,51 @@ vector<FeatureType> GetRoadFeaturesAtPoint(Index const & index,
   return features;
 }
 
-routing::IRoadGraph::TEdgeVector GetOutgoingEdges(routing::FeaturesRoadGraph const & roadGraph,
-                                                  ms::LatLon const & latLon)
+IRoadGraph::TEdgeVector GetOutgoingEdges(FeaturesRoadGraph const & roadGraph,
+                                         ms::LatLon const & latLon)
 {
-  routing::IRoadGraph::TEdgeVector edges;
+  IRoadGraph::TEdgeVector edges;
 
-  routing::Junction junction(MercatorBounds::FromLatLon(latLon), feature::kDefaultAltitudeMeters);
+  Junction junction(MercatorBounds::FromLatLon(latLon), feature::kDefaultAltitudeMeters);
   roadGraph.GetOutgoingEdges(junction, edges);
 
   return edges;
 }
 
-routing::IRoadGraph::TEdgeVector GetIngoingEdges(routing::FeaturesRoadGraph const & roadGraph,
-                                                 ms::LatLon const & latLon)
+IRoadGraph::TEdgeVector GetIngoingEdges(FeaturesRoadGraph const & roadGraph,
+                                        ms::LatLon const & latLon)
 {
-  routing::IRoadGraph::TEdgeVector edges;
+  IRoadGraph::TEdgeVector edges;
 
-  routing::Junction junction(MercatorBounds::FromLatLon(latLon), feature::kDefaultAltitudeMeters);
+  Junction junction(MercatorBounds::FromLatLon(latLon), feature::kDefaultAltitudeMeters);
   roadGraph.GetIngoingEdges(junction, edges);
 
   return edges;
 }
 
-bool CalculateRoute(routing::IRouter & router, ms::LatLon const & first,
-                    ms::LatLon const & last, routing::Route & route)
+bool CalculateRoute(IRouter & router, ms::LatLon const & first,
+                    ms::LatLon const & last, vector<m2::PointD> & points)
 {
-  routing::RouterDelegate delegate;
+  Route route("olr-route");
+
+  RouterDelegate delegate;
   auto const result =
-      router.CalculateRoute(MercatorBounds::FromLatLon(first), {0.0, 0.0},
+      router.CalculateRoute(MercatorBounds::FromLatLon(first), {0.0, 0.0} /* direction */,
                             MercatorBounds::FromLatLon(last), delegate, route);
-  if (result != routing::IRouter::ResultCode::NoError)
+  if (result != IRouter::ResultCode::NoError)
   {
     LOG(LDEBUG, ("Can't calculate route for points", first, last, ", code:", result));
     return false;
   }
+
+  points = route.GetPoly().GetPoints();
   return true;
 }
 
-void LeaveEdgesStartedFrom(routing::Junction const & junction, routing::IRoadGraph::TEdgeVector & edges)
+void LeaveEdgesStartedFrom(Junction const & junction, IRoadGraph::TEdgeVector & edges)
 {
   auto count = 0;
-  auto const it = remove_if(begin(edges), end(edges), [&junction, &count](routing::Edge const & e)
+  auto const it = remove_if(begin(edges), end(edges), [&junction, &count](Edge const & e)
   {
     bool const eq = !AlmostEqualAbs(e.GetStartJunction(), junction);
     LOG(LDEBUG, (e.GetStartJunction().GetPoint(), "!=", junction.GetPoint(), "->", eq));
@@ -149,7 +264,7 @@ void LeaveEdgesStartedFrom(routing::Junction const & junction, routing::IRoadGra
   LOG(LDEBUG, ("edges current size", edges.size()));
 }
 
-routing::Junction JunctionFromPoint(m2::PointD const & p)
+Junction JunctionFromPoint(m2::PointD const & p)
 {
   return {p, feature::kDefaultAltitudeMeters};
 }
@@ -210,8 +325,22 @@ routing::IRoadGraph::TEdgeVector ReconstructPath(routing::IRoadGraph const & gra
       //                         ("There should be at least one adge. (One in normal case)"));
       return {};
     }
+
+    auto const & edge = edges.front();
+    if (!edge.GetFeatureId().m_mwmId.IsAlive())
+      continue;
+
     path.push_back(edges.front());
     edges.clear();
+  }
+
+  // TODO(mgsergio): A rote may strart/end at poits other than edge ends, this situation
+  // shoud be handled separately.
+  if (edges.size() < 3)
+  {
+    ++stats.m_shortRoutes;
+    LOG(LINFO, ("Short polylines are not handled yet."));
+    return {};
   }
 
   return path;
@@ -221,9 +350,8 @@ routing::IRoadGraph::TEdgeVector ReconstructPath(routing::IRoadGraph const & gra
 namespace openlr
 {
 OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index const & index,
-                                         routing::IRouter & router)
-  : m_index(index)
-  , m_router(router)
+                                         IRouter & router)
+  : m_index(index), m_router(router)
 {
   auto const load_result = m_document.load_file(dataFilename.data());
   if (!load_result)
@@ -232,8 +360,9 @@ OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index cons
 
 void OpenLRSimpleDecoder::Decode()
 {
-  routing::FeaturesRoadGraph roadGraph(m_index, routing::IRoadGraph::Mode::ObeyOnewayTag,
-                                       make_unique<routing::CarModelFactory>());
+  FeaturesRoadGraph roadGraph(m_index, IRoadGraph::Mode::ObeyOnewayTag,
+                              make_unique<CarModelFactory>());
+  DijkstraRouter router(roadGraph);
   Stats stats;
 
   ofstream sample("inrix_vs_mwm.txt");
@@ -244,8 +373,16 @@ void OpenLRSimpleDecoder::Decode()
   if (!ParseOpenlr(m_document, segments))
     MYTHROW(DecoderError, ("Can't parse data."));
 
+  size_t processed = 0;
+
   for (auto const & segment : segments)
   {
+    if (processed != 0)
+      LOG(LINFO, ("Processed:", processed));
+    if (processed == 1000)
+      break;
+    ++processed;
+
     ++stats.m_total;
 
     // auto const outgoingEdges = GetOutgoingEdges(roadGraph, first);
@@ -267,23 +404,28 @@ void OpenLRSimpleDecoder::Decode()
     auto const lastPoint = segment.m_locationReference.m_points.back().m_latLon;
     auto const segmentID = segment.m_segmentId;
     LOG(LDEBUG, ("Calculating route from ", firstPoint, lastPoint, "for segment:", segmentID));
-    routing::Route route("openlr");
-    if (!CalculateRoute(m_router, firstPoint, lastPoint, route))
+
+    IRoadGraph::TEdgeVector path;
+    if (!router.Go(MercatorBounds::FromLatLon(firstPoint), MercatorBounds::FromLatLon(lastPoint),
+                   path))
     {
       ++stats.m_routeIsNotCalculated;
       continue;
     }
 
-    auto const path = ReconstructPath(roadGraph, route, stats);
-    LOG(LINFO, ("Route point count:", route.GetPoly().GetSize(), "path legth: ", path.size()));
+    path.erase(remove_if(path.begin(), path.end(),
+                         [](Edge const & edge) { return !edge.GetFeatureId().IsValid(); }),
+               path.end());
 
-    if (path.size() == 0)
+    if (path.size() < 4)
       continue;
 
     sample << segmentID << '\t';
     for (auto it = begin(path); it != end(path); ++it)
     {
       auto const & fid = it->GetFeatureId();
+      if (!fid.IsValid())
+        continue;
       sample << fid.m_mwmId.GetInfo()->GetCountryName() << '-'
              << fid.m_index << '-' << it->GetSegId();
       if (next(it) != end(path))

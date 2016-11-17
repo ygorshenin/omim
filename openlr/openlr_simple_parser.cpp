@@ -4,6 +4,7 @@
 
 #include "base/logging.hpp"
 
+#include "std/cstring.hpp"
 #include "std/type_traits.hpp"
 
 #include "3party/pugixml/src/pugixml.hpp"

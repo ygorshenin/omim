@@ -56,6 +56,8 @@ Edge Edge::MakeFake(Junction const & startJunction, Junction const & endJunction
   return Edge(FeatureID(), true /* forward */, 0 /* segId */, startJunction, endJunction);
 }
 
+Edge::Edge() : m_forward(true), m_segId(0) {}
+
 Edge::Edge(FeatureID const & featureId, bool forward, uint32_t segId, Junction const & startJunction, Junction const & endJunction)
   : m_featureId(featureId), m_forward(forward), m_segId(segId), m_startJunction(startJunction), m_endJunction(endJunction)
 {
