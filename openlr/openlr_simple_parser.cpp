@@ -87,6 +87,24 @@ bool ParseLocationReferencePointCommon(pugi::xml_node const & linePropNode,
     return false;
   }
 
+  auto const functionalRoadClassNode = linePropNode.child("olr:frc");
+  if (!functionalRoadClassNode)
+  {
+    LOG(LERROR, ("Can't parse functional road class"));
+    return false;
+  }
+  auto const frcCode = functionalRoadClassNode.attribute("olr:code").as_int();
+  locPoint.m_functionalRoadClass = static_cast<openlr::FunctionalRoadClass>(frcCode);
+
+  auto const formOfAWayNode = linePropNode.child("olr:fow");
+  if (!formOfAWayNode)
+  {
+    LOG(LERROR, ("Can't parse form of a way"));
+    return false;
+  }
+  auto const fowCode = formOfAWayNode.attribute("olr:code").as_int();
+  locPoint.m_formOfAWay = static_cast<openlr::FormOfAWay>(fowCode);
+
   auto const bearingValueNode = linePropNode.child("olr:bearing").child("olr:value");
   if (!bearingValueNode)
   {
@@ -95,6 +113,7 @@ bool ParseLocationReferencePointCommon(pugi::xml_node const & linePropNode,
   }
 
   locPoint.m_bearing = static_cast<uint8_t>(bearingValueNode.text().as_uint());
+
   return true;
 }
 
