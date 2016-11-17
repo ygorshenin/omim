@@ -41,7 +41,7 @@ UNIT_TEST(ParseOpenlr)
       "                    <olr:dnp>"
       "                      <olr:value>3572</olr:value>"
       "                    </olr:dnp>"
-      "                    <olr:againstDrivingDirection>false</olr:againstDrivingDirection>"
+      "                    <olr:againstDrivingDirection>true</olr:againstDrivingDirection>"
       "                  </olr:pathProperties>"
       "                </olr:first>"
       "                <olr:last>"
@@ -105,6 +105,7 @@ UNIT_TEST(ParseOpenlr)
        ("Wrong functional road class."));
   TEST_EQUAL(firstPoint.m_distanceToNextPoint, 3572, ());
   TEST(firstPoint.m_lfrcnp == openlr::FunctionalRoadClass::FRC7, ("Wrong functional road class."));
+  TEST_EQUAL(firstPoint.m_againstDrivingDirection, true, ());
 
   auto const secondPoint = locRef.m_points.back();
   expectedLatLon = ms::LatLon{55.33541, 37.29530};

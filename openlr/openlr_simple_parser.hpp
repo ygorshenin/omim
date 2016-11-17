@@ -72,7 +72,7 @@ struct LocationReferencePoint
   uint32_t m_distanceToNextPoint = 0;
   // Should not be used in the last point of a segment.
   FunctionalRoadClass m_lfrcnp = FunctionalRoadClass::NOT_A_VALUE;
-  //<olr:againstDrivingDirection>false</olr:againstDrivingDirection>
+  bool m_againstDrivingDirection = false;
 };
 
 struct LinearLocationReference

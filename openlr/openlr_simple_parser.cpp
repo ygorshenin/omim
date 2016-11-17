@@ -164,6 +164,14 @@ bool ParsePathProperties(pugi::xml_node const & locPointNode,
     return false;
   }
 
+  auto const directionNode = propNode.child("olr:againstDrivingDirection");
+  if (!directionNode)
+  {
+    LOG(LERROR, ("Can't parse driving direction"));
+    return false;
+  }
+  locPoint.m_againstDrivingDirection = directionNode.text().as_bool();
+
   return true;
 }
 
