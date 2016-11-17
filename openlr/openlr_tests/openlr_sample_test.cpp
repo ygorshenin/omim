@@ -94,13 +94,15 @@ UNIT_TEST(ParseOpenlr)
   auto const locRef = segment.m_locationReference;
   TEST_EQUAL(locRef.m_points.size(), 2, ());
 
-  auto const firstPoint = locRef.m_points.front().m_latLon;
-  auto expected = ms::LatLon{55.30683, 37.31041};
-  TEST(firstPoint.EqualDxDy(expected, 1e-5), (firstPoint, "!=", expected));
+  auto const firstPoint = locRef.m_points.front();
+  auto expectedLatLon = ms::LatLon{55.30683, 37.31041};
+  TEST(firstPoint.m_latLon.EqualDxDy(expectedLatLon, 1e-5), (firstPoint.m_latLon, "!=", expectedLatLon));
+  TEST_EQUAL(firstPoint.m_bearing, 8, ());
 
-  auto const secondPoint = locRef.m_points.back().m_latLon;
-  expected = ms::LatLon{55.33541, 37.29530};
-  TEST(secondPoint.EqualDxDy(expected, 1e-5), (secondPoint, "!=", expected));
+  auto const secondPoint = locRef.m_points.back();
+  expectedLatLon = ms::LatLon{55.33541, 37.29530};
+  TEST(secondPoint.m_latLon.EqualDxDy(expectedLatLon, 1e-5), (secondPoint.m_latLon, "!=", expectedLatLon));
+  TEST_EQUAL(secondPoint.m_bearing, 105, ());
 }
 
 UNIT_TEST(LoadSamplePool_Test)

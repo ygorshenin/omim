@@ -78,6 +78,26 @@ bool GetCoordinate(pugi::xml_node const & node, ms::LatLon const & firstCoord, m
   return true;
 }
 
+bool ParseLocationReferencePointCommon(pugi::xml_node const & linePropNode,
+                                       openlr::LocationReferencePoint & locPoint)
+{
+  if (!linePropNode)
+  {
+    LOG(LERROR, ("linePropNode is NULL"));
+    return false;
+  }
+
+  auto const bearingValueNode = linePropNode.child("olr:bearing").child("olr:value");
+  if (!bearingValueNode)
+  {
+    LOG(LERROR, ("Can't parse bearing"));
+    return false;
+  }
+
+  locPoint.m_bearing = static_cast<uint8_t>(bearingValueNode.text().as_uint());
+  return true;
+}
+
 bool ParseLocationReferencePoint(pugi::xml_node const & locPointNode,
                                  openlr::LocationReferencePoint & locPoint)
 {
@@ -87,7 +107,7 @@ bool ParseLocationReferencePoint(pugi::xml_node const & locPointNode,
     return false;
   }
 
-  return true;
+  return ParseLocationReferencePointCommon(locPointNode.child("olr:lineProperties"), locPoint);
 }
 
 bool ParseLocationReferencePoint(pugi::xml_node const & locPointNode, ms::LatLon const & firstPoint,
@@ -99,7 +119,7 @@ bool ParseLocationReferencePoint(pugi::xml_node const & locPointNode, ms::LatLon
     return false;
   }
 
-  return true;
+  return ParseLocationReferencePointCommon(locPointNode.child("olr:lineProperties"), locPoint);
 }
 
 bool ParseLinearLocationReference(pugi::xml_node const & locRefNode,

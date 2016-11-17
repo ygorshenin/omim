@@ -13,9 +13,9 @@ namespace openlr
 struct LocationReferencePoint
 {
   ms::LatLon m_latLon;
+  uint8_t m_bearing;
   // FunctinalRoadClass
   // FormOfAWay
-  // Bearing
 };
 
 struct LinearLocationReference
