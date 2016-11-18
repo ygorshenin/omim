@@ -211,12 +211,6 @@ bool ParseLinearLocationReference(pugi::xml_node const & locRefNode,
     return false;
   }
 
-  // TODO(mgsergio): Handle intermediate points.
-  if (locRefNode.child("olr:intermediates"))
-  {
-    LOG(LDEBUG, ("Intermediate points encounted."));
-  }
-
   {
     openlr::LocationReferencePoint point;
     if (!ParseLocationReferencePoint(locRefNode.child("olr:first"), point))
@@ -228,10 +222,18 @@ bool ParseLinearLocationReference(pugi::xml_node const & locRefNode,
   // olr::optionalLinearLocationReference and select_nodes should not change the order of
   // node in the document.
   // TODO(mgsergio): Test intermediate case. Add this to select_nodes xpath: olr:intermediates|
-  for (auto const pointNode : locRefNode.select_nodes("olr:last"))
+  for (auto const pointNode : locRefNode.select_nodes("olr:intermediates"))
   {
     openlr::LocationReferencePoint point;
-    if (!ParseLocationReferencePoint(pointNode.node(), locRef.m_points.front().m_latLon, point))
+    if (!ParseLocationReferencePoint(pointNode.node(), locRef.m_points.back().m_latLon, point))
+      return false;
+    locRef.m_points.push_back(point);
+  }
+
+  {
+    openlr::LocationReferencePoint point;
+    if (!ParseLocationReferencePoint(locRefNode.child("olr:last"), locRef.m_points.back().m_latLon,
+                                     point))
       return false;
     locRef.m_points.push_back(point);
   }
