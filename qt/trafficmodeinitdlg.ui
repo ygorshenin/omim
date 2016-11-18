@@ -29,14 +29,14 @@
     <item row="2" column="3">
      <widget class="QPushButton" name="chooseSampleFileButton">
       <property name="text">
-       <string>Chose...</string>
+       <string>Choose...</string>
       </property>
      </widget>
     </item>
     <item row="0" column="0">
      <widget class="QLabel" name="dataLabel">
       <property name="mouseTracking">
-       <bool>false</bool>
+       <bool>true</bool>
       </property>
       <property name="text">
        <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Traffic data:&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
@@ -70,7 +70,7 @@
     <item row="0" column="3">
      <widget class="QPushButton" name="chooseDataFileButton">
       <property name="text">
-       <string>Chose...</string>
+       <string>Choose...</string>
       </property>
      </widget>
     </item>
