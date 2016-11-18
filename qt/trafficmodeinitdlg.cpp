@@ -1,13 +1,30 @@
 #include "trafficmodeinitdlg.h"
 #include "ui_trafficmodeinitdlg.h"
 
+#include "platform/settings.hpp"
+
 #include <QFileDialog>
+
+namespace
+{
+string const kDataFilePath = "LastTrafficDataFilePath";
+string const kSampleFilePath = "LastTrafficSampleFilePath";
+}  // namespace
 
 TrafficModeInitDlg::TrafficModeInitDlg(QWidget *parent) :
   QDialog(parent),
   ui(new Ui::TrafficModeInitDlg)
 {
   ui->setupUi(this);
+
+  string lastDataFilePath;
+  string lastSampleFilePath;
+  if (settings::Get(kDataFilePath, lastDataFilePath) &&
+      settings::Get(kSampleFilePath, lastSampleFilePath))
+  {
+    ui->dataFileName->setText(QString::fromStdString(lastDataFilePath));
+    ui->sampleFileName->setText(QString::fromStdString(lastSampleFilePath));
+  }
 
   connect(ui->chooseDataFileButton, &QPushButton::clicked, [this](bool)
   {
@@ -28,6 +45,10 @@ void TrafficModeInitDlg::accept()
 {
   m_dataFileName = ui->dataFileName->text().trimmed().toStdString();
   m_sampleFileName = ui->sampleFileName->text().trimmed().toStdString();
+
+  settings::Set(kDataFilePath, m_dataFileName);
+  settings::Set(kSampleFilePath, m_sampleFileName);
+
   QDialog::accept();
 }
 
