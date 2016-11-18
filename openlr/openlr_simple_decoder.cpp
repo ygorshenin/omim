@@ -10,12 +10,14 @@
 #include "indexer/index.hpp"
 #include "indexer/scales.hpp"
 
+#include "geometry/angles.hpp"
+#include "geometry/latlon.hpp"
 #include "geometry/polyline2d.hpp"
+
+#include "platform/location.hpp"
 
 #include "base/logging.hpp"
 #include "base/math.hpp"
-
-#include "geometry/latlon.hpp"
 
 #include "std/algorithm.hpp"
 #include "std/fstream.hpp"
@@ -30,6 +32,20 @@ using namespace routing;
 
 namespace  // A staff to get road data.
 {
+double constexpr kGradPerPoint = 360.0 / 256.0;
+
+uint32_t BearingToByte(double const angle)
+{
+  CHECK_LESS_OR_EQUAL(angle, 360, ("Angle should be less than or equal to 360."));
+  CHECK_GREATER_OR_EQUAL(angle, 0, ("Angle should be greater than or equal to 0"));
+  return angle / kGradPerPoint - 1;
+};
+
+double Bearing(m2::PointD const & a, m2::PointD const & b)
+{
+  return location::AngleToBearing(my::RadToDeg(ang::AngleTo(a, b)));
+}
+
 class DijkstraRouter
 {
 public:
