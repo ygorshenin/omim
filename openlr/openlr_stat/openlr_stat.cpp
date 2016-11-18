@@ -24,6 +24,8 @@
 #include "3party/gflags/src/gflags/gflags.h"
 
 DEFINE_string(olr_data_path, "", "Path to OpenLR file.");
+DEFINE_int32(limit, openlr::OpenLRSimpleDecoder::kHandleAllSegmets,
+             "Max number of segments to handle. -1 for all.");
 
 using namespace openlr;
 
@@ -75,7 +77,7 @@ int main(int argc, char * argv[])
                             routing::SingleMwmRouter::CreateCarRouter(index, trafficCache));
 
   OpenLRSimpleDecoder decoder(FLAGS_olr_data_path, index, router);
-  decoder.Decode();
+  decoder.Decode(FLAGS_limit);
 
   return 0;
 }

@@ -17,13 +17,16 @@ namespace openlr
 {
 DECLARE_EXCEPTION(DecoderError, RootException);
 
+
 class OpenLRSimpleDecoder
 {
 public:
+  static int const kHandleAllSegmets;
+
   OpenLRSimpleDecoder(string const & dataFilename, Index const & index,
                       routing::IRouter & router);
 
-  void Decode();
+  void Decode(int segmentsTohandle = kHandleAllSegmets);
 
 private:
   Index const & m_index;

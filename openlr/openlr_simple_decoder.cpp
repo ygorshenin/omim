@@ -349,6 +349,8 @@ routing::IRoadGraph::TEdgeVector ReconstructPath(routing::IRoadGraph const & gra
 
 namespace openlr
 {
+int const OpenLRSimpleDecoder::kHandleAllSegmets = -1;
+
 OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index const & index,
                                          IRouter & router)
   : m_index(index), m_router(router)
@@ -358,7 +360,7 @@ OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index cons
     MYTHROW(DecoderError, ("Can't load file", dataFilename, ":", load_result.description()));
 }
 
-void OpenLRSimpleDecoder::Decode()
+void OpenLRSimpleDecoder::Decode(int const segmentsTohandle)
 {
   FeaturesRoadGraph roadGraph(m_index, IRoadGraph::Mode::ObeyOnewayTag,
                               make_unique<CarModelFactory>());
@@ -373,15 +375,12 @@ void OpenLRSimpleDecoder::Decode()
   if (!ParseOpenlr(m_document, segments))
     MYTHROW(DecoderError, ("Can't parse data."));
 
-  size_t processed = 0;
-
   for (auto const & segment : segments)
   {
-    if (processed != 0)
-      LOG(LINFO, ("Processed:", processed));
-    if (processed == 1000)
+    if (stats.m_total != 0)
+      LOG(LINFO, ("Processed:", stats.m_total));
+    if (segmentsTohandle != kHandleAllSegmets && stats.m_total == segmentsTohandle)
       break;
-    ++processed;
 
     ++stats.m_total;
 
