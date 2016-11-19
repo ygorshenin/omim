@@ -62,13 +62,13 @@ struct InrixPoint
   double m_distanceToNextPointM;
 };
 
+size_t const kMaxRoadCandidates = 10;
+double const kDistanceAccuracyM = 1000;
+double const kEps = 1e-9;
+
 class AStarRouter
 {
 public:
-  static size_t constexpr kMaxRoadCandidates = 10;
-  static double constexpr kDistanceAccuracyM = 25;
-  static double constexpr kEps = 1e-9;
-
   AStarRouter(FeaturesRoadGraph & graph) : m_graph(graph) {}
 
   bool Go(vector<InrixPoint> const & points, vector<Edge> & path)
@@ -137,6 +137,8 @@ public:
       if (su != scores[u])
         continue;
 
+      double const piU = GetPotential(u);
+
       if (u == t)
       {
         auto cur = t;
@@ -150,9 +152,11 @@ public:
         return true;
       }
 
-      double const piU = GetPotential(u);
+      double const ud = su.GetDistance() + piS - piU;  // real distance to u
 
-      if (su.m_distance + piS - piU > m_bounds[stage] + kDistanceAccuracyM)
+      // max(kDistanceAccuracyM, m_distanceToNextPointM) is added here
+      // to throw out quite long paths.
+      if (ud > m_bounds[stage] + max(kDistanceAccuracyM, points[stage].m_distanceToNextPointM))
         continue;
 
       if (piU < kEps && stage + 1 < m_pivots.size())
@@ -161,8 +165,11 @@ public:
 
         double const piUU = GetPotential(uu);
 
-        Score suu;
-        suu.m_distance = su.m_distance + max(piUU - piU, 0.0);
+        Score suu = su;
+        suu.AddDistance(max(piUU - piU, 0.0));
+        suu.AddIntermediateErrorPenalty(
+            MercatorBounds::DistanceOnEarth(u.m_junction.GetPoint(), points[stage + 1].m_point));
+
         if (scores.count(uu) == 0 || scores[uu] > suu)
         {
           scores[uu] = suu;
@@ -178,8 +185,17 @@ public:
         Vertex v(edge.GetEndJunction(), stage);
         double const piV = GetPotential(v);
 
-        Score sv;
-        sv.m_distance = su.m_distance + max(GetWeight(edge) + piV - piU, 0.0);
+        Score sv = su;
+        double const w = GetWeight(edge);
+        sv.AddDistance(max(GetWeight(edge) + piV - piU, 0.0));
+
+        double const vd = ud + w;  // real distance to v
+        if (vd > m_bounds[stage])
+          sv.AddDistanceErrorPenalty(std::min(vd - m_bounds[stage], w));
+
+        if (!edge.GetFeatureId().IsValid())
+          sv.AddFakePenalty(w);
+
         if (scores.count(v) == 0 || scores[v] > sv)
         {
           scores[v] = sv;
@@ -214,15 +230,61 @@ private:
     size_t m_stage = 0;
   };
 
-  struct Score
+  class Score
   {
-    double GetScore() const { return m_distance; }
+  public:
+    inline double GetDistance() const { return m_distance; }
 
-    bool operator<(Score const & rhs) const { return GetScore() < rhs.GetScore(); }
-    bool operator==(Score const & rhs) const { return GetScore() == rhs.GetScore(); }
+    inline void AddDistance(double p)
+    {
+      m_distance += p;
+      Update();
+    }
+
+    inline void AddFakePenalty(double p)
+    {
+      m_fakePenalty += p;
+      Update();
+    }
+
+    inline void AddIntermediateErrorPenalty(double p)
+    {
+      m_intermediateErrorPenalty += p;
+      Update();
+    }
+
+    inline void AddDistanceErrorPenalty(double p)
+    {
+      m_distanceErrorPenalty += p;
+      Update();
+    }
+
+    bool operator<(Score const & rhs) const { return m_score < rhs.m_score; }
+    bool operator==(Score const & rhs) const { return m_score == rhs.m_score; }
+
+  private:
+    void Update()
+    {
+      m_score =
+          m_distance + 2 * (m_fakePenalty + m_intermediateErrorPenalty + m_distanceErrorPenalty);
+    }
 
     // Reduced length of path in meters.
     double m_distance = 0.0;
+
+    // Penalty of passing by fake edges.
+    double m_fakePenalty = 0.0;
+
+    // Penalty of passing through an candidate that is too far from
+    // corresponding intermediate point.
+    double m_intermediateErrorPenalty = 0.0;
+
+    // Penalty of path between consecutive points that is longer than
+    // required.
+    double m_distanceErrorPenalty = 0.0;
+
+    // Total score.
+    double m_score = 0.0;
   };
 
   double GetPotential(Vertex const & u) const
@@ -246,13 +308,7 @@ private:
 
   double GetWeight(Edge const & e) const
   {
-    double const w = Distance(e.GetStartJunction(), e.GetEndJunction());
-    if (e.GetFeatureId().IsValid())
-      return w;
-
-    // A penalty for fake edges, actually, there can be any constant
-    // greater than one.
-    return (1 + kEps) * w;
+    return Distance(e.GetStartJunction(), e.GetEndJunction());
   }
 
   FeaturesRoadGraph & m_graph;
