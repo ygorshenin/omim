@@ -26,6 +26,7 @@
 DEFINE_string(olr_data_path, "", "Path to OpenLR file.");
 DEFINE_int32(limit, openlr::OpenLRSimpleDecoder::kHandleAllSegmets,
              "Max number of segments to handle. -1 for all.");
+DEFINE_bool(multipoints_only, false, "Only segments with multiple points to handle.");
 
 using namespace openlr;
 
@@ -77,7 +78,7 @@ int main(int argc, char * argv[])
                             routing::SingleMwmRouter::CreateCarRouter(index, trafficCache));
 
   OpenLRSimpleDecoder decoder(FLAGS_olr_data_path, index, router);
-  decoder.Decode(FLAGS_limit);
+  decoder.Decode(FLAGS_limit, FLAGS_multipoints_only);
 
   return 0;
 }

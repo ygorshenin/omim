@@ -471,7 +471,7 @@ OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index cons
     MYTHROW(DecoderError, ("Can't load file", dataFilename, ":", load_result.description()));
 }
 
-void OpenLRSimpleDecoder::Decode(int const segmentsTohandle)
+void OpenLRSimpleDecoder::Decode(int const segmentsTohandle, bool const multipointsOnly)
 {
   FeaturesRoadGraph roadGraph(m_index, IRoadGraph::Mode::ObeyOnewayTag,
                               make_unique<CarModelFactory>());
@@ -488,6 +488,11 @@ void OpenLRSimpleDecoder::Decode(int const segmentsTohandle)
 
   for (auto const & segment : segments)
   {
+    auto const & ref = segment.m_locationReference;
+
+    if (ref.m_points.size() == 2 && multipointsOnly)
+      continue;
+
     if (stats.m_total != 0)
       LOG(LINFO, ("Processed:", stats.m_total));
     if (segmentsTohandle != kHandleAllSegmets && stats.m_total == segmentsTohandle)
@@ -509,8 +514,6 @@ void OpenLRSimpleDecoder::Decode(int const segmentsTohandle)
 
     // LOG(LINFO, ("Number of features", featuresForFirst.size(), "for first point: ", first));
     // LOG(LINFO, ("Number of features", featuresForLast.size(), "for last point: ", last));
-
-    auto const & ref = segment.m_locationReference;
 
     vector<InrixPoint> points;
     for (auto const & point : ref.m_points)

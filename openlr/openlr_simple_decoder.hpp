@@ -26,7 +26,7 @@ public:
   OpenLRSimpleDecoder(string const & dataFilename, Index const & index,
                       routing::IRouter & router);
 
-  void Decode(int segmentsTohandle = kHandleAllSegmets);
+  void Decode(int segmentsTohandle, bool multipointsOnly);
 
 private:
   Index const & m_index;
