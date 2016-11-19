@@ -22,7 +22,9 @@
 #include "std/algorithm.hpp"
 #include "std/fstream.hpp"
 #include "std/queue.hpp"
+#include "std/utility.hpp"
 
+using namespace std::rel_ops;
 using namespace routing;
 
 // double constexpr kMwmRoadCrossingRadiusMeters = 2.0;
@@ -90,9 +92,7 @@ public:
         ps.push_back(e.GetEndJunction().GetPoint());
       }
     }
-    m_pivots.emplace_back();
-    m_pivots.back().push_back(points.back().m_point);
-
+    m_pivots.push_back({points.back().m_point});
     CHECK_EQUAL(m_pivots.size() + 1, points.size(), ());
 
     m_bounds.resize(points.size() - 1);
@@ -115,13 +115,13 @@ public:
       m_graph.AddFakeEdges(t.m_junction, targetVicinity);
     }
 
-    using State = pair<double, Vertex>;
+    using State = pair<Score, Vertex>;
     priority_queue<State, vector<State>, greater<State>> queue;
-    map<Vertex, double> distances;
+    map<Vertex, Score> scores;
     map<Vertex, pair<Vertex, Edge>> links;
 
-    queue.emplace(0 /* distance */, s);
-    distances[s] = 0;
+    scores[s] = Score();
+    queue.emplace(scores[s], s);
 
     double const piS = GetPotential(s);
 
@@ -130,17 +130,17 @@ public:
       auto const p = queue.top();
       queue.pop();
 
-      double const du = p.first;
+      Score const & su = p.first;
       Vertex const & u = p.second;
       size_t const stage = u.m_stage;
 
-      if (du > distances[u] + kEps)
+      if (su != scores[u])
         continue;
 
       if (u == t)
       {
         auto cur = t;
-        while (!(cur == s))
+        while (cur != s)
         {
           auto const & p = links[cur];
           path.push_back(p.second);
@@ -152,7 +152,7 @@ public:
 
       double const piU = GetPotential(u);
 
-      if (du + piS - piU > m_bounds[stage] + kDistanceAccuracyM)
+      if (su.m_distance + piS - piU > m_bounds[stage] + kDistanceAccuracyM)
         continue;
 
       if (piU < kEps && stage + 1 < m_pivots.size())
@@ -161,12 +161,13 @@ public:
 
         double const piUU = GetPotential(uu);
 
-        double const duu = du + max(piUU - piU, 0.0);
-        if (distances.count(uu) == 0 || distances[uu] > duu + kEps)
+        Score suu;
+        suu.m_distance = su.m_distance + max(piUU - piU, 0.0);
+        if (scores.count(uu) == 0 || scores[uu] > suu)
         {
-          distances[uu] = duu;
+          scores[uu] = suu;
           links[uu] = make_pair(u, Edge());
-          queue.emplace(duu, uu);
+          queue.emplace(suu, uu);
         }
       }
 
@@ -177,12 +178,13 @@ public:
         Vertex v(edge.GetEndJunction(), stage);
         double const piV = GetPotential(v);
 
-        double const dv = du + max(GetWeight(edge) + piV - piU, 0.0);
-        if (distances.count(v) == 0 || distances[v] > dv + kEps)
+        Score sv;
+        sv.m_distance = su.m_distance + max(GetWeight(edge) + piV - piU, 0.0);
+        if (scores.count(v) == 0 || scores[v] > sv)
         {
-          distances[v] = dv;
+          scores[v] = sv;
           links[v] = make_pair(u, edge);
-          queue.emplace(dv, v);
+          queue.emplace(sv, v);
         }
       }
     }
@@ -210,6 +212,17 @@ private:
 
     Junction m_junction;
     size_t m_stage = 0;
+  };
+
+  struct Score
+  {
+    double GetScore() const { return m_distance; }
+
+    bool operator<(Score const & rhs) const { return GetScore() < rhs.GetScore(); }
+    bool operator==(Score const & rhs) const { return GetScore() == rhs.GetScore(); }
+
+    // Reduced length of path in meters.
+    double m_distance = 0.0;
   };
 
   double GetPotential(Vertex const & u) const
