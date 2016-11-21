@@ -34,13 +34,17 @@ using namespace routing;
 
 namespace  // A staff to get road data.
 {
-double constexpr kGradPerPoint = 360.0 / 256.0;
+size_t const kMaxRoadCandidates = 10;
+double const kDistanceAccuracyM = 1000;
+double const kEps = 1e-9;
+double const kBearingDist = 25;
+double const kAnglesInBucket = 360.0 / 256;
 
 uint32_t BearingToByte(double const angle)
 {
   CHECK_LESS_OR_EQUAL(angle, 360, ("Angle should be less than or equal to 360."));
   CHECK_GREATER_OR_EQUAL(angle, 0, ("Angle should be greater than or equal to 0"));
-  return angle / kGradPerPoint - 1;
+  return my::clamp(angle / kAnglesInBucket, 0, 255);
 };
 
 double Bearing(m2::PointD const & a, m2::PointD const & b)
@@ -50,21 +54,19 @@ double Bearing(m2::PointD const & a, m2::PointD const & b)
 
 struct InrixPoint
 {
-  InrixPoint(): m_point(0, 0), m_distanceToNextPointM(0.0) {}
+  InrixPoint() = default;
 
   InrixPoint(openlr::LocationReferencePoint const & lrp)
     : m_point(MercatorBounds::FromLatLon(lrp.m_latLon))
     , m_distanceToNextPointM(lrp.m_distanceToNextPoint)
+    , m_bearing(lrp.m_bearing)
   {
   }
 
-  m2::PointD m_point;
-  double m_distanceToNextPointM;
+  m2::PointD m_point = m2::PointD::Zero();
+  double m_distanceToNextPointM = 0.0;
+  uint8_t m_bearing = 0;
 };
-
-size_t const kMaxRoadCandidates = 10;
-double const kDistanceAccuracyM = 1000;
-double const kEps = 1e-9;
 
 class AStarRouter
 {
@@ -100,26 +102,27 @@ public:
     for (size_t i = 1; i < m_bounds.size(); ++i)
       m_bounds[i] = m_bounds[i - 1] + points[i].m_distanceToNextPointM;
 
-    Vertex const s(Junction(points.front().m_point, 0 /* altitude */), 0 /* stage */);
-    Vertex const t(Junction(points.back().m_point, 0 /* altitude */),
-                   m_pivots.size() - 1 /* stage */);
+    Junction js(points.front().m_point, 0 /* altitude */);
 
     {
       vector<pair<Edge, Junction>> sourceVicinity;
       m_graph.FindClosestEdges(points.front().m_point, kMaxRoadCandidates, sourceVicinity);
-      m_graph.AddFakeEdges(s.m_junction, sourceVicinity);
+      m_graph.AddFakeEdges(js, sourceVicinity);
     }
+
+    Junction jt(points.back().m_point, 0 /* altitude */);
     {
       vector<pair<Edge, Junction>> targetVicinity;
       m_graph.FindClosestEdges(points.back().m_point, kMaxRoadCandidates, targetVicinity);
-      m_graph.AddFakeEdges(t.m_junction, targetVicinity);
+      m_graph.AddFakeEdges(jt, targetVicinity);
     }
 
     using State = pair<Score, Vertex>;
     priority_queue<State, vector<State>, greater<State>> queue;
     map<Vertex, Score> scores;
-    map<Vertex, pair<Vertex, Edge>> links;
+    Links links;
 
+    Vertex const s(js, js, 0, 0 /* stage */);
     scores[s] = Score();
     queue.emplace(scores[s], s);
 
@@ -137,11 +140,9 @@ public:
       if (su != scores[u])
         continue;
 
-      double const piU = GetPotential(u);
-
-      if (u == t)
+      if (u.m_stage == m_pivots.size())
       {
-        auto cur = t;
+        auto cur = u;
         while (cur != s)
         {
           auto const & p = links[cur];
@@ -152,6 +153,26 @@ public:
         return true;
       }
 
+      if (u.m_junction == jt && u.m_stage + 1 == m_pivots.size())
+      {
+        Vertex v(jt, jt, 0, u.m_stage + 1);
+        Score sv = su;
+
+        int const expected = points.back().m_bearing;
+        int const actual = GetReverseBearing(u, links);
+        sv.AddBearingPenalty(expected, actual);
+
+        if (scores.count(v) == 0 || scores[v] > sv)
+        {
+          scores[v] = sv;
+          links[v] = make_pair(u, Edge::MakeFake(u.m_junction, v.m_junction));
+          queue.emplace(sv, v);
+        }
+
+        continue;
+      }
+
+      double const piU = GetPotential(u);
       double const ud = su.GetDistance() + piS - piU;  // real distance to u
 
       // max(kDistanceAccuracyM, m_distanceToNextPointM) is added here
@@ -161,7 +182,7 @@ public:
 
       if (piU < kEps && stage + 1 < m_pivots.size())
       {
-        Vertex uu(u.m_junction, u.m_stage + 1);
+        Vertex uu(u.m_junction, u.m_junction, ud, u.m_stage + 1);
 
         double const piUU = GetPotential(uu);
 
@@ -170,10 +191,18 @@ public:
         suu.AddIntermediateErrorPenalty(
             MercatorBounds::DistanceOnEarth(u.m_junction.GetPoint(), points[stage + 1].m_point));
 
+        if (ud - u.m_stageStartDistance < kBearingDist && u.m_junction != u.m_stageStart)
+        {
+          int const expected = points[u.m_stage].m_bearing;
+          int const actual =
+              BearingToByte(Bearing(u.m_stageStart.GetPoint(), u.m_junction.GetPoint()));
+          suu.AddBearingPenalty(expected, actual);
+        }
+
         if (scores.count(uu) == 0 || scores[uu] > suu)
         {
           scores[uu] = suu;
-          links[uu] = make_pair(u, Edge());
+          links[uu] = make_pair(u, Edge::MakeFake(u.m_junction, uu.m_junction));
           queue.emplace(suu, uu);
         }
       }
@@ -182,7 +211,7 @@ public:
       m_graph.GetOutgoingEdges(u.m_junction, edges);
       for (auto const & edge : edges)
       {
-        Vertex v(edge.GetEndJunction(), stage);
+        Vertex v(edge.GetEndJunction(), u.m_stageStart, u.m_stageStartDistance, stage);
         double const piV = GetPotential(v);
 
         Score sv = su;
@@ -190,10 +219,21 @@ public:
         sv.AddDistance(max(GetWeight(edge) + piV - piU, 0.0));
 
         double const vd = ud + w;  // real distance to v
+        if (ud < u.m_stageStartDistance + kBearingDist &&
+            vd >= u.m_stageStartDistance + kBearingDist)
+        {
+          double const delta = vd - u.m_stageStartDistance - kBearingDist;
+          auto const p = PointAtSegment(edge.GetStartJunction().GetPoint(),
+                                        edge.GetEndJunction().GetPoint(), delta);
+          int const expected = points[u.m_stage].m_bearing;
+          int const actual = BearingToByte(Bearing(u.m_stageStart.GetPoint(), p));
+          sv.AddBearingPenalty(expected, actual);
+        }
+
         if (vd > m_bounds[stage])
           sv.AddDistanceErrorPenalty(std::min(vd - m_bounds[stage], w));
 
-        if (!edge.GetFeatureId().IsValid())
+        if (edge.IsFake())
           sv.AddFakePenalty(w);
 
         if (scores.count(v) == 0 || scores[v] > sv)
@@ -212,23 +252,37 @@ private:
   struct Vertex
   {
     Vertex() = default;
-    Vertex(Junction const & junction, size_t stage) : m_junction(junction), m_stage(stage) {}
+    Vertex(Junction const & junction, Junction const & stageStart, double stageStartDistance,
+           size_t stage)
+      : m_junction(junction)
+      , m_stageStart(stageStart)
+      , m_stageStartDistance(stageStartDistance)
+      , m_stage(stage)
+    {
+    }
 
     inline bool operator<(Vertex const & rhs) const
     {
       if (m_stage != rhs.m_stage)
         return m_stage < rhs.m_stage;
-      return m_junction < rhs.m_junction;
+      if (m_junction != rhs.m_junction)
+        return m_junction < rhs.m_junction;
+      return m_stageStart < rhs.m_stageStart;
     }
 
     inline bool operator==(Vertex const & rhs) const
     {
-      return m_junction == rhs.m_junction && m_stage == rhs.m_stage;
+      return m_junction == rhs.m_junction && m_stageStart == rhs.m_stageStart &&
+             m_stage == rhs.m_stage;
     }
 
     Junction m_junction;
+    Junction m_stageStart;
+    double m_stageStartDistance = 0.0;
     size_t m_stage = 0;
   };
+
+  using Links = map<Vertex, pair<Vertex, Edge>>;
 
   class Score
   {
@@ -259,14 +313,21 @@ private:
       Update();
     }
 
+    inline void AddBearingPenalty(int expected, int actual)
+    {
+      double angle = my::DegToRad(abs(expected - actual) * kAnglesInBucket);
+      m_bearingPenalty += angle * kBearingDist;
+    }
+
     bool operator<(Score const & rhs) const { return m_score < rhs.m_score; }
     bool operator==(Score const & rhs) const { return m_score == rhs.m_score; }
 
   private:
     void Update()
     {
-      m_score =
-          m_distance + 2 * (m_fakePenalty + m_intermediateErrorPenalty + m_distanceErrorPenalty);
+      m_score = m_distance +
+                3 * (m_fakePenalty + m_intermediateErrorPenalty + m_distanceErrorPenalty +
+                     m_bearingPenalty);
     }
 
     // Reduced length of path in meters.
@@ -282,6 +343,8 @@ private:
     // Penalty of path between consecutive points that is longer than
     // required.
     double m_distanceErrorPenalty = 0.0;
+
+    double m_bearingPenalty = 0.0;
 
     // Total score.
     double m_score = 0.0;
@@ -309,6 +372,46 @@ private:
   double GetWeight(Edge const & e) const
   {
     return Distance(e.GetStartJunction(), e.GetEndJunction());
+  }
+
+  uint32_t GetReverseBearing(Vertex const & u, Links const & links) const
+  {
+    m2::PointD const a = u.m_junction.GetPoint();
+    m2::PointD b = m2::PointD::Zero();
+
+    Vertex curr = u;
+    double passed = 0;
+    bool found = false;
+    while (true)
+    {
+      auto const it = links.find(curr);
+      if (it == links.end())
+        break;
+
+      auto const & p = it->second;
+      auto const & prev = p.first;
+      auto const & edge = p.second;
+
+      if (prev.m_stage != curr.m_stage)
+        break;
+
+      double const weight = GetWeight(edge);
+
+      if (passed + weight >= kBearingDist)
+      {
+        double const delta = kBearingDist - passed;
+        b = PointAtSegment(edge.GetEndJunction().GetPoint(), edge.GetStartJunction().GetPoint(),
+                           delta);
+        found = true;
+        break;
+      }
+
+      passed += weight;
+      curr = prev;
+    }
+    if (!found)
+      b = curr.m_junction.GetPoint();
+    return BearingToByte(Bearing(a, b));
   }
 
   FeaturesRoadGraph & m_graph;
@@ -595,8 +698,7 @@ void OpenLRSimpleDecoder::Decode(int const segmentsTohandle, bool const multipoi
       continue;
     }
 
-    path.erase(remove_if(path.begin(), path.end(),
-                         [](Edge const & edge) { return !edge.GetFeatureId().IsValid(); }),
+    path.erase(remove_if(path.begin(), path.end(), [](Edge const & edge) { return edge.IsFake(); }),
                path.end());
 
     if (path.size() < 4)
