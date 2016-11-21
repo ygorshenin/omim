@@ -8,6 +8,7 @@
 #include "routing/road_graph.hpp"
 #include "routing/router_delegate.hpp"
 
+#include "indexer/classificator.hpp"
 #include "indexer/index.hpp"
 #include "indexer/scales.hpp"
 
@@ -22,6 +23,7 @@
 
 #include "std/algorithm.hpp"
 #include "std/fstream.hpp"
+#include "std/map.hpp"
 #include "std/queue.hpp"
 #include "std/utility.hpp"
 
@@ -48,6 +50,103 @@ double Bearing(m2::PointD const & a, m2::PointD const & b)
   return location::AngleToBearing(my::RadToDeg(ang::AngleTo(a, b)));
 }
 
+class RoadInfoGetter
+{
+public:
+  struct RoadInfo
+  {
+    openlr::FunctionalRoadClass m_frc;
+    openlr::FormOfAWay m_fow;
+  };
+
+  RoadInfoGetter(Index const & index): m_index(index) {}
+
+  RoadInfo GetFeatureRoadInfo(FeatureID const & fid)
+  {
+    auto it = m_cache.find(fid);
+    if (it == end(m_cache))
+    {
+      Index::FeaturesLoaderGuard g(m_index, fid.m_mwmId);
+      FeatureType ft;
+      CHECK(g.GetOriginalFeatureByIndex(fid.m_index, ft), ());
+      ft.ParseTypes();
+      RoadInfo info;
+      info.m_frc = GetFunctionalRoadClass(ft);
+      info.m_fow = GetFormOfAWay(ft);
+      it = m_cache.emplace(fid, info).first;
+    }
+
+    return it->second;
+  }
+
+private:
+  static openlr::FunctionalRoadClass GetFunctionalRoadClass(feature::TypesHolder const & types)
+  {
+    auto const & c = classif();
+
+    if (types.Has(c.GetTypeByPath({"highway", "motorway"})) ||
+        types.Has(c.GetTypeByPath({"highway", "trunk"})))
+    {
+      return openlr::FunctionalRoadClass::FRC0;
+    }
+
+    else if (types.Has(c.GetTypeByPath({"highway", "primary"})) ||
+             types.Has(c.GetTypeByPath({"highway", "primary_link"})))
+    {
+      return openlr::FunctionalRoadClass::FRC1;
+    }
+
+    else if (types.Has(c.GetTypeByPath({"highway", "secondary"})) ||
+             types.Has(c.GetTypeByPath({"highway", "secondary_link"})))
+    {
+      return openlr::FunctionalRoadClass::FRC2;
+    }
+
+    else if (types.Has(c.GetTypeByPath({"highway", "tertiary"})) ||
+             types.Has(c.GetTypeByPath({"highway", "tertiary_link"})))
+    {
+      return openlr::FunctionalRoadClass::FRC3;
+    }
+
+    else if (types.Has(c.GetTypeByPath({"highway", "road"})) ||
+             // types.Has(c.GetTypeByPath({"highway", "road_link"})) ||
+             types.Has(c.GetTypeByPath({"highway", "unclassified"})) ||
+             types.Has(c.GetTypeByPath({"highway", "residential"})))
+    {
+      return openlr::FunctionalRoadClass::FRC4;
+    }
+
+    else if (types.Has(c.GetTypeByPath({"highway", "living_street"})))
+    {
+      return openlr::FunctionalRoadClass::FRC5;
+    }
+
+    return openlr::FunctionalRoadClass::FRC7;
+  }
+
+  static openlr::FormOfAWay GetFormOfAWay(feature::TypesHolder const & types)
+  {
+    auto const & c = classif();
+
+    if (types.Has(c.GetTypeByPath({"highway", "motorway"})) ||
+        types.Has(c.GetTypeByPath({"highway", "trunk"})))
+    {
+      return openlr::FormOfAWay::Motorway;
+    }
+
+    else if (types.Has(c.GetTypeByPath({"highway", "primary"})) ||
+             types.Has(c.GetTypeByPath({"highway", "primary_link"})))
+    {
+      return openlr::FormOfAWay::MultipleCarriageway;
+    }
+
+    return openlr::FormOfAWay::SingleCarriageway;
+  }
+
+  Index const & m_index;
+  map<FeatureID, RoadInfo> m_cache;
+};
+
 struct InrixPoint
 {
   InrixPoint() = default;
@@ -56,18 +155,24 @@ struct InrixPoint
     : m_point(MercatorBounds::FromLatLon(lrp.m_latLon))
     , m_distanceToNextPointM(lrp.m_distanceToNextPoint)
     , m_bearing(lrp.m_bearing)
+    , m_lfrcnp(lrp.m_functionalRoadClass)
   {
   }
 
   m2::PointD m_point = m2::PointD::Zero();
   double m_distanceToNextPointM = 0.0;
   uint8_t m_bearing = 0;
+  openlr::FunctionalRoadClass m_lfrcnp = openlr::FunctionalRoadClass::NotAValue;
 };
 
 class AStarRouter
 {
 public:
-  AStarRouter(FeaturesRoadGraph & graph) : m_graph(graph) {}
+  AStarRouter(FeaturesRoadGraph & graph, RoadInfoGetter & roadInfoGetter)
+    : m_graph(graph)
+    , m_roadInfoGetter(roadInfoGetter)
+  {
+  }
 
   bool Go(vector<InrixPoint> const & points, vector<Edge> & path)
   {
@@ -207,6 +312,17 @@ public:
       m_graph.GetOutgoingEdges(u.m_junction, edges);
       for (auto const & edge : edges)
       {
+        {
+          if (stage + 1 != points.size() && !edge.IsFake())
+          {
+            auto const lowestFuncRoadClass = points[stage].m_lfrcnp;
+            auto const edgeFuncRoadClass =
+                m_roadInfoGetter.GetFeatureRoadInfo(edge.GetFeatureId()).m_frc;
+            if (edgeFuncRoadClass < lowestFuncRoadClass)
+              continue;
+          }
+        }
+
         Vertex v(edge.GetEndJunction(), u.m_stageStart, u.m_stageStartDistance, stage);
         double const piV = GetPotential(v);
 
@@ -411,6 +527,7 @@ private:
   }
 
   FeaturesRoadGraph & m_graph;
+  RoadInfoGetter & m_roadInfoGetter;
   vector<vector<m2::PointD>> m_pivots;
   vector<double> m_bounds;
   m2::PointD m_target;
@@ -430,9 +547,8 @@ namespace openlr
 {
 int const OpenLRSimpleDecoder::kHandleAllSegmets = -1;
 
-OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index const & index,
-                                         IRouter & router)
-  : m_index(index), m_router(router)
+OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index const & index)
+  : m_index(index)
 {
   auto const load_result = m_document.load_file(dataFilename.data());
   if (!load_result)
@@ -443,7 +559,8 @@ void OpenLRSimpleDecoder::Decode(int const segmentsTohandle, bool const multipoi
 {
   FeaturesRoadGraph roadGraph(m_index, IRoadGraph::Mode::ObeyOnewayTag,
                               make_unique<CarModelFactory>());
-  AStarRouter astarRouter(roadGraph);
+  RoadInfoGetter roadInfoGetter(m_index);
+  AStarRouter astarRouter(roadGraph, roadInfoGetter);
   Stats stats;
 
   ofstream sample("inrix_vs_mwm.txt");
@@ -481,12 +598,6 @@ void OpenLRSimpleDecoder::Decode(int const segmentsTohandle, bool const multipoi
 
     path.erase(remove_if(path.begin(), path.end(), [](Edge const & edge) { return edge.IsFake(); }),
                path.end());
-
-    if (path.size() < 4)
-    {
-      LOG(LINFO, ("Skipping short path."));
-      continue;
-    }
 
     sample << segment.m_segmentId << '\t';
     for (auto it = begin(path); it != end(path); ++it)

@@ -8,11 +8,6 @@
 
 class Index;
 
-namespace routing
-{
-class IRouter;
-}  // namespace routing
-
 namespace openlr
 {
 DECLARE_EXCEPTION(DecoderError, RootException);
@@ -22,14 +17,12 @@ class OpenLRSimpleDecoder
 public:
   static int const kHandleAllSegmets;
 
-  OpenLRSimpleDecoder(string const & dataFilename, Index const & index,
-                      routing::IRouter & router);
+  OpenLRSimpleDecoder(string const & dataFilename, Index const & index);
 
   void Decode(int segmentsTohandle, bool multipointsOnly);
 
 private:
   Index const & m_index;
-  routing::IRouter & m_router;
   pugi::xml_document m_document;
 };
 }  // namespace openlr
