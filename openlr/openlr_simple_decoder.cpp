@@ -1,4 +1,5 @@
 #include "openlr/openlr_simple_decoder.hpp"
+#include "openlr/openlr_model.hpp"
 #include "openlr/openlr_simple_parser.hpp"
 
 #include "routing/car_model.hpp"
@@ -26,11 +27,6 @@
 
 using namespace std::rel_ops;
 using namespace routing;
-
-// double constexpr kMwmRoadCrossingRadiusMeters = 2.0;
-// m2::RectD const rect = MercatorBounds::RectByCenterXYAndSizeInMeters(cross, kMwmRoadCrossingRadiusMeters);
-//   m_index.ForEachInRect(featuresLoader, rect, GetStreetReadScale());
-// }
 
 namespace  // A staff to get road data.
 {
@@ -420,138 +416,6 @@ private:
   m2::PointD m_target;
 };
 
-vector<m2::PointD> GetFeaturePoints(FeatureType const & ft)
-{
-  vector<m2::PointD> points;
-  points.reserve(ft.GetPointsCount());
-  ft.ForEachPoint([&points](m2::PointD const & p)
-                  {
-                    points.push_back(p);
-                  }, scales::GetUpperScale());
-  return points;
-}
-
-double GetDistanceToLinearFeature(m2::PointD const & p, FeatureType const & ft)
-{
-  m2::PolylineD poly(GetFeaturePoints(ft));
-  return sqrt(poly. GetShortestSquareDistance(p));
-}
-
-vector<FeatureType> GetRoadFeaturesAtPoint(Index const & index,
-                                           FeaturesRoadGraph & roadGraph,
-                                           ms::LatLon const latLon)
-{
-  vector<FeatureType> features;
-
-  auto const center = MercatorBounds::FromLatLon(latLon);
-  auto const rect = MercatorBounds::RectByCenterXYAndSizeInMeters(center, 25);
-  ASSERT_LESS_OR_EQUAL(MercatorBounds::DistanceOnEarth(rect.LeftTop(), rect.LeftBottom()), 50.1, ());
-  ASSERT_LESS_OR_EQUAL(MercatorBounds::DistanceOnEarth(rect.RightTop(), rect.RightBottom()), 50.1, ());
-  ASSERT_LESS_OR_EQUAL(MercatorBounds::DistanceOnEarth(rect.LeftTop(), rect.RightTop()), 50.1, ());
-  ASSERT_LESS_OR_EQUAL(MercatorBounds::DistanceOnEarth(rect.LeftBottom(), rect.RightBottom()), 50.1, ());
-
-  index.ForEachInRect([&features, &roadGraph, &center](FeatureType const & ft) {
-      ft.ParseHeader2();
-      if (!roadGraph.IsRoad(ft))
-        return;
-
-      // TODO(mgsergio): Parse only necessary fields.
-      ft.ParseEverything();
-
-      if (ft.GetPointsCount() == 1)
-      {
-        LOG(LDEBUG, ("A linear feature with one"));
-        return;
-      }
-
-      auto constexpr kMaxDistanceMeters = 10.0;
-      // if (GetDistanceToLinearFeature(center, ft) >= kMaxDistanceMeters)
-      //   return;
-
-      auto good = false;
-      for (auto const & p : GetFeaturePoints(ft))
-      {
-        if (MercatorBounds::DistanceOnEarth(p, center) <= kMaxDistanceMeters)
-        {
-          good = true;
-          break;
-        }
-      }
-
-      if (!good)
-        return;
-
-      features.push_back(ft);
-    },
-    rect, scales::GetUpperScale());
-
-  return features;
-}
-
-IRoadGraph::TEdgeVector GetOutgoingEdges(FeaturesRoadGraph const & roadGraph,
-                                         ms::LatLon const & latLon)
-{
-  IRoadGraph::TEdgeVector edges;
-
-  Junction junction(MercatorBounds::FromLatLon(latLon), feature::kDefaultAltitudeMeters);
-  roadGraph.GetOutgoingEdges(junction, edges);
-
-  return edges;
-}
-
-IRoadGraph::TEdgeVector GetIngoingEdges(FeaturesRoadGraph const & roadGraph,
-                                        ms::LatLon const & latLon)
-{
-  IRoadGraph::TEdgeVector edges;
-
-  Junction junction(MercatorBounds::FromLatLon(latLon), feature::kDefaultAltitudeMeters);
-  roadGraph.GetIngoingEdges(junction, edges);
-
-  return edges;
-}
-
-bool CalculateRoute(IRouter & router, ms::LatLon const & first,
-                    ms::LatLon const & last, vector<m2::PointD> & points)
-{
-  Route route("olr-route");
-
-  RouterDelegate delegate;
-  auto const result =
-      router.CalculateRoute(MercatorBounds::FromLatLon(first), {0.0, 0.0} /* direction */,
-                            MercatorBounds::FromLatLon(last), delegate, route);
-  if (result != IRouter::ResultCode::NoError)
-  {
-    LOG(LDEBUG, ("Can't calculate route for points", first, last, ", code:", result));
-    return false;
-  }
-
-  points = route.GetPoly().GetPoints();
-  return true;
-}
-
-void LeaveEdgesStartedFrom(Junction const & junction, IRoadGraph::TEdgeVector & edges)
-{
-  auto count = 0;
-  auto const it = remove_if(begin(edges), end(edges), [&junction, &count](Edge const & e)
-  {
-    bool const eq = !AlmostEqualAbs(e.GetStartJunction(), junction);
-    LOG(LDEBUG, (e.GetStartJunction().GetPoint(), "!=", junction.GetPoint(), "->", eq));
-    count += eq;
-    return eq;
-  });
-  LOG(LDEBUG, (count, "values should be removed from vector of legth", edges.size()));
-
-  if (it != end(edges))
-    edges.erase(it, end(edges));
-
-  LOG(LDEBUG, ("edges current size", edges.size()));
-}
-
-Junction JunctionFromPoint(m2::PointD const & p)
-{
-  return {p, feature::kDefaultAltitudeMeters};
-}
-
 struct Stats
 {
   uint32_t m_shortRoutes = 0;
@@ -560,74 +424,6 @@ struct Stats
   uint32_t m_routeIsNotCalculated = 0;
   uint32_t m_total = 0;
 };
-
-routing::IRoadGraph::TEdgeVector ReconstructPath(routing::IRoadGraph const & graph,
-                                                 routing::Route & route, Stats & stats)
-{
-  routing::IRoadGraph::TEdgeVector path;
-
-  auto poly = route.GetPoly().GetPoints();
-  // There are zero-length linear features, so poly can contain adjucent duplications.
-  poly.erase(unique(begin(poly), end(poly), [](m2::PointD const & a, m2::PointD const & b)
-  {
-    return my::AlmostEqualAbs(a, b, routing::kPointsEqualEpsilon);
-  }), end(poly));
-
-  // TODO(mgsergio): A rote may strart/end at poits other than edge ends, this situation
-  // shoud be handled separately.
-  if (poly.size() < 4)
-  {
-    ++stats.m_shortRoutes;
-    LOG(LINFO, ("Short polylines are not handled yet."));
-    return {};
-  }
-
-  routing::IRoadGraph::TEdgeVector edges;
-  // Start from the second point of the route that is the start of the egge for shure.
-  auto it = next(begin(poly));
-  auto prevJunction = JunctionFromPoint(*it++);
-
-  // Stop at the last point that is the end of the edge for shure.
-  for (; it != prev(end(poly)); prevJunction = JunctionFromPoint(*it++))
-  {
-    // TODO(mgsergio): Check edges are not fake;
-    graph.GetIngoingEdges(JunctionFromPoint(*it), edges);
-    LOG(LDEBUG, ("Edges extracted:", edges.size()));
-    LeaveEdgesStartedFrom(prevJunction, edges);
-    if (edges.size() > 1)
-    {
-      ++stats.m_moreThanOneCandidates;
-      LOG(LDEBUG, ("More than one edge candidate."));
-    }
-    else if (edges.size() == 0)
-    {
-      ++stats.m_zeroCanditates;
-      LOG(LDEBUG, ("Zero edge candidate extracted."));
-      // Sometimes a feature may be duplicated in two or more mwms: MAPSME-2816.
-      // ASSERT_GREATER_OR_EQUAL(edges.size(), 1,
-      //                         ("There should be at least one adge. (One in normal case)"));
-      return {};
-    }
-
-    auto const & edge = edges.front();
-    if (!edge.GetFeatureId().m_mwmId.IsAlive())
-      continue;
-
-    path.push_back(edges.front());
-    edges.clear();
-  }
-
-  // TODO(mgsergio): A rote may strart/end at poits other than edge ends, this situation
-  // shoud be handled separately.
-  if (edges.size() < 3)
-  {
-    ++stats.m_shortRoutes;
-    LOG(LINFO, ("Short polylines are not handled yet."));
-    return {};
-  }
-
-  return path;
-}
 }  // namespace
 
 namespace openlr
@@ -671,21 +467,6 @@ void OpenLRSimpleDecoder::Decode(int const segmentsTohandle, bool const multipoi
       break;
 
     ++stats.m_total;
-
-    // auto const outgoingEdges = GetOutgoingEdges(roadGraph, first);
-    // auto const ingoingEdges = GetIngoingEdges(roadGraph, last);
-
-    // LOG(LINFO, ("Number of outgoing enges:", outgoingEdges.size(), "for point: ", first));
-    // LOG(LINFO, ("Number of ingoing enges:", ingoingEdges.size(), "for point: ", last));
-
-    // auto const featuresForFirst = GetRoadFeaturesAtPoint(m_index, roadGraph, first);
-    // auto const featuresForLast = GetRoadFeaturesAtPoint(m_index, roadGraph, last);
-
-    // cout << "Features: " << featuresForFirst.size() << "\tfor point" << DebugPrint(first) << endl;
-    // cout << "Features: " << featuresForLast.size() << "\tfor point" << DebugPrint(last) << endl;
-
-    // LOG(LINFO, ("Number of features", featuresForFirst.size(), "for first point: ", first));
-    // LOG(LINFO, ("Number of features", featuresForLast.size(), "for last point: ", last));
 
     vector<InrixPoint> points;
     for (auto const & point : ref.m_points)

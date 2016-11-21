@@ -17,7 +17,6 @@ namespace openlr
 {
 DECLARE_EXCEPTION(DecoderError, RootException);
 
-
 class OpenLRSimpleDecoder
 {
 public:
@@ -32,6 +31,5 @@ private:
   Index const & m_index;
   routing::IRouter & m_router;
   pugi::xml_document m_document;
-
 };
 }  // namespace openlr

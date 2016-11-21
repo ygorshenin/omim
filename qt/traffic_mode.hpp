@@ -2,8 +2,8 @@
 
 #include "indexer/feature.hpp"
 
+#include "openlr/openlr_model.hpp"
 #include "openlr/openlr_sample.hpp"
-#include "openlr/openlr_simple_parser.hpp"
 
 #include "std/string.hpp"
 #include "std/unique_ptr.hpp"
