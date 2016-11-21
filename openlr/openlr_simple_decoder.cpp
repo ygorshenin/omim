@@ -263,7 +263,7 @@ public:
         int const actual = GetReverseBearing(u, links);
         sv.AddBearingPenalty(expected, actual);
 
-        if (scores.count(v) == 0 || scores[v] > sv)
+        if ((scores.count(v) == 0 || scores[v] > sv) && u != v)
         {
           scores[v] = sv;
           links[v] = make_pair(u, Edge::MakeFake(u.m_junction, v.m_junction));
@@ -300,7 +300,7 @@ public:
           suu.AddBearingPenalty(expected, actual);
         }
 
-        if (scores.count(uu) == 0 || scores[uu] > suu)
+        if ((scores.count(uu) == 0 || scores[uu] > suu) && u != uu)
         {
           scores[uu] = suu;
           links[uu] = make_pair(u, Edge::MakeFake(u.m_junction, uu.m_junction));
@@ -348,7 +348,7 @@ public:
         if (edge.IsFake())
           sv.AddFakePenalty(w);
 
-        if (scores.count(v) == 0 || scores[v] > sv)
+        if ((scores.count(v) == 0 || scores[v] > sv) && v != u)
         {
           scores[v] = sv;
           links[v] = make_pair(u, edge);
@@ -440,6 +440,7 @@ private:
       m_score = m_distance +
                 3 * (m_fakePenalty + m_intermediateErrorPenalty + m_distanceErrorPenalty +
                      m_bearingPenalty);
+      CHECK_GREATER_OR_EQUAL(m_score, 0, ());
     }
 
     // Reduced length of path in meters.

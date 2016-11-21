@@ -1,5 +1,6 @@
 #include "testing/testing.hpp"
 
+#include "openlr/openlr_model.hpp"
 #include "openlr/openlr_sample.hpp"
 #include "openlr/openlr_simple_parser.hpp"
 
@@ -99,7 +100,7 @@ UNIT_TEST(ParseOpenlr)
   auto expectedLatLon = ms::LatLon{55.30683, 37.31041};
   TEST(firstPoint.m_latLon.EqualDxDy(expectedLatLon, 1e-5), (firstPoint.m_latLon, "!=", expectedLatLon));
   TEST_EQUAL(firstPoint.m_bearing, 8, ());
-  TEST(firstPoint.m_formOfAWay == openlr::FormOfAWay::MULTIPLE_CARRIAGEWAY,
+  TEST(firstPoint.m_formOfAWay == openlr::FormOfAWay::MultipleCarriageway,
        ("Wrong form of a way."));
   TEST(firstPoint.m_functionalRoadClass == openlr::FunctionalRoadClass::FRC6,
        ("Wrong functional road class."));
@@ -111,7 +112,7 @@ UNIT_TEST(ParseOpenlr)
   expectedLatLon = ms::LatLon{55.33541, 37.29530};
   TEST(secondPoint.m_latLon.EqualDxDy(expectedLatLon, 1e-5), (secondPoint.m_latLon, "!=", expectedLatLon));
   TEST_EQUAL(secondPoint.m_bearing, 105, ());
-  TEST(secondPoint.m_formOfAWay == openlr::FormOfAWay::SINGLE_CARRIAGEWAY, ("Wrong form of a way."));
+  TEST(secondPoint.m_formOfAWay == openlr::FormOfAWay::SingleCarriageway, ("Wrong form of a way."));
   TEST(secondPoint.m_functionalRoadClass == openlr::FunctionalRoadClass::FRC7,
        ("Wrong functional road class."));
 
