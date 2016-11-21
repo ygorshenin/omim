@@ -198,11 +198,6 @@ public:
     m_pivots.push_back({points.back().m_point});
     CHECK_EQUAL(m_pivots.size() + 1, points.size(), ());
 
-    m_bounds.resize(points.size() - 1);
-    m_bounds[0] = points[0].m_distanceToNextPointM;
-    for (size_t i = 1; i < m_bounds.size(); ++i)
-      m_bounds[i] = m_bounds[i - 1] + points[i].m_distanceToNextPointM;
-
     Junction js(points.front().m_point, 0 /* altitude */);
 
     {
@@ -237,6 +232,7 @@ public:
       Score const & su = p.first;
       Vertex const & u = p.second;
       size_t const stage = u.m_stage;
+      double const distanceToNextPointM = points[stage].m_distanceToNextPointM;
 
       if (su != scores[u])
         continue;
@@ -278,12 +274,15 @@ public:
 
       // max(kDistanceAccuracyM, m_distanceToNextPointM) is added here
       // to throw out quite long paths.
-      if (ud > m_bounds[stage] + max(kDistanceAccuracyM, points[stage].m_distanceToNextPointM))
+      if (ud > u.m_stageStartDistance + distanceToNextPointM +
+                   max(kDistanceAccuracyM, distanceToNextPointM))
+      {
         continue;
+      }
 
       if (piU < kEps && stage + 1 < m_pivots.size())
       {
-        Vertex uu(u.m_junction, u.m_junction, ud, u.m_stage + 1);
+        Vertex uu(u.m_junction, u.m_junction, ud /* stageStartDistance */, u.m_stage + 1);
 
         double const piUU = GetPotential(uu);
 
@@ -342,8 +341,11 @@ public:
           sv.AddBearingPenalty(expected, actual);
         }
 
-        if (vd > m_bounds[stage])
-          sv.AddDistanceErrorPenalty(std::min(vd - m_bounds[stage], w));
+        if (vd > v.m_stageStartDistance + distanceToNextPointM)
+        {
+          sv.AddDistanceErrorPenalty(
+              std::min(vd - v.m_stageStartDistance - distanceToNextPointM, w));
+        }
 
         if (edge.IsFake())
           sv.AddFakePenalty(w);
@@ -530,8 +532,6 @@ private:
   FeaturesRoadGraph & m_graph;
   RoadInfoGetter & m_roadInfoGetter;
   vector<vector<m2::PointD>> m_pivots;
-  vector<double> m_bounds;
-  m2::PointD m_target;
 };
 
 struct Stats
