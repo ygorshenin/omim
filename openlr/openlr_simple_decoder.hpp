@@ -19,7 +19,7 @@ public:
 
   OpenLRSimpleDecoder(string const & dataFilename, Index const & index);
 
-  void Decode(int segmentsTohandle, bool multipointsOnly);
+  void Decode(string const & outputFilename, int segmentsTohandle, bool multipointsOnly);
 
 private:
   Index const & m_index;

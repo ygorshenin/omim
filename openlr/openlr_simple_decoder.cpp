@@ -9,6 +9,7 @@
 #include "routing/router_delegate.hpp"
 
 #include "indexer/classificator.hpp"
+#include "indexer/ftypes_matcher.hpp"
 #include "indexer/index.hpp"
 #include "indexer/scales.hpp"
 
@@ -50,6 +51,75 @@ double Bearing(m2::PointD const & a, m2::PointD const & b)
   return location::AngleToBearing(my::RadToDeg(ang::AngleTo(a, b)));
 }
 
+class TrunkChecker : public ftypes::BaseChecker
+{
+public:
+  TrunkChecker()
+  {
+    auto const & c = classif();
+    m_types.push_back(c.GetTypeByPath({"highway", "motorway"}));
+    m_types.push_back(c.GetTypeByPath({"highway", "motorway_link"}));
+    m_types.push_back(c.GetTypeByPath({"highway", "trunk"}));
+    m_types.push_back(c.GetTypeByPath({"highway", "trunk_link"}));
+  }
+};
+
+class PrimaryChecker : public ftypes::BaseChecker
+{
+public:
+  PrimaryChecker()
+  {
+    auto const & c = classif();
+    m_types.push_back(c.GetTypeByPath({"highway", "primary"}));
+    m_types.push_back(c.GetTypeByPath({"highway", "primary_link"}));
+  }
+};
+
+class SecondaryChecker : public ftypes::BaseChecker
+{
+public:
+  SecondaryChecker()
+  {
+    auto const & c = classif();
+
+    m_types.push_back(c.GetTypeByPath({"highway", "secondary"}));
+    m_types.push_back(c.GetTypeByPath({"highway", "secondary_link"}));
+  }
+};
+
+class TertiaryChecker : public ftypes::BaseChecker
+{
+public:
+  TertiaryChecker()
+  {
+    auto const & c = classif();
+    m_types.push_back(c.GetTypeByPath({"highway", "tertiary"}));
+    m_types.push_back(c.GetTypeByPath({"highway", "tertiary_link"}));
+  }
+};
+
+class ResidentialChecker : public ftypes::BaseChecker
+{
+ public:
+  ResidentialChecker()
+  {
+    auto const & c = classif();
+    m_types.push_back(c.GetTypeByPath({"highway", "road"}));
+    m_types.push_back(c.GetTypeByPath({"highway", "unclassified"}));
+    m_types.push_back(c.GetTypeByPath({"highway", "residential"}));
+  }
+};
+
+class LivingStreetChecker : public ftypes::BaseChecker
+{
+ public:
+  LivingStreetChecker()
+  {
+    auto const & c = classif();
+    m_types.push_back(c.GetTypeByPath({"highway", "living_street"}));
+  }
+};
+
 class RoadInfoGetter
 {
 public:
@@ -59,7 +129,7 @@ public:
     openlr::FormOfAWay m_fow;
   };
 
-  RoadInfoGetter(Index const & index): m_index(index) {}
+  RoadInfoGetter(Index const & index): m_index(index), m_c(classif()) {}
 
   RoadInfo GetFeatureRoadInfo(FeatureID const & fid)
   {
@@ -80,70 +150,50 @@ public:
   }
 
 private:
-  static openlr::FunctionalRoadClass GetFunctionalRoadClass(feature::TypesHolder const & types)
+  openlr::FunctionalRoadClass GetFunctionalRoadClass(feature::TypesHolder const & types) const
   {
-    auto const & c = classif();
-
-    if (types.Has(c.GetTypeByPath({"highway", "motorway"})) ||
-        types.Has(c.GetTypeByPath({"highway", "trunk"})))
-    {
+    if (m_trunkChecker(types))
       return openlr::FunctionalRoadClass::FRC0;
-    }
 
-    else if (types.Has(c.GetTypeByPath({"highway", "primary"})) ||
-             types.Has(c.GetTypeByPath({"highway", "primary_link"})))
-    {
+    if (m_primaryChecker(types))
       return openlr::FunctionalRoadClass::FRC1;
-    }
 
-    else if (types.Has(c.GetTypeByPath({"highway", "secondary"})) ||
-             types.Has(c.GetTypeByPath({"highway", "secondary_link"})))
-    {
+    if (m_secondaryChecker(types))
       return openlr::FunctionalRoadClass::FRC2;
-    }
 
-    else if (types.Has(c.GetTypeByPath({"highway", "tertiary"})) ||
-             types.Has(c.GetTypeByPath({"highway", "tertiary_link"})))
-    {
+    if (m_tertiaryChecker(types))
       return openlr::FunctionalRoadClass::FRC3;
-    }
 
-    else if (types.Has(c.GetTypeByPath({"highway", "road"})) ||
-             // types.Has(c.GetTypeByPath({"highway", "road_link"})) ||
-             types.Has(c.GetTypeByPath({"highway", "unclassified"})) ||
-             types.Has(c.GetTypeByPath({"highway", "residential"})))
-    {
+    if (m_residentialChecker(types))
       return openlr::FunctionalRoadClass::FRC4;
-    }
 
-    else if (types.Has(c.GetTypeByPath({"highway", "living_street"})))
-    {
+    if (m_livingStreetChecker(types))
       return openlr::FunctionalRoadClass::FRC5;
-    }
 
     return openlr::FunctionalRoadClass::FRC7;
   }
 
-  static openlr::FormOfAWay GetFormOfAWay(feature::TypesHolder const & types)
+  openlr::FormOfAWay GetFormOfAWay(feature::TypesHolder const & types) const
   {
-    auto const & c = classif();
-
-    if (types.Has(c.GetTypeByPath({"highway", "motorway"})) ||
-        types.Has(c.GetTypeByPath({"highway", "trunk"})))
-    {
+    if (m_trunkChecker(types))
       return openlr::FormOfAWay::Motorway;
-    }
 
-    else if (types.Has(c.GetTypeByPath({"highway", "primary"})) ||
-             types.Has(c.GetTypeByPath({"highway", "primary_link"})))
-    {
+    if (m_primaryChecker(types))
       return openlr::FormOfAWay::MultipleCarriageway;
-    }
 
     return openlr::FormOfAWay::SingleCarriageway;
   }
 
   Index const & m_index;
+  Classificator const & m_c;
+
+  TrunkChecker const m_trunkChecker;
+  PrimaryChecker const m_primaryChecker;
+  SecondaryChecker const m_secondaryChecker;
+  TertiaryChecker const m_tertiaryChecker;
+  ResidentialChecker const m_residentialChecker;
+  LivingStreetChecker const m_livingStreetChecker;
+
   map<FeatureID, RoadInfo> m_cache;
 };
 
@@ -218,6 +268,16 @@ public:
     map<Vertex, Score> scores;
     Links links;
 
+    auto pushVertex = [&queue, &scores, &links](Vertex const & u, Vertex const & v,
+                                                Score const & sv, Edge const & e) {
+      if ((scores.count(v) == 0 || scores[v] > sv) && u != v)
+      {
+        scores[v] = sv;
+        links[v] = make_pair(u, e);
+        queue.emplace(sv, v);
+      }
+    };
+
     Vertex const s(js, js, 0, 0 /* stage */);
     scores[s] = Score();
     queue.emplace(scores[s], s);
@@ -231,8 +291,6 @@ public:
 
       Score const & su = p.first;
       Vertex const & u = p.second;
-      size_t const stage = u.m_stage;
-      double const distanceToNextPointM = points[stage].m_distanceToNextPointM;
 
       if (su != scores[u])
         continue;
@@ -250,76 +308,65 @@ public:
         return true;
       }
 
-      if (u.m_junction == jt && u.m_stage + 1 == m_pivots.size())
-      {
-        Vertex v(jt, jt, 0, u.m_stage + 1);
-        Score sv = su;
-
-        int const expected = points.back().m_bearing;
-        int const actual = GetReverseBearing(u, links);
-        sv.AddBearingPenalty(expected, actual);
-
-        if ((scores.count(v) == 0 || scores[v] > sv) && u != v)
-        {
-          scores[v] = sv;
-          links[v] = make_pair(u, Edge::MakeFake(u.m_junction, v.m_junction));
-          queue.emplace(sv, v);
-        }
-
-        continue;
-      }
-
+      size_t const stage = u.m_stage;
+      double const distanceToNextPointM = points[stage].m_distanceToNextPointM;
       double const piU = GetPotential(u);
       double const ud = su.GetDistance() + piS - piU;  // real distance to u
+
+      CHECK_LESS(stage, m_pivots.size(), ());
 
       // max(kDistanceAccuracyM, m_distanceToNextPointM) is added here
       // to throw out quite long paths.
       if (ud > u.m_stageStartDistance + distanceToNextPointM +
-                   max(kDistanceAccuracyM, distanceToNextPointM))
+          max(kDistanceAccuracyM, distanceToNextPointM))
       {
         continue;
       }
 
-      if (piU < kEps && stage + 1 < m_pivots.size())
+      if (piU < kEps)
       {
-        Vertex uu(u.m_junction, u.m_junction, ud /* stageStartDistance */, u.m_stage + 1);
+        Vertex v(u.m_junction, u.m_junction, ud /* stageStartDistance */, stage + 1);
+        bool const lastVertex = stage + 1 == m_pivots.size();
 
-        double const piUU = GetPotential(uu);
+        double const piV = lastVertex ? 0 : GetPotential(v);
 
-        Score suu = su;
-        suu.AddDistance(max(piUU - piU, 0.0));
-        suu.AddIntermediateErrorPenalty(
+        Score sv = su;
+        sv.AddDistance(max(piV - piU, 0.0));
+        sv.AddIntermediateErrorPenalty(
             MercatorBounds::DistanceOnEarth(u.m_junction.GetPoint(), points[stage + 1].m_point));
 
-        if (ud - u.m_stageStartDistance < kBearingDist && u.m_junction != u.m_stageStart)
+        if (ud < u.m_stageStartDistance + kBearingDist && u.m_junction != u.m_stageStart)
         {
-          int const expected = points[u.m_stage].m_bearing;
+          int const expected = points[stage].m_bearing;
           int const actual =
               BearingToByte(Bearing(u.m_stageStart.GetPoint(), u.m_junction.GetPoint()));
-          suu.AddBearingPenalty(expected, actual);
+          sv.AddBearingPenalty(expected, actual);
         }
 
-        if ((scores.count(uu) == 0 || scores[uu] > suu) && u != uu)
+        if (lastVertex)
         {
-          scores[uu] = suu;
-          links[uu] = make_pair(u, Edge::MakeFake(u.m_junction, uu.m_junction));
-          queue.emplace(suu, uu);
+          int const expected = points.back().m_bearing;
+          int const actual = GetReverseBearing(u, links);
+          sv.AddBearingPenalty(expected, actual);
         }
+
+        pushVertex(u, v, sv, Edge::MakeFake(u.m_junction, v.m_junction));
+
+        if (lastVertex)
+          continue;
       }
 
       IRoadGraph::TEdgeVector edges;
       m_graph.GetOutgoingEdges(u.m_junction, edges);
       for (auto const & edge : edges)
       {
+        if (!edge.IsFake())
         {
-          if (stage + 1 != points.size() && !edge.IsFake())
-          {
-            auto const lowestFuncRoadClass = points[stage].m_lfrcnp;
-            auto const edgeFuncRoadClass =
-                m_roadInfoGetter.GetFeatureRoadInfo(edge.GetFeatureId()).m_frc;
-            if (edgeFuncRoadClass < lowestFuncRoadClass)
-              continue;
-          }
+          auto const lowestFuncRoadClass = points[stage].m_lfrcnp;
+          auto const edgeFuncRoadClass =
+              m_roadInfoGetter.GetFeatureRoadInfo(edge.GetFeatureId()).m_frc;
+          if (edgeFuncRoadClass < lowestFuncRoadClass)
+            continue;
         }
 
         Vertex v(edge.GetEndJunction(), u.m_stageStart, u.m_stageStartDistance, stage);
@@ -327,7 +374,7 @@ public:
 
         Score sv = su;
         double const w = GetWeight(edge);
-        sv.AddDistance(max(GetWeight(edge) + piV - piU, 0.0));
+        sv.AddDistance(max(w + piV - piU, 0.0));
 
         double const vd = ud + w;  // real distance to v
         if (ud < u.m_stageStartDistance + kBearingDist &&
@@ -336,7 +383,7 @@ public:
           double const delta = vd - u.m_stageStartDistance - kBearingDist;
           auto const p = PointAtSegment(edge.GetStartJunction().GetPoint(),
                                         edge.GetEndJunction().GetPoint(), delta);
-          int const expected = points[u.m_stage].m_bearing;
+          int const expected = points[stage].m_bearing;
           int const actual = BearingToByte(Bearing(u.m_stageStart.GetPoint(), p));
           sv.AddBearingPenalty(expected, actual);
         }
@@ -350,12 +397,7 @@ public:
         if (edge.IsFake())
           sv.AddFakePenalty(w);
 
-        if ((scores.count(v) == 0 || scores[v] > sv) && v != u)
-        {
-          scores[v] = sv;
-          links[v] = make_pair(u, edge);
-          queue.emplace(sv, v);
-        }
+        pushVertex(u, v, sv, edge);
       }
     }
 
@@ -556,7 +598,8 @@ OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index cons
     MYTHROW(DecoderError, ("Can't load file", dataFilename, ":", load_result.description()));
 }
 
-void OpenLRSimpleDecoder::Decode(int const segmentsTohandle, bool const multipointsOnly)
+void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmentsTohandle,
+                                 bool const multipointsOnly)
 {
   FeaturesRoadGraph roadGraph(m_index, IRoadGraph::Mode::ObeyOnewayTag,
                               make_unique<CarModelFactory>());
@@ -564,7 +607,7 @@ void OpenLRSimpleDecoder::Decode(int const segmentsTohandle, bool const multipoi
   AStarRouter astarRouter(roadGraph, roadInfoGetter);
   Stats stats;
 
-  ofstream sample("inrix_vs_mwm.txt");
+  ofstream sample(outputFilename);
 
   // TODO(mgsergio): Feed segments derectly to the decoder. Parsing sholud not
   // take place inside decoder process.
@@ -612,7 +655,7 @@ void OpenLRSimpleDecoder::Decode(int const segmentsTohandle, bool const multipoi
     sample << endl;
   }
 
-  LOG(LINFO, ("Parsed inrix regments:", stats.m_total,
+  LOG(LINFO, ("Parsed segments:", stats.m_total,
               "Routes failed:", stats.m_routeIsNotCalculated,
               "Short routes:", stats.m_shortRoutes,
               "Ambiguous routes:", stats.m_moreThanOneCandidates,

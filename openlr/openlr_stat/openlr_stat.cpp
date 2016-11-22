@@ -23,7 +23,8 @@
 
 #include "3party/gflags/src/gflags/gflags.h"
 
-DEFINE_string(olr_data_path, "", "Path to OpenLR file.");
+DEFINE_string(input, "", "Path to OpenLR file.");
+DEFINE_string(output, "output.txt", "Path to output file");
 DEFINE_int32(limit, openlr::OpenLRSimpleDecoder::kHandleAllSegmets,
              "Max number of segments to handle. -1 for all.");
 DEFINE_bool(multipoints_only, false, "Only segments with multiple points to handle.");
@@ -77,8 +78,8 @@ int main(int argc, char * argv[])
   routing::CarRouter router(index, countryFileGetter,
                             routing::SingleMwmRouter::CreateCarRouter(index, trafficCache));
 
-  OpenLRSimpleDecoder decoder(FLAGS_olr_data_path, index);
-  decoder.Decode(FLAGS_limit, FLAGS_multipoints_only);
+  OpenLRSimpleDecoder decoder(FLAGS_input, index);
+  decoder.Decode(FLAGS_output, FLAGS_limit, FLAGS_multipoints_only);
 
   return 0;
 }
