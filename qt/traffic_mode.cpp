@@ -81,6 +81,7 @@ TrafficMode::TrafficMode(string const & dataFileName, string const & sampleFileN
   }
   for (auto const & segment : segments)
   {
+    CHECK(!segment.m_locationReference.m_points.empty(), ());
     m_partnerSegments[segment.m_segmentId] = segment;
   }
 
@@ -146,9 +147,17 @@ void TrafficMode::OnItemSelected(QItemSelection const & selected, QItemSelection
 {
   ASSERT(!selected.empty(), ("The selection should not be empty. RTFM for qt5."));
   auto const row = selected.front().top();
+
   // TODO(mgsergio): Use algo for center calculation.
   // Now viewport is set to the first point of the first segment.
   auto const partnerSegmentId = m_decodedSample->m_decodedItems[row].m_partnerSegmentId;
+
+  if (m_decodedSample->m_decodedItems[row].m_segments.empty())
+  {
+    LOG(LERROR, ("Empty mwm segments for partner id", partnerSegmentId.Get()));
+    return;
+  }
+
   auto const & firstSegment = m_decodedSample->m_decodedItems[row].m_segments[0];
   auto const & firstSegmentFeatureId = firstSegment.m_fid;
   auto const & firstSegmentFeature = m_decodedSample->m_features.at(firstSegmentFeatureId);
@@ -161,7 +170,7 @@ void TrafficMode::OnItemSelected(QItemSelection const & selected, QItemSelection
 
   m_drawerDelegate->Clear();
   m_drawerDelegate->SetViewportCenter(firstSegmentFeature.GetPoint(firstSegment.m_segId));
-  m_drawerDelegate->DrawEncodedSegment(m_partnerSegments[partnerSegmentId.Get()]);
+  m_drawerDelegate->DrawEncodedSegment(m_partnerSegments.at(partnerSegmentId.Get()));
   m_drawerDelegate->DrawDecodedSegments(*m_decodedSample, row);
 }
 

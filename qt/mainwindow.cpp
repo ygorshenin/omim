@@ -206,6 +206,14 @@ public:
       if (group.m_asc)
         points.push_back(feature.GetPoint(lastSegId + 1));
 
+      if (points.empty())
+      {
+        LOG(LERROR, ("Empty group, group id:", group.m_fid, "Sample id:",
+                     sample.m_decodedItems[sampleIndex].m_partnerSegmentId.Get()));
+        continue;
+      }
+
+      LOG(LINFO, ("Decoded segment", points));
       m_drapeApi.AddLine(NextLineId(),
                          df::DrapeApiLineData(points, dp::Color(0, 0, 255, 255))
                          .Width(3.0f).ShowPoints(true));//.ShowId());
