@@ -21,11 +21,13 @@
 
 #include "base/logging.hpp"
 #include "base/math.hpp"
+#include "base/stl_helpers.hpp"
 
 #include "std/algorithm.hpp"
 #include "std/fstream.hpp"
 #include "std/map.hpp"
 #include "std/queue.hpp"
+#include "std/thread.hpp"
 #include "std/utility.hpp"
 
 using namespace std::rel_ops;
@@ -33,11 +35,17 @@ using namespace routing;
 
 namespace  // A staff to get road data.
 {
+size_t constexpr kCLS = 64;
+
 size_t const kMaxRoadCandidates = 10;
 double const kDistanceAccuracyM = 1000;
 double const kEps = 1e-9;
 double const kBearingDist = 25;
 double const kAnglesInBucket = 360.0 / 256;
+
+size_t constexpr GCD(size_t a, size_t b) { return b == 0 ? a : GCD(b, a % b); }
+
+size_t constexpr LCM(size_t a, size_t b) { return a / GCD(a, b) * b; }
 
 uint32_t BearingToByte(double const angle)
 {
@@ -576,8 +584,17 @@ private:
   vector<vector<m2::PointD>> m_pivots;
 };
 
-struct Stats
+struct alignas(kCLS) Stats
 {
+  void Add(Stats const & rhs)
+  {
+    m_shortRoutes += rhs.m_shortRoutes;
+    m_zeroCanditates += rhs.m_zeroCanditates;
+    m_moreThanOneCandidates += rhs.m_moreThanOneCandidates;
+    m_routeIsNotCalculated += rhs.m_routeIsNotCalculated;
+    m_total += rhs.m_total;
+  }
+
   uint32_t m_shortRoutes = 0;
   uint32_t m_zeroCanditates = 0;
   uint32_t m_moreThanOneCandidates = 0;
@@ -588,7 +605,7 @@ struct Stats
 
 namespace openlr
 {
-int const OpenLRSimpleDecoder::kHandleAllSegmets = -1;
+int const OpenLRSimpleDecoder::kHandleAllSegments = -1;
 
 OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index const & index)
   : m_index(index)
@@ -598,50 +615,89 @@ OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index cons
     MYTHROW(DecoderError, ("Can't load file", dataFilename, ":", load_result.description()));
 }
 
-void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmentsTohandle,
-                                 bool const multipointsOnly)
+void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmentsToHandle,
+                                 bool const multipointsOnly, int const numThreads)
 {
-  FeaturesRoadGraph roadGraph(m_index, IRoadGraph::Mode::ObeyOnewayTag,
-                              make_unique<CarModelFactory>());
-  RoadInfoGetter roadInfoGetter(m_index);
-  AStarRouter astarRouter(roadGraph, roadInfoGetter);
-  Stats stats;
-
-  ofstream sample(outputFilename);
-
   // TODO(mgsergio): Feed segments derectly to the decoder. Parsing sholud not
   // take place inside decoder process.
   vector<LinearSegment> segments;
   if (!ParseOpenlr(m_document, segments))
     MYTHROW(DecoderError, ("Can't parse data."));
 
-  for (auto const & segment : segments)
+  if (multipointsOnly)
   {
-    auto const & ref = segment.m_locationReference;
+    my::EraseIf(segments, [](LinearSegment const & segment) {
+      return segment.m_locationReference.m_points.size() == 2;
+    });
+  }
 
-    if (ref.m_points.size() == 2 && multipointsOnly)
-      continue;
+  if (segmentsToHandle != kHandleAllSegments && segmentsToHandle < segments.size())
+    segments.resize(segmentsToHandle);
 
-    if (stats.m_total != 0)
-      LOG(LINFO, ("Processed:", stats.m_total));
-    if (segmentsTohandle != kHandleAllSegmets && stats.m_total == segmentsTohandle)
-      break;
+  vector<IRoadGraph::TEdgeVector> paths(segments.size());
 
-    ++stats.m_total;
+  size_t constexpr a = LCM(sizeof(LinearSegment), kCLS) / sizeof(LinearSegment);
+  size_t constexpr b = LCM(sizeof(IRoadGraph::TEdgeVector), kCLS) / sizeof(IRoadGraph::TEdgeVector);
+  size_t constexpr kBatchSize = LCM(a, b);
+  size_t constexpr kProgressFrequency = 100;
+
+  auto worker = [&segments, &paths, kBatchSize, kProgressFrequency, numThreads, this](
+      size_t threadNum, Stats & stats) {
+    FeaturesRoadGraph roadGraph(m_index, IRoadGraph::Mode::ObeyOnewayTag,
+                                make_unique<CarModelFactory>());
+    RoadInfoGetter roadInfoGetter(m_index);
+    AStarRouter astarRouter(roadGraph, roadInfoGetter);
+
+    size_t const numSegments = segments.size();
 
     vector<InrixPoint> points;
-    for (auto const & point : ref.m_points)
-      points.emplace_back(point);
 
-    IRoadGraph::TEdgeVector path;
-    if (!astarRouter.Go(points, path))
+    for (size_t i = threadNum * kBatchSize; i < numSegments; i += numThreads * kBatchSize)
     {
-      ++stats.m_routeIsNotCalculated;
-      continue;
-    }
+      for (size_t j = i; j < numSegments && j < i + kBatchSize; ++j)
+      {
+        auto const & segment = segments[j];
 
-    path.erase(remove_if(path.begin(), path.end(), [](Edge const & edge) { return edge.IsFake(); }),
-               path.end());
+        points.clear();
+        for (auto const & point : segment.m_locationReference.m_points)
+          points.emplace_back(point);
+
+        auto & path = paths[j];
+        if (astarRouter.Go(points, path))
+        {
+          path.erase(
+              remove_if(path.begin(), path.end(), [](Edge const & edge) { return edge.IsFake(); }),
+              path.end());
+        }
+        else
+        {
+          ++stats.m_routeIsNotCalculated;
+        }
+
+        ++stats.m_total;
+
+        if (stats.m_total % kProgressFrequency == 0)
+          LOG(LINFO, ("Thread", threadNum, "processed:", stats.m_total));
+      }
+    }
+  };
+
+  vector<Stats> stats(numThreads);
+  vector<thread> workers;
+  for (size_t i = 1; i < numThreads; ++i)
+    workers.emplace_back(worker, i, ref(stats[i]));
+  worker(0 /* threadNum */, stats[0]);
+  for (auto & worker : workers)
+    worker.join();
+
+  ofstream sample(outputFilename);
+  for (size_t i = 0; i < segments.size(); ++i)
+  {
+    auto const & segment = segments[i];
+    auto const & path = paths[i];
+
+    if (path.empty())
+      continue;
 
     sample << segment.m_segmentId << '\t';
     for (auto it = begin(path); it != end(path); ++it)
@@ -655,10 +711,14 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
     sample << endl;
   }
 
-  LOG(LINFO, ("Parsed segments:", stats.m_total,
-              "Routes failed:", stats.m_routeIsNotCalculated,
-              "Short routes:", stats.m_shortRoutes,
-              "Ambiguous routes:", stats.m_moreThanOneCandidates,
-              "Path is not reconstructed:", stats.m_zeroCanditates));
+  Stats allStats;
+  for (auto const & s : stats)
+    allStats.Add(s);
+
+  LOG(LINFO, ("Parsed segments:", allStats.m_total,
+              "Routes failed:", allStats.m_routeIsNotCalculated,
+              "Short routes:", allStats.m_shortRoutes,
+              "Ambiguous routes:", allStats.m_moreThanOneCandidates,
+              "Path is not reconstructed:", allStats.m_zeroCanditates));
 }
 }  // namespace openlr

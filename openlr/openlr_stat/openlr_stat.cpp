@@ -18,6 +18,7 @@
 
 #include "coding/file_name_utils.hpp"
 
+#include "std/cstdint.hpp"
 #include "std/iostream.hpp"
 #include "std/limits.hpp"
 
@@ -25,14 +26,17 @@
 
 DEFINE_string(input, "", "Path to OpenLR file.");
 DEFINE_string(output, "output.txt", "Path to output file");
-DEFINE_int32(limit, openlr::OpenLRSimpleDecoder::kHandleAllSegmets,
-             "Max number of segments to handle. -1 for all.");
+DEFINE_int32(limit, -1, "Max number of segments to handle. -1 for all.");
 DEFINE_bool(multipoints_only, false, "Only segments with multiple points to handle.");
+DEFINE_int32(num_threads, 1, "Number of threads.");
 
 using namespace openlr;
 
 namespace
 {
+const int32_t kMinNumThreads = 1;
+const int32_t kMaxNumThreads = 128;
+
 void LoadIndex(Index & index)
 {
   vector<platform::LocalCountryFile> localFiles;
@@ -55,6 +59,35 @@ void LoadIndex(Index & index)
     }
   }
 }
+
+bool ValidateLimit(char const * flagname, int32_t value)
+{
+  if (value < -1)
+  {
+    printf("Invalid value for --%s: %d, must be greater or equal to -1\n", flagname,
+           static_cast<int>(value));
+    return false;
+  }
+
+  return true;
+}
+
+bool ValidateNumThreads(char const * flagname, int32_t value)
+{
+  if (value < kMinNumThreads || value > kMaxNumThreads)
+  {
+    printf("Invalid value for --%s: %d, must be between %d and %d inclusively\n", flagname,
+           static_cast<int>(value), static_cast<int>(kMinNumThreads),
+           static_cast<int>(kMaxNumThreads));
+    return false;
+  }
+
+  return true;
+}
+
+bool const g_limitDummy = google::RegisterFlagValidator(&FLAGS_limit, &ValidateLimit);
+bool const g_numThreadsDummy =
+    google::RegisterFlagValidator(&FLAGS_num_threads, &ValidateNumThreads);
 }  // namespace
 
 int main(int argc, char * argv[])
@@ -79,7 +112,7 @@ int main(int argc, char * argv[])
                             routing::SingleMwmRouter::CreateCarRouter(index, trafficCache));
 
   OpenLRSimpleDecoder decoder(FLAGS_input, index);
-  decoder.Decode(FLAGS_output, FLAGS_limit, FLAGS_multipoints_only);
+  decoder.Decode(FLAGS_output, FLAGS_limit, FLAGS_multipoints_only, FLAGS_num_threads);
 
   return 0;
 }

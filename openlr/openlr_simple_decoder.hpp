@@ -15,11 +15,12 @@ DECLARE_EXCEPTION(DecoderError, RootException);
 class OpenLRSimpleDecoder
 {
 public:
-  static int const kHandleAllSegmets;
+  static int const kHandleAllSegments;
 
   OpenLRSimpleDecoder(string const & dataFilename, Index const & index);
 
-  void Decode(string const & outputFilename, int segmentsTohandle, bool multipointsOnly);
+  void Decode(string const & outputFilename, int segmentsToHandle, bool multipointsOnly,
+              int numThreads);
 
 private:
   Index const & m_index;
