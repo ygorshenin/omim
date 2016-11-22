@@ -52,6 +52,10 @@ void ParseSampleItem(string const & line, uint32_t const lineNumber, openlr::Sam
       item.m_evaluation = openlr::ItemEvaluation::Positive;
     else if (parts[nextFieldIndex] == "N")
       item.m_evaluation = openlr::ItemEvaluation::Negative;
+    else if (parts[nextFieldIndex] == "R+")
+      item.m_evaluation = openlr::ItemEvaluation::RelPositive;
+    else if (parts[nextFieldIndex] == "R-")
+      item.m_evaluation = openlr::ItemEvaluation::RelNegative;
     else if (parts[nextFieldIndex] == "I")
       item.m_evaluation = openlr::ItemEvaluation::Ignore;
     // TODO(mgsergio): Handle wrong format separately.
@@ -107,6 +111,8 @@ void SaveSamplePool(string const & fileName, SamplePool const & sample)
     case ItemEvaluation::Unevaluated: out << 'U'; break;
     case ItemEvaluation::Positive: out << 'P'; break;
     case ItemEvaluation::Negative: out << 'N'; break;
+    case ItemEvaluation::RelPositive: out << "R+"; break;
+    case ItemEvaluation::RelNegative: out << "R-"; break;
     case ItemEvaluation::Ignore: out << 'I'; break;
     }
     out << '\t';

@@ -19,6 +19,8 @@ enum class ItemEvaluation
   Unevaluated,
   Positive,
   Negative,
+  RelPositive,
+  RelNegative,
   Ignore
 };
 

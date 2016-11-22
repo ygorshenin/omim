@@ -133,6 +133,8 @@ QVariant TrafficMode::data(const QModelIndex & index, int role) const
     case openlr::ItemEvaluation::Unevaluated: return "Unevaluated";
     case openlr::ItemEvaluation::Positive: return "Positive";
     case openlr::ItemEvaluation::Negative: return "Negative";
+    case openlr::ItemEvaluation::RelPositive: return "RelPositive";
+    case openlr::ItemEvaluation::RelNegative: return "RelNegative";
     case openlr::ItemEvaluation::Ignore: return "Ignore";
     }
   }
@@ -198,6 +200,10 @@ bool TrafficMode::setData(QModelIndex const & index, QVariant const & value, int
     evaluation = openlr::ItemEvaluation::Positive;
   else if (newValue == "Negative")
     evaluation = openlr::ItemEvaluation::Negative;
+  else if (newValue == "RelPositive")
+    evaluation = openlr::ItemEvaluation::RelPositive;
+  else if (newValue == "RelNegative")
+    evaluation = openlr::ItemEvaluation::RelNegative;
   else if (newValue == "Ignore")
     evaluation = openlr::ItemEvaluation::Ignore;
   else
