@@ -35,7 +35,7 @@ using namespace routing;
 
 namespace  // A staff to get road data.
 {
-size_t constexpr kCLS = 64;
+size_t constexpr kCacheLineSize = 64;
 
 size_t const kMaxRoadCandidates = 10;
 double const kDistanceAccuracyM = 1000;
@@ -334,9 +334,9 @@ public:
       if (piU < kEps)
       {
         Vertex v(u.m_junction, u.m_junction, ud /* stageStartDistance */, stage + 1);
-        bool const lastVertex = stage + 1 == m_pivots.size();
+        bool const isLastVertex = stage + 1 == m_pivots.size();
 
-        double const piV = lastVertex ? 0 : GetPotential(v);
+        double const piV = isLastVertex ? 0 : GetPotential(v);
 
         Score sv = su;
         sv.AddDistance(max(piV - piU, 0.0));
@@ -351,7 +351,7 @@ public:
           sv.AddBearingPenalty(expected, actual);
         }
 
-        if (lastVertex)
+        if (isLastVertex)
         {
           int const expected = points.back().m_bearing;
           int const actual = GetReverseBearing(u, links);
@@ -360,7 +360,7 @@ public:
 
         pushVertex(u, v, sv, Edge::MakeFake(u.m_junction, v.m_junction));
 
-        if (lastVertex)
+        if (isLastVertex)
           continue;
       }
 
@@ -584,7 +584,7 @@ private:
   vector<vector<m2::PointD>> m_pivots;
 };
 
-struct alignas(kCLS) Stats
+struct alignas(kCacheLineSize) Stats
 {
   void Add(Stats const & rhs)
   {
@@ -636,8 +636,11 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
 
   vector<IRoadGraph::TEdgeVector> paths(segments.size());
 
-  size_t constexpr a = LCM(sizeof(LinearSegment), kCLS) / sizeof(LinearSegment);
-  size_t constexpr b = LCM(sizeof(IRoadGraph::TEdgeVector), kCLS) / sizeof(IRoadGraph::TEdgeVector);
+  // This code computes the most optimal (in the sense of cache lines
+  // occupancy) batch size.
+  size_t constexpr a = LCM(sizeof(LinearSegment), kCacheLineSize) / sizeof(LinearSegment);
+  size_t constexpr b =
+      LCM(sizeof(IRoadGraph::TEdgeVector), kCacheLineSize) / sizeof(IRoadGraph::TEdgeVector);
   size_t constexpr kBatchSize = LCM(a, b);
   size_t constexpr kProgressFrequency = 100;
 
