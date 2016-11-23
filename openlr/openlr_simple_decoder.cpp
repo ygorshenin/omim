@@ -295,7 +295,7 @@ public:
       }
     };
 
-    Vertex const s(js, js, 0, 0 /* stage */);
+    Vertex const s(js, js, 0 /* stageStartDistance */, 0 /* stage */, false /* bearingChecked */);
     scores[s] = Score();
     queue.emplace(scores[s], s);
 
@@ -340,9 +340,26 @@ public:
         continue;
       }
 
-      if (piU < kEps)
+      if (piU < kEps && !u.m_bearingChecked)
       {
-        Vertex v(u.m_junction, u.m_junction, ud /* stageStartDistance */, stage + 1);
+        Vertex v = u;
+        v.m_bearingChecked = true;
+
+        Score sv = su;
+        if (u.m_junction != u.m_stageStart)
+        {
+          int const expected = points[stage].m_bearing;
+          int const actual =
+              BearingToByte(Bearing(u.m_stageStart.GetPoint(), u.m_junction.GetPoint()));
+          sv.AddBearingPenalty(expected, actual);
+        }
+
+        pushVertex(u, v, sv, Edge::MakeFake(u.m_junction, v.m_junction));
+      }
+
+      if (piU < kEps && u.m_bearingChecked)
+      {
+        Vertex v(u.m_junction, u.m_junction, ud /* stageStartDistance */, stage + 1, false /* bearingChecked */);
         bool const isLastVertex = stage + 1 == m_pivots.size();
 
         double const piV = isLastVertex ? 0 : GetPotential(v);
@@ -351,14 +368,6 @@ public:
         sv.AddDistance(max(piV - piU, 0.0));
         sv.AddIntermediateErrorPenalty(
             MercatorBounds::DistanceOnEarth(u.m_junction.GetPoint(), points[stage + 1].m_point));
-
-        if (ud < u.m_stageStartDistance + kBearingDist && u.m_junction != u.m_stageStart)
-        {
-          int const expected = points[stage].m_bearing;
-          int const actual =
-              BearingToByte(Bearing(u.m_stageStart.GetPoint(), u.m_junction.GetPoint()));
-          sv.AddBearingPenalty(expected, actual);
-        }
 
         if (isLastVertex)
         {
@@ -386,7 +395,8 @@ public:
             continue;
         }
 
-        Vertex v(edge.GetEndJunction(), u.m_stageStart, u.m_stageStartDistance, stage);
+        Vertex v(edge.GetEndJunction(), u.m_stageStart, u.m_stageStartDistance, stage,
+                 u.m_bearingChecked);
         double const piV = GetPotential(v);
 
         Score sv = su;
@@ -394,7 +404,7 @@ public:
         sv.AddDistance(max(w + piV - piU, 0.0));
 
         double const vd = ud + w;  // real distance to v
-        if (ud < u.m_stageStartDistance + kBearingDist &&
+        if (!v.m_bearingChecked && ud < u.m_stageStartDistance + kBearingDist &&
             vd >= u.m_stageStartDistance + kBearingDist)
         {
           double const delta = vd - u.m_stageStartDistance - kBearingDist;
@@ -403,6 +413,7 @@ public:
           int const expected = points[stage].m_bearing;
           int const actual = BearingToByte(Bearing(u.m_stageStart.GetPoint(), p));
           sv.AddBearingPenalty(expected, actual);
+          v.m_bearingChecked = true;
         }
 
         if (vd > v.m_stageStartDistance + distanceToNextPointM)
@@ -426,11 +437,12 @@ private:
   {
     Vertex() = default;
     Vertex(Junction const & junction, Junction const & stageStart, double stageStartDistance,
-           size_t stage)
+           size_t stage, bool bearingChecked)
       : m_junction(junction)
       , m_stageStart(stageStart)
       , m_stageStartDistance(stageStartDistance)
       , m_stage(stage)
+      , m_bearingChecked(bearingChecked)
     {
     }
 
@@ -440,19 +452,22 @@ private:
         return m_stage < rhs.m_stage;
       if (m_junction != rhs.m_junction)
         return m_junction < rhs.m_junction;
-      return m_stageStart < rhs.m_stageStart;
+      if (m_stageStart != rhs.m_stageStart)
+        return m_stageStart < rhs.m_stageStart;
+      return m_bearingChecked < rhs.m_bearingChecked;
     }
 
     inline bool operator==(Vertex const & rhs) const
     {
       return m_junction == rhs.m_junction && m_stageStart == rhs.m_stageStart &&
-             m_stage == rhs.m_stage;
+             m_stage == rhs.m_stage && m_bearingChecked == rhs.m_bearingChecked;
     }
 
     Junction m_junction;
     Junction m_stageStart;
     double m_stageStartDistance = 0.0;
     size_t m_stage = 0;
+    bool m_bearingChecked = false;
   };
 
   using Links = map<Vertex, pair<Vertex, Edge>>;
@@ -460,6 +475,11 @@ private:
   class Score
   {
   public:
+    static const int kFakeCoeff = 3;
+    static const int kIntermediateErrorCoeff = 3;
+    static const int kDistanceErrorCoeff = 3;
+    static const int kBearingErrorCoeff = 5;
+
     inline double GetDistance() const { return m_distance; }
 
     inline void AddDistance(double p)
@@ -498,9 +518,10 @@ private:
   private:
     void Update()
     {
-      m_score = m_distance +
-                3 * (m_fakePenalty + m_intermediateErrorPenalty + m_distanceErrorPenalty +
-                     m_bearingPenalty);
+      m_score = m_distance + kFakeCoeff * m_fakePenalty +
+                kIntermediateErrorCoeff * m_intermediateErrorPenalty +
+                kDistanceErrorCoeff * m_distanceErrorPenalty +
+                kBearingErrorCoeff * m_bearingPenalty;
       CHECK_GREATER_OR_EQUAL(m_score, 0, ());
     }
 
@@ -642,6 +663,8 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
 
   if (segmentsToHandle != kHandleAllSegments && segmentsToHandle < segments.size())
     segments.resize(segmentsToHandle);
+
+  sort(segments.begin(), segments.end(), my::LessBy(&LinearSegment::m_segmentId));
 
   vector<IRoadGraph::TEdgeVector> paths(segments.size());
 
