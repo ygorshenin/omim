@@ -33,7 +33,7 @@
 using namespace std::rel_ops;
 using namespace routing;
 
-namespace  // A staff to get road data.
+namespace
 {
 size_t constexpr kCacheLineSize = 64;
 
@@ -155,6 +155,15 @@ public:
     }
 
     return it->second;
+  }
+
+  /// Returns true if the candidate road class is more important (stands higher
+  /// in openlr::FunctionalRoadClass definition) than the restriction or equals to it.
+  /// Ex: FRC0 denotes a road with a higher importance than FRC1.
+  static bool PassFRCLowesRestriction(openlr::FunctionalRoadClass const candidate,
+                                      openlr::FunctionalRoadClass const restriction)
+  {
+    return candidate <= restriction;
   }
 
 private:
@@ -373,7 +382,7 @@ public:
           auto const lowestFuncRoadClass = points[stage].m_lfrcnp;
           auto const edgeFuncRoadClass =
               m_roadInfoGetter.GetFeatureRoadInfo(edge.GetFeatureId()).m_frc;
-          if (edgeFuncRoadClass < lowestFuncRoadClass)
+          if (!RoadInfoGetter::PassFRCLowesRestriction(edgeFuncRoadClass, lowestFuncRoadClass))
             continue;
         }
 

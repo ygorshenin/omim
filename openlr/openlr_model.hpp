@@ -38,18 +38,18 @@ enum class FormOfAWay
 enum class FunctionalRoadClass
 {
   // Main road, highest importance.
-  FRC0 = 10,
+  FRC0,
   // First class road.
-  FRC1 = 9,
+  FRC1,
 
   // Other road classes.
 
-  FRC2 = 8,
-  FRC3 = 7,
-  FRC4 = 6,
-  FRC5 = 4,
-  FRC6 = 3,
-  FRC7 = 2,
+  FRC2,
+  FRC3,
+  FRC4,
+  FRC5,
+  FRC6,
+  FRC7,
   NotAValue
 };
 
