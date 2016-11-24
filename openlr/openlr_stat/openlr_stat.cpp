@@ -26,6 +26,7 @@
 
 DEFINE_string(input, "", "Path to OpenLR file.");
 DEFINE_string(output, "output.txt", "Path to output file");
+DEFINE_string(mwms_path, "", "Path to a folder with mwms.");
 DEFINE_int32(limit, -1, "Max number of segments to handle. -1 for all.");
 DEFINE_bool(multipoints_only, false, "Only segments with multiple points to handle.");
 DEFINE_int32(num_threads, 1, "Number of threads.");
@@ -37,21 +38,24 @@ namespace
 const int32_t kMinNumThreads = 1;
 const int32_t kMaxNumThreads = 128;
 
-void LoadIndex(Index & index)
+void LoadIndex(string const & pathToMWMFolder, Index & index)
 {
-  vector<platform::LocalCountryFile> localFiles;
-
-  auto const latestVersion = numeric_limits<int64_t>::max();
-  FindAllLocalMapsAndCleanup(latestVersion, localFiles);
-
-  for (platform::LocalCountryFile & localFile : localFiles)
+  Platform::FilesList files;
+  Platform::GetFilesByRegExp(pathToMWMFolder, string(".*\\") + DATA_FILE_EXTENSION, files);
+  for (auto const & fileName : files)
   {
-    LOG(LINFO, ("Found mwm:", localFile));
+
+    auto const fullFileName = my::JoinFoldersToPath({pathToMWMFolder}, fileName);
+    ModelReaderPtr reader(GetPlatform().GetReader(fullFileName, "f"));
+    platform::LocalCountryFile localFile(pathToMWMFolder,
+                                         platform::CountryFile(my::GetNameWithoutExtCopy(fileName)),
+                                         version::ReadVersionDate(reader));
+    LOG(LINFO, ("Found mwm:", fullFileName));
     try
     {
       localFile.SyncWithDisk();
-      auto const result = index.RegisterMap(localFile);
-      CHECK_EQUAL(result.second, MwmSet::RegResult::Success, ("Can't register mwm:", localFile));
+      CHECK_EQUAL(index.RegisterMap(localFile).second, MwmSet::RegResult::Success,
+                  ("Can't register mwm:", localFile));
     }
     catch (RootException const & ex)
     {
@@ -85,9 +89,21 @@ bool ValidateNumThreads(char const * flagname, int32_t value)
   return true;
 }
 
+bool ValidataMwmPath(char const * flagname, string const & value)
+{
+  if (value.empty())
+  {
+    printf("--%s should be specified\n", flagname);
+    return false;
+  }
+
+  return true;
+}
+
 bool const g_limitDummy = google::RegisterFlagValidator(&FLAGS_limit, &ValidateLimit);
 bool const g_numThreadsDummy =
     google::RegisterFlagValidator(&FLAGS_num_threads, &ValidateNumThreads);
+bool const g_mwmsPathDummy = google::RegisterFlagValidator(&FLAGS_mwms_path, &ValidataMwmPath);
 }  // namespace
 
 int main(int argc, char * argv[])
@@ -98,7 +114,7 @@ int main(int argc, char * argv[])
   classificator::Load();
 
   Index index;
-  LoadIndex(index);
+  LoadIndex(FLAGS_mwms_path, index);
 
   auto const infoGetter = storage::CountryInfoReader::CreateCountryInfoReader(GetPlatform());
   auto const countryFileGetter = [&infoGetter](m2::PointD const & pt)
