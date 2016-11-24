@@ -47,16 +47,12 @@ size_t constexpr GCD(size_t a, size_t b) { return b == 0 ? a : GCD(b, a % b); }
 
 size_t constexpr LCM(size_t a, size_t b) { return a / GCD(a, b) * b; }
 
-uint32_t BearingToByte(double const angle)
+uint32_t Bearing(m2::PointD const & a, m2::PointD const & b)
 {
+  auto const angle = location::AngleToBearing(my::RadToDeg(ang::AngleTo(a, b)));
   CHECK_LESS_OR_EQUAL(angle, 360, ("Angle should be less than or equal to 360."));
   CHECK_GREATER_OR_EQUAL(angle, 0, ("Angle should be greater than or equal to 0"));
   return my::clamp(angle / kAnglesInBucket, 0, 255);
-};
-
-double Bearing(m2::PointD const & a, m2::PointD const & b)
-{
-  return location::AngleToBearing(my::RadToDeg(ang::AngleTo(a, b)));
 }
 
 class TrunkChecker : public ftypes::BaseChecker
@@ -139,6 +135,20 @@ public:
 
   RoadInfoGetter(Index const & index): m_index(index), m_c(classif()) {}
 
+  /// Returns true if the |edge|'s road class is more important
+  /// (stands higher in openlr::FunctionalRoadClass definition) than
+  /// the restriction or equals to it.  Ex: FRC0 denotes a road with a
+  /// higher importance than FRC1.
+  bool PassFRCLowesRestriction(Edge const & edge, openlr::FunctionalRoadClass const restriction)
+  {
+    if (edge.IsFake())
+      return true;
+
+    auto const frc = GetFeatureRoadInfo(edge.GetFeatureId()).m_frc;
+    return frc <= restriction;
+  }
+
+private:
   RoadInfo GetFeatureRoadInfo(FeatureID const & fid)
   {
     auto it = m_cache.find(fid);
@@ -157,16 +167,6 @@ public:
     return it->second;
   }
 
-  /// Returns true if the candidate road class is more important (stands higher
-  /// in openlr::FunctionalRoadClass definition) than the restriction or equals to it.
-  /// Ex: FRC0 denotes a road with a higher importance than FRC1.
-  static bool PassFRCLowesRestriction(openlr::FunctionalRoadClass const candidate,
-                                      openlr::FunctionalRoadClass const restriction)
-  {
-    return candidate <= restriction;
-  }
-
-private:
   openlr::FunctionalRoadClass GetFunctionalRoadClass(feature::TypesHolder const & types) const
   {
     if (m_trunkChecker(types))
@@ -349,8 +349,7 @@ public:
         if (u.m_junction != u.m_stageStart)
         {
           int const expected = points[stage].m_bearing;
-          int const actual =
-              BearingToByte(Bearing(u.m_stageStart.GetPoint(), u.m_junction.GetPoint()));
+          int const actual = Bearing(u.m_stageStart.GetPoint(), u.m_junction.GetPoint());
           sv.AddBearingPenalty(expected, actual);
         }
 
@@ -386,14 +385,8 @@ public:
       m_graph.GetOutgoingEdges(u.m_junction, edges);
       for (auto const & edge : edges)
       {
-        if (!edge.IsFake())
-        {
-          auto const lowestFuncRoadClass = points[stage].m_lfrcnp;
-          auto const edgeFuncRoadClass =
-              m_roadInfoGetter.GetFeatureRoadInfo(edge.GetFeatureId()).m_frc;
-          if (!RoadInfoGetter::PassFRCLowesRestriction(edgeFuncRoadClass, lowestFuncRoadClass))
-            continue;
-        }
+        if (!m_roadInfoGetter.PassFRCLowesRestriction(edge, points[stage].m_lfrcnp))
+          continue;
 
         Vertex v(edge.GetEndJunction(), u.m_stageStart, u.m_stageStartDistance, stage,
                  u.m_bearingChecked);
@@ -404,15 +397,18 @@ public:
         sv.AddDistance(max(w + piV - piU, 0.0));
 
         double const vd = ud + w;  // real distance to v
-        if (!v.m_bearingChecked && ud < u.m_stageStartDistance + kBearingDist &&
-            vd >= u.m_stageStartDistance + kBearingDist)
+        if (!v.m_bearingChecked && vd >= u.m_stageStartDistance + kBearingDist)
         {
+          ASSERT_LESS(ud, u.m_stageStartDistance + kBearingDist, ());
           double const delta = vd - u.m_stageStartDistance - kBearingDist;
           auto const p = PointAtSegment(edge.GetStartJunction().GetPoint(),
                                         edge.GetEndJunction().GetPoint(), delta);
-          int const expected = points[stage].m_bearing;
-          int const actual = BearingToByte(Bearing(u.m_stageStart.GetPoint(), p));
-          sv.AddBearingPenalty(expected, actual);
+          if (u.m_stageStart.GetPoint() != p)
+          {
+            int const expected = points[stage].m_bearing;
+            int const actual = Bearing(u.m_stageStart.GetPoint(), p);
+            sv.AddBearingPenalty(expected, actual);
+          }
           v.m_bearingChecked = true;
         }
 
@@ -606,7 +602,7 @@ private:
     }
     if (!found)
       b = curr.m_junction.GetPoint();
-    return BearingToByte(Bearing(a, b));
+    return Bearing(a, b);
   }
 
   FeaturesRoadGraph & m_graph;
