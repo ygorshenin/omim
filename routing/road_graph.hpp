@@ -52,10 +52,12 @@ inline bool AlmostEqualAbs(Junction const & lhs, Junction const & rhs)
 class Edge
 {
 public:
-  static Edge MakeFake(Junction const & startJunction, Junction const & endJunction);
+  static Edge MakeFake(Junction const & startJunction, Junction const & endJunction,
+                       bool partOfReal);
 
   Edge();
-  Edge(FeatureID const & featureId, bool forward, uint32_t segId, Junction const & startJunction, Junction const & endJunction);
+  Edge(FeatureID const & featureId, bool forward, uint32_t segId, Junction const & startJunction,
+       Junction const & endJunction);
   Edge(Edge const &) = default;
   Edge & operator=(Edge const &) = default;
 
@@ -65,6 +67,7 @@ public:
   inline Junction const & GetStartJunction() const { return m_startJunction; }
   inline Junction const & GetEndJunction() const { return m_endJunction; }
   inline bool IsFake() const { return !m_featureId.IsValid(); }
+  inline bool IsPartOfReal() const { return m_partOfReal; }
 
   Edge GetReverseEdge() const;
 
@@ -81,6 +84,9 @@ private:
 
   // Is the feature along the road.
   bool m_forward;
+
+  // This flag is set for edges that are parts of some real edges.
+  bool m_partOfReal;
 
   // Ordinal number of the segment on the road.
   uint32_t m_segId;

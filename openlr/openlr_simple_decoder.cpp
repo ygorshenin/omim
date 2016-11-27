@@ -16,6 +16,7 @@
 #include "geometry/angles.hpp"
 #include "geometry/latlon.hpp"
 #include "geometry/polyline2d.hpp"
+#include "geometry/segment2d.hpp"
 
 #include "platform/location.hpp"
 
@@ -28,6 +29,7 @@
 #include "std/map.hpp"
 #include "std/queue.hpp"
 #include "std/thread.hpp"
+#include "std/transform_iterator.hpp"
 #include "std/utility.hpp"
 
 using namespace std::rel_ops;
@@ -139,7 +141,7 @@ public:
   /// (stands higher in openlr::FunctionalRoadClass definition) than
   /// the restriction or equals to it.  Ex: FRC0 denotes a road with a
   /// higher importance than FRC1.
-  bool PassFRCLowesRestriction(Edge const & edge, openlr::FunctionalRoadClass const restriction)
+  bool PassFRCLowestRestriction(Edge const & edge, openlr::FunctionalRoadClass const restriction)
   {
     if (edge.IsFake())
       return true;
@@ -241,7 +243,7 @@ public:
   {
   }
 
-  bool Go(vector<InrixPoint> const & points, vector<Edge> & path)
+  bool Go(vector<InrixPoint> const & points, vector<routing::Edge> & path)
   {
     CHECK_GREATER_OR_EQUAL(points.size(), 2, ());
 
@@ -253,7 +255,7 @@ public:
       m_pivots.emplace_back();
       auto & ps = m_pivots.back();
 
-      vector<pair<Edge, Junction>> vicinity;
+      vector<pair<routing::Edge, Junction>> vicinity;
       m_graph.FindClosestEdges(points[i].m_point, kMaxRoadCandidates, vicinity);
       for (auto const & v : vicinity)
       {
@@ -268,14 +270,14 @@ public:
     Junction js(points.front().m_point, 0 /* altitude */);
 
     {
-      vector<pair<Edge, Junction>> sourceVicinity;
+      vector<pair<routing::Edge, Junction>> sourceVicinity;
       m_graph.FindClosestEdges(points.front().m_point, kMaxRoadCandidates, sourceVicinity);
       m_graph.AddFakeEdges(js, sourceVicinity);
     }
 
     Junction jt(points.back().m_point, 0 /* altitude */);
     {
-      vector<pair<Edge, Junction>> targetVicinity;
+      vector<pair<routing::Edge, Junction>> targetVicinity;
       m_graph.FindClosestEdges(points.back().m_point, kMaxRoadCandidates, targetVicinity);
       m_graph.AddFakeEdges(jt, targetVicinity);
     }
@@ -314,14 +316,17 @@ public:
 
       if (u.m_stage == m_pivots.size())
       {
+        vector<Edge> edges;
         auto cur = u;
         while (cur != s)
         {
           auto const & p = links[cur];
-          path.push_back(p.second);
+
+          edges.push_back(p.second);
           cur = p.first;
         }
-        reverse(path.begin(), path.end());
+        reverse(edges.begin(), edges.end());
+        ReconstructPath(points, edges, path);
         return true;
       }
 
@@ -353,12 +358,13 @@ public:
           sv.AddBearingPenalty(expected, actual);
         }
 
-        pushVertex(u, v, sv, Edge::MakeFake(u.m_junction, v.m_junction));
+        pushVertex(u, v, sv, Edge::MakeSpecial(u, v));
       }
 
       if (piU < kEps && u.m_bearingChecked)
       {
-        Vertex v(u.m_junction, u.m_junction, ud /* stageStartDistance */, stage + 1, false /* bearingChecked */);
+        Vertex v(u.m_junction, u.m_junction, ud /* stageStartDistance */, stage + 1,
+                 false /* bearingChecked */);
         bool const isLastVertex = stage + 1 == m_pivots.size();
 
         double const piV = isLastVertex ? 0 : GetPotential(v);
@@ -375,19 +381,13 @@ public:
           sv.AddBearingPenalty(expected, actual);
         }
 
-        pushVertex(u, v, sv, Edge::MakeFake(u.m_junction, v.m_junction));
+        pushVertex(u, v, sv, Edge::MakeSpecial(u, v));
 
         if (isLastVertex)
           continue;
       }
 
-      IRoadGraph::TEdgeVector edges;
-      m_graph.GetOutgoingEdges(u.m_junction, edges);
-      for (auto const & edge : edges)
-      {
-        if (!m_roadInfoGetter.PassFRCLowesRestriction(edge, points[stage].m_lfrcnp))
-          continue;
-
+      ForEachEdge(u, true /* outgoing */, points[stage].m_lfrcnp, [&](routing::Edge const & edge) {
         Vertex v(edge.GetEndJunction(), u.m_stageStart, u.m_stageStartDistance, stage,
                  u.m_bearingChecked);
         double const piV = GetPotential(v);
@@ -419,10 +419,10 @@ public:
         }
 
         if (edge.IsFake())
-          sv.AddFakePenalty(w);
+          sv.AddFakePenalty(w, edge.IsPartOfReal());
 
-        pushVertex(u, v, sv, edge);
-      }
+        pushVertex(u, v, sv, Edge::MakeNormal(u, v, edge));
+      });
     }
 
     return false;
@@ -466,12 +466,39 @@ private:
     bool m_bearingChecked = false;
   };
 
+  struct Edge
+  {
+  public:
+    Edge() = default;
+    Edge(Vertex const & u, Vertex const & v, routing::Edge const & raw, bool isSpecial)
+      : m_u(u), m_v(v), m_raw(raw), m_isSpecial(isSpecial)
+    {
+    }
+
+    static Edge MakeNormal(Vertex const & u, Vertex const & v, routing::Edge const & raw)
+    {
+      return Edge(u, v, raw, false /* isSpecial */);
+    }
+
+    static Edge MakeSpecial(Vertex const & u, Vertex const & v)
+    {
+      return Edge(u, v, routing::Edge::MakeFake(u.m_junction, v.m_junction, false /* partOfReal */),
+                  true /* isSpecial */);
+    }
+
+    Vertex m_u;
+    Vertex m_v;
+    routing::Edge m_raw;
+    bool m_isSpecial = false;
+  };
+
   using Links = map<Vertex, pair<Vertex, Edge>>;
 
   class Score
   {
   public:
-    static const int kFakeCoeff = 3;
+    static const int kTrueFakeCoeff = 3;
+    static const int kFakeCoeff = 1;
     static const int kIntermediateErrorCoeff = 3;
     static const int kDistanceErrorCoeff = 3;
     static const int kBearingErrorCoeff = 5;
@@ -484,9 +511,12 @@ private:
       Update();
     }
 
-    inline void AddFakePenalty(double p)
+    inline void AddFakePenalty(double p, bool partOfReal)
     {
-      m_fakePenalty += p;
+      if (partOfReal)
+        m_fakePenalty += p;
+      else
+        m_trueFakePenalty += p;
       Update();
     }
 
@@ -506,6 +536,7 @@ private:
     {
       double angle = my::DegToRad(abs(expected - actual) * kAnglesInBucket);
       m_bearingPenalty += angle * kBearingDist;
+      Update();
     }
 
     bool operator<(Score const & rhs) const { return m_score < rhs.m_score; }
@@ -514,7 +545,7 @@ private:
   private:
     void Update()
     {
-      m_score = m_distance + kFakeCoeff * m_fakePenalty +
+      m_score = m_distance + kTrueFakeCoeff * m_trueFakePenalty + kFakeCoeff * m_fakePenalty +
                 kIntermediateErrorCoeff * m_intermediateErrorPenalty +
                 kDistanceErrorCoeff * m_distanceErrorPenalty +
                 kBearingErrorCoeff * m_bearingPenalty;
@@ -524,7 +555,10 @@ private:
     // Reduced length of path in meters.
     double m_distance = 0.0;
 
-    // Penalty of passing by fake edges.
+    // Penalty of passing by true fake edges.
+    double m_trueFakePenalty = 0.0;
+
+    // Penalty of passing by fake edges that are parts of some real edges.
     double m_fakePenalty = 0.0;
 
     // Penalty of passing through an candidate that is too far from
@@ -560,10 +594,12 @@ private:
     return MercatorBounds::DistanceOnEarth(u.GetPoint(), v.GetPoint());
   }
 
-  double GetWeight(Edge const & e) const
+  double GetWeight(routing::Edge const & e) const
   {
     return Distance(e.GetStartJunction(), e.GetEndJunction());
   }
+
+  double GetWeight(Edge const & e) const { return GetWeight(e.m_raw); }
 
   uint32_t GetReverseBearing(Vertex const & u, Links const & links) const
   {
@@ -581,7 +617,7 @@ private:
 
       auto const & p = it->second;
       auto const & prev = p.first;
-      auto const & edge = p.second;
+      auto const & edge = p.second.m_raw;
 
       if (prev.m_stage != curr.m_stage)
         break;
@@ -603,6 +639,139 @@ private:
     if (!found)
       b = curr.m_junction.GetPoint();
     return Bearing(a, b);
+  }
+
+  template <typename Fn>
+  void ForEachEdge(Vertex const & u, bool outgoing, openlr::FunctionalRoadClass restriction,
+                   Fn && fn)
+  {
+    IRoadGraph::TEdgeVector edges;
+    if (outgoing)
+      m_graph.GetOutgoingEdges(u.m_junction, edges);
+    else
+      m_graph.GetIngoingEdges(u.m_junction, edges);
+    for (auto const & edge : edges)
+    {
+      if (!m_roadInfoGetter.PassFRCLowestRestriction(edge, restriction))
+        continue;
+      fn(edge);
+    }
+  }
+
+  template <typename Fn>
+  void ForEachNonFakeEdge(Vertex const & u, bool outgoing, openlr::FunctionalRoadClass restriction,
+                          Fn && fn)
+  {
+    ForEachEdge(u, outgoing, restriction, [&fn](routing::Edge const & edge) {
+      if (!edge.IsFake())
+        fn(edge);
+    });
+  }
+
+  // Finds the longest prefix of [b, e) that covers edge (u, v).
+  // Returns the fraction of the coverage to the length of the (u, v).
+  template <typename It>
+  double GetMatchingScore(m2::PointD const & u, m2::PointD const & v, It b, It e)
+  {
+    double const kEps = 1e-5;
+
+    double const d = MercatorBounds::DistanceOnEarth(u, v);
+
+    double n = 0;
+    for (; b != e; ++b)
+    {
+      auto const & s = b->first;
+      auto const & t = b->second;
+      if (!m2::IsPointOnSegmentEps(s, u, v, kEps) || !m2::IsPointOnSegmentEps(t, u, v, kEps))
+        break;
+      n += MercatorBounds::DistanceOnEarth(s, t);
+    }
+
+    return d == 0 ? 0 : my::clamp(n / d, 0, 1);
+  }
+
+  // Finds the longest prefix of fake edges of [b, e) that matches to
+  // the |stage|. If the prefix exists, passes its bounding iterator
+  // to |fn|.
+  template <typename It, typename Fn>
+  void ForStagePrefix(It b, It e, size_t stage, Fn && fn)
+  {
+    while (b != e && b->m_raw.IsFake() && b->m_u.m_stage == stage && b->m_v.m_stage == stage)
+      ++b;
+    if (b != e && !b->m_raw.IsFake())
+      fn(b);
+  }
+
+  static pair<m2::PointD, m2::PointD> EdgeToPair(Edge const & edge)
+  {
+    auto const & e = edge.m_raw;
+    CHECK(e.IsFake(), ());
+    return make_pair(e.GetStartJunction().GetPoint(), e.GetEndJunction().GetPoint());
+  }
+
+  static pair<m2::PointD, m2::PointD> EdgeToPairRev(Edge const & edge)
+  {
+    auto const & e = edge.m_raw;
+    CHECK(e.IsFake(), ());
+    return make_pair(e.GetEndJunction().GetPoint(), e.GetStartJunction().GetPoint());
+  }
+
+  void ReconstructPath(vector<InrixPoint> const & points, vector<Edge> & edges,
+                       vector<routing::Edge> & path)
+  {
+    CHECK_GREATER_OR_EQUAL(points.size(), 2, ());
+
+    using EdgeIt = vector<Edge>::iterator;
+    using EdgeItRev = vector<Edge>::reverse_iterator;
+
+    double const kFakeCoverageThreshold = 0.5;
+
+    my::EraseIf(edges, [](Edge const & edge) { return edge.m_isSpecial; });
+
+    double frontEdgeScore = -1.0;
+    routing::Edge frontEdge;
+    ForStagePrefix(edges.begin(), edges.end(), 0, [&](EdgeIt e) {
+      ForEachNonFakeEdge(e->m_u, false /* outgoing */, points[0].m_lfrcnp,
+                         [&](routing::Edge const & edge) {
+                           double const score = GetMatchingScore(
+                               edge.GetEndJunction().GetPoint(), edge.GetStartJunction().GetPoint(),
+                               make_transform_iterator(EdgeItRev(e), &EdgeToPairRev),
+                               make_transform_iterator(edges.rend(), &EdgeToPairRev));
+                           if (score > frontEdgeScore)
+                           {
+                             frontEdgeScore = score;
+                             frontEdge = edge;
+                           }
+                         });
+    });
+
+    double backEdgeScore = -1.0;
+    routing::Edge backEdge;
+    ForStagePrefix(edges.rbegin(), edges.rend(), points.size() - 2 /* stage */, [&](EdgeItRev e) {
+      ForEachNonFakeEdge(e->m_v, true /* outgoing */, points[points.size() - 2].m_lfrcnp,
+                         [&](routing::Edge const & edge) {
+                           double const score = GetMatchingScore(
+                               edge.GetStartJunction().GetPoint(), edge.GetEndJunction().GetPoint(),
+                               make_transform_iterator(e.base(), &EdgeToPair),
+                               make_transform_iterator(edges.end(), &EdgeToPair));
+                           if (score > backEdgeScore)
+                           {
+                             backEdgeScore = score;
+                             backEdge = edge;
+                           }
+                         });
+    });
+
+    my::EraseIf(edges, [](Edge const & edge) { return edge.m_raw.IsFake(); });
+
+    for (auto const e : edges)
+      path.push_back(e.m_raw);
+
+    if (frontEdgeScore >= kFakeCoverageThreshold)
+      path.insert(path.begin(), frontEdge);
+
+    if (backEdgeScore >= kFakeCoverageThreshold)
+      path.insert(path.end(), backEdge);
   }
 
   FeaturesRoadGraph & m_graph;
@@ -694,16 +863,8 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
           points.emplace_back(point);
 
         auto & path = paths[j];
-        if (astarRouter.Go(points, path))
-        {
-          path.erase(
-              remove_if(path.begin(), path.end(), [](Edge const & edge) { return edge.IsFake(); }),
-              path.end());
-        }
-        else
-        {
+        if (!astarRouter.Go(points, path))
           ++stats.m_routeIsNotCalculated;
-        }
 
         ++stats.m_total;
 
