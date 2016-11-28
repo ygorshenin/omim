@@ -497,10 +497,20 @@ private:
   class Score
   {
   public:
+    // A weight for total length of true fake edges.
     static const int kTrueFakeCoeff = 3;
+
+    // A weight for total length of fake edges that are parts of some
+    // real edges.
     static const int kFakeCoeff = 1;
+
+    // A weight for passing too far from pivot points.
     static const int kIntermediateErrorCoeff = 3;
+
+    // A weight for excess of distance limit.
     static const int kDistanceErrorCoeff = 3;
+
+    // A weight for deviation from bearing.
     static const int kBearingErrorCoeff = 5;
 
     inline double GetDistance() const { return m_distance; }
@@ -675,24 +685,24 @@ private:
   {
     double const kEps = 1e-5;
 
-    double const d = MercatorBounds::DistanceOnEarth(u, v);
+    double const len = MercatorBounds::DistanceOnEarth(u, v);
 
-    double n = 0;
+    double cov = 0;
     for (; b != e; ++b)
     {
       auto const & s = b->first;
       auto const & t = b->second;
       if (!m2::IsPointOnSegmentEps(s, u, v, kEps) || !m2::IsPointOnSegmentEps(t, u, v, kEps))
         break;
-      n += MercatorBounds::DistanceOnEarth(s, t);
+      cov += MercatorBounds::DistanceOnEarth(s, t);
     }
 
-    return d == 0 ? 0 : my::clamp(n / d, 0, 1);
+    return len == 0 ? 0 : my::clamp(cov / len, 0, 1);
   }
 
-  // Finds the longest prefix of fake edges of [b, e) that matches to
-  // the |stage|. If the prefix exists, passes its bounding iterator
-  // to |fn|.
+  // Finds the longest prefix of fake edges of [b, e) that have the
+  // same stage as |stage|. If the prefix exists, passes its bounding
+  // iterator to |fn|.
   template <typename It, typename Fn>
   void ForStagePrefix(It b, It e, size_t stage, Fn && fn)
   {
