@@ -243,7 +243,8 @@ public:
   {
   }
 
-  bool Go(vector<InrixPoint> const & points, vector<routing::Edge> & path)
+  bool Go(vector<InrixPoint> const & points, vector<routing::Edge> & path, double positiveOffsetM,
+          double negativeOffsetM)
   {
     CHECK_GREATER_OR_EQUAL(points.size(), 2, ());
 
@@ -326,7 +327,7 @@ public:
           cur = p.first;
         }
         reverse(edges.begin(), edges.end());
-        ReconstructPath(points, edges, path);
+        ReconstructPath(points, edges, positiveOffsetM, negativeOffsetM, path);
         return true;
       }
 
@@ -678,6 +679,25 @@ private:
     });
   }
 
+  template <typename It>
+  size_t FindPrefixLengthToConsume(It b, It const e, double lengthM)
+  {
+    size_t n = 0;
+    while (b != e && lengthM > 0.0)
+    {
+      auto const & u = b->first;
+      auto const & v = b->second;
+      double const len = MercatorBounds::DistanceOnEarth(u, v);
+      if (2 * lengthM < len)
+        break;
+
+      lengthM -= len;
+      ++n;
+      ++b;
+    }
+    return n;
+  }
+
   // Finds the longest prefix of [b, e) that covers edge (u, v).
   // Returns the fraction of the coverage to the length of the (u, v).
   template <typename It>
@@ -715,19 +735,17 @@ private:
   static pair<m2::PointD, m2::PointD> EdgeToPair(Edge const & edge)
   {
     auto const & e = edge.m_raw;
-    CHECK(e.IsFake(), ());
     return make_pair(e.GetStartJunction().GetPoint(), e.GetEndJunction().GetPoint());
   }
 
   static pair<m2::PointD, m2::PointD> EdgeToPairRev(Edge const & edge)
   {
     auto const & e = edge.m_raw;
-    CHECK(e.IsFake(), ());
     return make_pair(e.GetEndJunction().GetPoint(), e.GetStartJunction().GetPoint());
   }
 
   void ReconstructPath(vector<InrixPoint> const & points, vector<Edge> & edges,
-                       vector<routing::Edge> & path)
+                       double positiveOffsetM, double negativeOffsetM, vector<routing::Edge> & path)
   {
     CHECK_GREATER_OR_EQUAL(points.size(), 2, ());
 
@@ -737,6 +755,22 @@ private:
     double const kFakeCoverageThreshold = 0.5;
 
     my::EraseIf(edges, [](Edge const & edge) { return edge.m_isSpecial; });
+
+    {
+      size_t const n = FindPrefixLengthToConsume(
+          make_transform_iterator(edges.begin(), &EdgeToPair),
+          make_transform_iterator(edges.end(), &EdgeToPair), positiveOffsetM);
+      CHECK_LESS_OR_EQUAL(n, edges.size(), ());
+      edges.erase(edges.begin(), edges.begin() + n);
+    }
+
+    {
+      size_t const n = FindPrefixLengthToConsume(
+          make_transform_iterator(edges.rbegin(), &EdgeToPairRev),
+          make_transform_iterator(edges.rend(), &EdgeToPairRev), negativeOffsetM);
+      CHECK_LESS_OR_EQUAL(n, edges.size(), ());
+      edges.erase(edges.begin() + edges.size() - n, edges.end());
+    }
 
     double frontEdgeScore = -1.0;
     routing::Edge frontEdge;
@@ -867,13 +901,14 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
       for (size_t j = i; j < numSegments && j < i + kBatchSize; ++j)
       {
         auto const & segment = segments[j];
+        auto const & ref = segment.m_locationReference;
 
         points.clear();
-        for (auto const & point : segment.m_locationReference.m_points)
+        for (auto const & point : ref.m_points)
           points.emplace_back(point);
 
         auto & path = paths[j];
-        if (!astarRouter.Go(points, path))
+        if (!astarRouter.Go(points, path, ref.m_positiveOffsetMeters, ref.m_negativeOffsetMeters))
           ++stats.m_routeIsNotCalculated;
 
         ++stats.m_total;
