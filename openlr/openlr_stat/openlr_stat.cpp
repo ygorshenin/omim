@@ -30,6 +30,7 @@ DEFINE_string(mwms_path, "", "Path to a folder with mwms.");
 DEFINE_int32(limit, -1, "Max number of segments to handle. -1 for all.");
 DEFINE_bool(multipoints_only, false, "Only segments with multiple points to handle.");
 DEFINE_int32(num_threads, 1, "Number of threads.");
+DEFINE_string(ids_path, "", "Path to a file with segment ids to process.");
 
 using namespace openlr;
 
@@ -127,8 +128,9 @@ int main(int argc, char * argv[])
   routing::CarRouter router(index, countryFileGetter,
                             routing::SingleMwmRouter::CreateCarRouter(index, trafficCache));
 
+  OpenLRSimpleDecoder::SegmentsFilter filter(FLAGS_ids_path, FLAGS_multipoints_only);
   OpenLRSimpleDecoder decoder(FLAGS_input, index);
-  decoder.Decode(FLAGS_output, FLAGS_limit, FLAGS_multipoints_only, FLAGS_num_threads);
+  decoder.Decode(FLAGS_output, FLAGS_limit, filter, FLAGS_num_threads);
 
   return 0;
 }

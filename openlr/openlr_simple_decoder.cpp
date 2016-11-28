@@ -844,6 +844,32 @@ struct alignas(kCacheLineSize) Stats
 
 namespace openlr
 {
+// OpenLRSimpleDecoder::SegmentsFilter -------------------------------------------------------------
+OpenLRSimpleDecoder::SegmentsFilter::SegmentsFilter(string const & idsPath,
+                                                    bool const multipointsOnly)
+  : m_idsSet(false), m_multipointsOnly(multipointsOnly)
+{
+  if (idsPath.empty())
+    return;
+
+  ifstream ifs(idsPath);
+  CHECK(ifs, ("Can't find", idsPath));
+  m_ids.insert(istream_iterator<uint32_t>(ifs), istream_iterator<uint32_t>());
+
+  CHECK(!ifs, ("Garbage in", idsPath));
+  m_idsSet = true;
+}
+
+bool OpenLRSimpleDecoder::SegmentsFilter::Matches(LinearSegment const & segment) const
+{
+  if (m_multipointsOnly && segment.m_locationReference.m_points.size() == 2)
+    return false;
+  if (m_idsSet && m_ids.count(segment.m_segmentId) == 0)
+    return false;
+  return true;
+}
+
+// OpenLRSimpleDecoder -----------------------------------------------------------------------------
 int const OpenLRSimpleDecoder::kHandleAllSegments = -1;
 
 OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index const & index)
@@ -855,7 +881,7 @@ OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index cons
 }
 
 void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmentsToHandle,
-                                 bool const multipointsOnly, int const numThreads)
+                                 SegmentsFilter const & filter, int const numThreads)
 {
   // TODO(mgsergio): Feed segments derectly to the decoder. Parsing sholud not
   // take place inside decoder process.
@@ -863,12 +889,8 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
   if (!ParseOpenlr(m_document, segments))
     MYTHROW(DecoderError, ("Can't parse data."));
 
-  if (multipointsOnly)
-  {
-    my::EraseIf(segments, [](LinearSegment const & segment) {
-      return segment.m_locationReference.m_points.size() == 2;
-    });
-  }
+  my::EraseIf(segments,
+              [&filter](LinearSegment const & segment) { return !filter.Matches(segment); });
 
   if (segmentsToHandle != kHandleAllSegments && segmentsToHandle < segments.size())
     segments.resize(segmentsToHandle);
