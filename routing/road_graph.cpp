@@ -215,9 +215,8 @@ void IRoadGraph::AddFakeEdges(Junction const & junction,
     vector<Edge> edges;
     SplitEdge(ab, p, edges);
 
-    bool const partOfReal = ab.IsPartOfReal();
-    edges.push_back(Edge::MakeFake(junction, p, partOfReal));
-    edges.push_back(Edge::MakeFake(p, junction, partOfReal));
+    edges.push_back(Edge::MakeFake(junction, p, false /* partOfReal */));
+    edges.push_back(Edge::MakeFake(p, junction, false /* partOfReal */));
 
     ForEachFakeEdge([&](Edge const & uv)
                     {
