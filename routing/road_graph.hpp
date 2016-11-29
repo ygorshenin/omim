@@ -25,6 +25,7 @@ public:
   Junction & operator=(Junction const &) = default;
 
   inline bool operator==(Junction const & r) const { return m_point == r.m_point; }
+  inline bool operator!=(Junction const & r) const { return !(*this == r); }
   inline bool operator<(Junction const & r) const { return m_point < r.m_point; }
 
   inline m2::PointD const & GetPoint() const { return m_point; }

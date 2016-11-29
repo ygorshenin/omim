@@ -32,7 +32,6 @@
 #include "std/transform_iterator.hpp"
 #include "std/utility.hpp"
 
-using namespace std::rel_ops;
 using namespace routing;
 
 namespace
@@ -460,6 +459,8 @@ private:
              m_stage == rhs.m_stage && m_bearingChecked == rhs.m_bearingChecked;
     }
 
+    inline bool operator!=(Vertex const & rhs) const { return !(*this == rhs); }
+
     Junction m_junction;
     Junction m_stageStart;
     double m_stageStartDistance = 0.0;
@@ -551,7 +552,9 @@ private:
     }
 
     bool operator<(Score const & rhs) const { return m_score < rhs.m_score; }
+    bool operator>(Score const & rhs) const { return rhs < *this; }
     bool operator==(Score const & rhs) const { return m_score == rhs.m_score; }
+    bool operator!=(Score const & rhs) const { return !(*this == rhs); }
 
   private:
     void Update()
