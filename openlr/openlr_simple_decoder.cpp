@@ -26,6 +26,7 @@
 
 #include "std/algorithm.hpp"
 #include "std/fstream.hpp"
+#include "std/functional.hpp"
 #include "std/map.hpp"
 #include "std/queue.hpp"
 #include "std/thread.hpp"
@@ -140,7 +141,7 @@ public:
   /// (stands higher in openlr::FunctionalRoadClass definition) than
   /// the restriction or equals to it.  Ex: FRC0 denotes a road with a
   /// higher importance than FRC1.
-  bool PassFRCLowestRestriction(Edge const & edge, openlr::FunctionalRoadClass const restriction)
+  bool PassesFRCLowestRestriction(Edge const & edge, openlr::FunctionalRoadClass const restriction)
   {
     if (edge.IsFake())
       return true;
@@ -326,8 +327,7 @@ public:
           cur = p.first;
         }
         reverse(edges.begin(), edges.end());
-        ReconstructPath(points, edges, positiveOffsetM, negativeOffsetM, path);
-        return true;
+        return ReconstructPath(points, edges, positiveOffsetM, negativeOffsetM, path);
       }
 
       size_t const stage = u.m_stage;
@@ -488,6 +488,10 @@ private:
                   true /* isSpecial */);
     }
 
+    inline bool IsFake() const { return m_raw.IsFake(); }
+
+    inline bool IsSpecial() const { return m_isSpecial; }
+
     Vertex m_u;
     Vertex m_v;
     routing::Edge m_raw;
@@ -504,7 +508,7 @@ private:
 
     // A weight for total length of fake edges that are parts of some
     // real edges.
-    static const int kFakeCoeff = 1;
+    static constexpr double kFakeCoeff = 0.001;
 
     // A weight for passing too far from pivot points.
     static const int kIntermediateErrorCoeff = 3;
@@ -615,6 +619,12 @@ private:
 
   double GetWeight(Edge const & e) const { return GetWeight(e.m_raw); }
 
+  bool PassesRestriction(routing::Edge const & edge,
+                         openlr::FunctionalRoadClass const restriction) const
+  {
+    return m_roadInfoGetter.PassesFRCLowestRestriction(edge, restriction);
+  }
+
   uint32_t GetReverseBearing(Vertex const & u, Links const & links) const
   {
     m2::PointD const a = u.m_junction.GetPoint();
@@ -666,7 +676,7 @@ private:
       m_graph.GetIngoingEdges(u.m_junction, edges);
     for (auto const & edge : edges)
     {
-      if (!m_roadInfoGetter.PassFRCLowestRestriction(edge, restriction))
+      if (!PassesRestriction(edge, restriction))
         continue;
       fn(edge);
     }
@@ -680,6 +690,24 @@ private:
       if (!edge.IsFake())
         fn(edge);
     });
+  }
+
+  template <typename Fn>
+  void ForEachNonFakeClosestEdge(Vertex const & u, openlr::FunctionalRoadClass const restriction,
+                                 Fn && fn)
+  {
+    vector<pair<routing::Edge, Junction>> vicinity;
+    m_graph.FindClosestEdges(u.m_junction.GetPoint(), kMaxRoadCandidates, vicinity);
+
+    for (auto const & p : vicinity)
+    {
+      auto const & edge = p.first;
+      if (edge.IsFake())
+        continue;
+      if (!PassesRestriction(edge, restriction))
+        continue;
+      fn(edge);
+    }
   }
 
   template <typename It>
@@ -701,6 +729,65 @@ private:
     return n;
   }
 
+  // Finds all edges that are on (u, v) and have the same direction as
+  // (u, v).  Then, computes the fraction of the union of these edges
+  // to the total length of (u, v).
+  template <typename It>
+  double GetCoverage(m2::PointD const & u, m2::PointD const & v, It b, It e)
+  {
+    double const kEps = 1e-5;
+
+    m2::PointD const uv = v - u;
+    double const sqlen = u.SquareLength(v);
+
+    if (sqlen < kEps)
+      return 0;
+
+    vector<pair<double, double>> covs;
+    for(; b != e; ++b)
+    {
+      auto const s = b->m_u.m_junction.GetPoint();
+      auto const t = b->m_v.m_junction.GetPoint();
+      if (!m2::IsPointOnSegmentEps(s, u, v, kEps) || !m2::IsPointOnSegmentEps(t, u, v, kEps))
+        continue;
+
+      if (DotProduct(uv, t - s) < -kEps)
+        continue;
+
+      double const sp = DotProduct(uv, s - u) / sqlen;
+      double const tp = DotProduct(uv, t - u) / sqlen;
+
+      double const start = my::clamp(min(sp, tp), 0, 1);
+      double const finish = my::clamp(max(sp, tp), 0, 1);
+      covs.emplace_back(start, finish);
+    }
+
+    sort(covs.begin(), covs.end());
+
+    double coverage = 0;
+
+    size_t i = 0;
+    while (i != covs.size())
+    {
+      size_t j = i;
+
+      double const first = covs[i].first;
+      double last = covs[i].second;
+      while (j != covs.size() && covs[j].first <= last)
+      {
+        last = max(last, covs[j].second);
+        ++j;
+      }
+
+      coverage += last - first;
+      i = j;
+    }
+
+    CHECK_LESS_OR_EQUAL(coverage, 1.0 + kEps, ());
+
+    return coverage;
+  }
+
   // Finds the longest prefix of [b, e) that covers edge (u, v).
   // Returns the fraction of the coverage to the length of the (u, v).
   template <typename It>
@@ -710,6 +797,8 @@ private:
 
     double const len = MercatorBounds::DistanceOnEarth(u, v);
 
+    m2::PointD const uv = v - u;
+
     double cov = 0;
     for (; b != e; ++b)
     {
@@ -717,6 +806,11 @@ private:
       auto const & t = b->second;
       if (!m2::IsPointOnSegmentEps(s, u, v, kEps) || !m2::IsPointOnSegmentEps(t, u, v, kEps))
         break;
+
+      m2::PointD const st = t - s;
+      if (DotProduct(uv, st) < -kEps)
+        break;
+
       cov += MercatorBounds::DistanceOnEarth(s, t);
     }
 
@@ -747,7 +841,7 @@ private:
     return make_pair(e.GetEndJunction().GetPoint(), e.GetStartJunction().GetPoint());
   }
 
-  void ReconstructPath(vector<InrixPoint> const & points, vector<Edge> & edges,
+  bool ReconstructPath(vector<InrixPoint> const & points, vector<Edge> & edges,
                        double positiveOffsetM, double negativeOffsetM, vector<routing::Edge> & path)
   {
     CHECK_GREATER_OR_EQUAL(points.size(), 2, ());
@@ -757,7 +851,7 @@ private:
 
     double const kFakeCoverageThreshold = 0.5;
 
-    my::EraseIf(edges, [](Edge const & edge) { return edge.m_isSpecial; });
+    my::EraseIf(edges, mem_fn(&Edge::IsSpecial));
 
     {
       size_t const n = FindPrefixLengthToConsume(
@@ -809,16 +903,71 @@ private:
                          });
     });
 
-    my::EraseIf(edges, [](Edge const & edge) { return edge.m_raw.IsFake(); });
-
+    path.clear();
     for (auto const e : edges)
-      path.push_back(e.m_raw);
+    {
+      if (!e.IsFake())
+        path.push_back(e.m_raw);
+    }
 
     if (frontEdgeScore >= kFakeCoverageThreshold)
       path.insert(path.begin(), frontEdge);
 
     if (backEdgeScore >= kFakeCoverageThreshold)
       path.insert(path.end(), backEdge);
+
+    if (path.empty())
+    {
+      // This is the case for routes from fake edges only.
+      FindSingleEdgeApproximation(points, edges, path);
+    }
+
+    return !path.empty();
+  }
+
+  void FindSingleEdgeApproximation(vector<InrixPoint> const & points, vector<Edge> const & edges,
+                                   vector<routing::Edge> & path)
+  {
+    double const kThreshold = 0.95;
+
+    CHECK(all_of(edges.begin(), edges.end(), mem_fn(&Edge::IsFake)), ());
+
+    double expectedLength = 0;
+    for (auto const & edge : edges)
+      expectedLength += GetWeight(edge);
+
+    if (expectedLength < kEps)
+      return;
+
+    double bestCoverage = -1.0;
+    routing::Edge bestEdge;
+
+    auto checkEdge = [&](routing::Edge const & edge) {
+      double const weight = GetWeight(edge);
+      double const fraction =
+          GetCoverage(edge.GetStartJunction().GetPoint(), edge.GetEndJunction().GetPoint(),
+                      edges.begin(), edges.end());
+      double const coverage = weight * fraction;
+      if (fraction >= kThreshold && coverage >= bestCoverage)
+      {
+        bestCoverage = coverage;
+        bestEdge = edge;
+      }
+    };
+
+    for (auto const & edge : edges)
+    {
+      auto const & u = edge.m_u;
+      auto const & v = edge.m_v;
+      CHECK_EQUAL(u.m_stage, v.m_stage, ());
+      auto const stage = u.m_stage;
+
+      ForEachNonFakeClosestEdge(u, points[stage].m_lfrcnp, checkEdge);
+      ForEachNonFakeClosestEdge(v, points[stage].m_lfrcnp, checkEdge);
+    }
+
+    if (bestCoverage >= expectedLength * kThreshold)
+      path = {bestEdge};
   }
 
   FeaturesRoadGraph & m_graph;
