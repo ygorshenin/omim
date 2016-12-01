@@ -21,7 +21,7 @@ void ParseMWMSegments(string const & line, uint32_t const lineNumber,
   {
     vector<string> segParts;
     strings::ParseCSVRow(seg, '-', segParts);
-    ASSERT_EQUAL(segParts.size(), 3, ());
+    ASSERT_EQUAL(segParts.size(), 5, ());
 
     auto const mwmId = index.GetMwmIdByCountryFile(platform::CountryFile(segParts[0]));
 
@@ -32,6 +32,8 @@ void ParseMWMSegments(string const & line, uint32_t const lineNumber,
     uint32_t segId;
     if (!strings::to_uint(segParts[2], segId))
       MYTHROW(openlr::SamplePoolLoadError, ("Can't parse MWMSegment", seg, "line:", lineNumber));
+
+    // There are two more fields in segParts: is_forward and segment length, but we ignore them.
 
     segments.push_back({FeatureID(mwmId, featureIndex), segId});
   }

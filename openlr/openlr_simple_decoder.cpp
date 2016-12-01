@@ -1113,9 +1113,13 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
     sample << segment.m_segmentId << '\t';
     for (auto it = begin(path); it != end(path); ++it)
     {
+      CHECK(!it->IsFake(), ("There should be no fake edges in the path."));
       auto const & fid = it->GetFeatureId();
       sample << fid.m_mwmId.GetInfo()->GetCountryName() << '-'
              << fid.m_index << '-' << it->GetSegId();
+      sample << '-' << (it->IsForward() ? "fwd" : "bwd");
+      sample << '-' << MercatorBounds::DistanceOnEarth(it->GetStartJunction().GetPoint(),
+                                                       it->GetEndJunction().GetPoint());
       if (next(it) != end(path))
         sample << '=';
     }
