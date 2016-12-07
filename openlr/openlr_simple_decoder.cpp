@@ -1081,8 +1081,22 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
         for (auto const & point : ref.m_points)
           points.emplace_back(point);
 
+        auto positiveOffsetM = ref.m_positiveOffsetMeters;
+        if (points.size() == 2 && positiveOffsetM >= points[0].m_distanceToNextPointM)
+        {
+          LOG(LWARNING, ("Wrong positive offset for segment:", segment.m_segmentId));
+          positiveOffsetM = 0;
+        }
+
+        auto negativeOffsetM = ref.m_negativeOffsetMeters;
+        if (points.size() == 2 && negativeOffsetM >= points[0].m_distanceToNextPointM)
+        {
+          LOG(LWARNING, ("Wrong negative offset for segment:", segment.m_segmentId));
+          negativeOffsetM = 0;
+        }
+
         auto & path = paths[j];
-        if (!astarRouter.Go(points, path, ref.m_positiveOffsetMeters, ref.m_negativeOffsetMeters))
+        if (!astarRouter.Go(points, path, positiveOffsetM, negativeOffsetM))
           ++stats.m_routeIsNotCalculated;
 
         ++stats.m_total;

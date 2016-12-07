@@ -24,7 +24,7 @@ bool OnEdge(Junction const & p, Edge const & ab)
 {
   auto const & a = ab.GetStartJunction();
   auto const & b = ab.GetEndJunction();
-  return m2::IsPointOnSegment(p.GetPoint(), a.GetPoint(), b.GetPoint());
+  return m2::IsPointOnSegmentEps(p.GetPoint(), a.GetPoint(), b.GetPoint(), 1e-9);
 }
 
 void SplitEdge(Edge const & ab, Junction const & p, vector<Edge> & edges)
