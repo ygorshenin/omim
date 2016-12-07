@@ -2,12 +2,8 @@
 
 ROOT_DIR = ../..
 
-# DEPENDENCIES = generator routing search storage indexer editor platform geometry \
-#                coding base freetype expat fribidi tomcrypt jansson protobuf osrm stats_client \
-#                minizip succinct pugixml tess2 gflags oauthcpp
-
-DEPENDENCIES = routing search traffic storage indexer editor platform geometry coding base protobuf \
-               osrm stats_client pugixml openlr jansson succinct gflags
+DEPENDENCIES = openlr routing search storage indexer editor platform geometry coding base protobuf \
+               osrm stats_client pugixml jansson succinct gflags
 
 include($$ROOT_DIR/common.pri)
 

@@ -1,14 +1,5 @@
 #include "openlr/openlr_simple_decoder.hpp"
 
-#include "routing/car_router.hpp"
-#include "routing/road_graph_router.hpp"
-#include "routing/router.hpp"
-#include "routing/single_mwm_router.hpp"
-
-#include "traffic/traffic_cache.hpp"
-
-#include "storage/country_info_getter.hpp"
-
 #include "indexer/classificator_loader.hpp"
 #include "indexer/index.hpp"
 
@@ -19,8 +10,7 @@
 #include "coding/file_name_utils.hpp"
 
 #include "std/cstdint.hpp"
-#include "std/iostream.hpp"
-#include "std/limits.hpp"
+#include "std/cstdio.hpp"
 
 #include "3party/gflags/src/gflags/gflags.h"
 
@@ -116,17 +106,6 @@ int main(int argc, char * argv[])
 
   Index index;
   LoadIndex(FLAGS_mwms_path, index);
-
-  auto const infoGetter = storage::CountryInfoReader::CreateCountryInfoReader(GetPlatform());
-  auto const countryFileGetter = [&infoGetter](m2::PointD const & pt)
-  {
-    return infoGetter->GetRegionCountryId(pt);
-  };
-
-  traffic::TrafficCache trafficCache;
-
-  routing::CarRouter router(index, countryFileGetter,
-                            routing::SingleMwmRouter::CreateCarRouter(index, trafficCache));
 
   OpenLRSimpleDecoder::SegmentsFilter filter(FLAGS_ids_path, FLAGS_multipoints_only);
   OpenLRSimpleDecoder decoder(FLAGS_input, index);
