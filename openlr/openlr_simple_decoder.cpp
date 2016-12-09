@@ -264,6 +264,9 @@ public:
         ps.push_back(e.GetStartJunction().GetPoint());
         ps.push_back(e.GetEndJunction().GetPoint());
       }
+
+      if (ps.empty())
+        return false;
     }
     m_pivots.push_back({points.back().m_point});
     CHECK_EQUAL(m_pivots.size() + 1, points.size(), ());
@@ -290,7 +293,7 @@ public:
 
     auto pushVertex = [&queue, &scores, &links](Vertex const & u, Vertex const & v,
                                                 Score const & sv, Edge const & e) {
-      if ((scores.count(v) == 0 || scores[v] > sv) && u != v)
+      if ((scores.count(v) == 0 || scores[v].GetValue() > sv.GetValue() + kEps) && u != v)
       {
         scores[v] = sv;
         links[v] = make_pair(u, e);
@@ -555,6 +558,8 @@ private:
       Update();
     }
 
+    inline double GetValue() const { return m_score; }
+
     bool operator<(Score const & rhs) const { return m_score < rhs.m_score; }
     bool operator>(Score const & rhs) const { return rhs < *this; }
     bool operator==(Score const & rhs) const { return m_score == rhs.m_score; }
@@ -598,6 +603,7 @@ private:
     CHECK_LESS(u.m_stage, m_pivots.size(), ());
 
     auto const & pivots = m_pivots[u.m_stage];
+    CHECK(!pivots.empty(), ("Empty list of pivots"));
 
     double potential = numeric_limits<double>::max();
 
