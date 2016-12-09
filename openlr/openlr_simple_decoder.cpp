@@ -45,8 +45,6 @@ double const kEps = 1e-9;
 double const kBearingDist = 25;
 double const kAnglesInBucket = 360.0 / 256;
 
-size_t const kMaxSteps = 1000000;
-
 size_t constexpr GCD(size_t a, size_t b) { return b == 0 ? a : GCD(b, a % b); }
 
 size_t constexpr LCM(size_t a, size_t b) { return a / GCD(a, b) * b; }
@@ -323,14 +321,6 @@ public:
         auto cur = u;
         while (cur != s)
         {
-          // TODO (@y): replace by honest tortoise-hare cycle
-          // detector.
-          if (edges.size() > kMaxSteps)
-          {
-            LOG(LWARNING, ("Too many steps in the path, possibly precision problems."));
-            return false;
-          }
-
           auto const & p = links[cur];
 
           edges.push_back(p.second);
@@ -460,16 +450,13 @@ private:
         return m_junction < rhs.m_junction;
       if (m_stageStart != rhs.m_stageStart)
         return m_stageStart < rhs.m_stageStart;
-      if (m_stageStartDistance != rhs.m_stageStartDistance)
-        return m_stageStartDistance < rhs.m_stageStartDistance;
       return m_bearingChecked < rhs.m_bearingChecked;
     }
 
     inline bool operator==(Vertex const & rhs) const
     {
       return m_junction == rhs.m_junction && m_stageStart == rhs.m_stageStart &&
-             m_stageStartDistance == rhs.m_stageStartDistance && m_stage == rhs.m_stage &&
-             m_bearingChecked == rhs.m_bearingChecked;
+             m_stage == rhs.m_stage && m_bearingChecked == rhs.m_bearingChecked;
     }
 
     inline bool operator!=(Vertex const & rhs) const { return !(*this == rhs); }
