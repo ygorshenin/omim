@@ -11,6 +11,7 @@
 
 #include "std/cstdint.hpp"
 #include "std/cstdio.hpp"
+#include "std/vector.hpp"
 
 #include "3party/gflags/src/gflags/gflags.h"
 
@@ -29,7 +30,7 @@ namespace
 const int32_t kMinNumThreads = 1;
 const int32_t kMaxNumThreads = 128;
 
-void LoadIndex(string const & pathToMWMFolder, Index & index)
+void LoadIndexes(string const & pathToMWMFolder, vector<Index> & indexes)
 {
   Platform::FilesList files;
   Platform::GetFilesByRegExp(pathToMWMFolder, string(".*\\") + DATA_FILE_EXTENSION, files);
@@ -45,8 +46,11 @@ void LoadIndex(string const & pathToMWMFolder, Index & index)
     try
     {
       localFile.SyncWithDisk();
-      CHECK_EQUAL(index.RegisterMap(localFile).second, MwmSet::RegResult::Success,
-                  ("Can't register mwm:", localFile));
+      for (auto & index : indexes)
+      {
+        CHECK_EQUAL(index.RegisterMap(localFile).second, MwmSet::RegResult::Success,
+                    ("Can't register mwm:", localFile));
+      }
     }
     catch (RootException const & ex)
     {
@@ -104,11 +108,11 @@ int main(int argc, char * argv[])
 
   classificator::Load();
 
-  Index index;
-  LoadIndex(FLAGS_mwms_path, index);
+  vector<Index> indexes(FLAGS_num_threads);
+  LoadIndexes(FLAGS_mwms_path, indexes);
 
   OpenLRSimpleDecoder::SegmentsFilter filter(FLAGS_ids_path, FLAGS_multipoints_only);
-  OpenLRSimpleDecoder decoder(FLAGS_input, index);
+  OpenLRSimpleDecoder decoder(FLAGS_input, indexes);
   decoder.Decode(FLAGS_output, FLAGS_limit, filter, FLAGS_num_threads);
 
   return 0;

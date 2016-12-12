@@ -256,7 +256,6 @@ public:
   /// Clear all temporary buffers.
   virtual void ClearState() {}
 
-private:
   /// \brief Finds all outgoing regular (non-fake) edges for junction.
   void GetRegularOutgoingEdges(Junction const & junction, TEdgeVector & edges) const;
   /// \brief Finds all ingoing regular (non-fake) edges for junction.
@@ -266,6 +265,7 @@ private:
   /// \brief Finds all ingoing fake edges for junction.
   void GetFakeIngoingEdges(Junction const & junction, TEdgeVector & edges) const;
 
+private:
   template <typename Fn>
   void ForEachFakeEdge(Fn && fn)
   {

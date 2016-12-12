@@ -3,6 +3,7 @@
 #include "base/exception.hpp"
 
 #include "std/string.hpp"
+#include "std/vector.hpp"
 
 #include "3party/pugixml/src/pugixml.hpp"
 
@@ -32,13 +33,13 @@ public:
 
   static int const kHandleAllSegments;
 
-  OpenLRSimpleDecoder(string const & dataFilename, Index const & index);
+  OpenLRSimpleDecoder(string const & dataFilename, vector<Index> const & indexes);
 
   void Decode(string const & outputFilename, int segmentsToHandle, SegmentsFilter const & filter,
               int numThreads);
 
 private:
-  Index const & m_index;
+  vector<Index> const & m_indexes;
   pugi::xml_document m_document;
 };
 }  // namespace openlr

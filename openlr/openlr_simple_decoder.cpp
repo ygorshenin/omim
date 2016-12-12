@@ -677,15 +677,49 @@ private:
   {
     IRoadGraph::TEdgeVector edges;
     if (outgoing)
-      m_graph.GetOutgoingEdges(u.m_junction, edges);
+      GetOutgoingEdges(u.m_junction, edges);
     else
-      m_graph.GetIngoingEdges(u.m_junction, edges);
+      GetIngoingEdges(u.m_junction, edges);
     for (auto const & edge : edges)
     {
       if (!PassesRestriction(edge, restriction))
         continue;
       fn(edge);
     }
+  }
+
+  void GetOutgoingEdges(Junction const & u, IRoadGraph::TEdgeVector & edges)
+  {
+    GetEdges(u, &IRoadGraph::GetRegularOutgoingEdges, &IRoadGraph::GetFakeOutgoingEdges,
+             m_outgoingCache, edges);
+  }
+
+  void GetIngoingEdges(Junction const & u, IRoadGraph::TEdgeVector & edges)
+  {
+    GetEdges(u, &IRoadGraph::GetRegularIngoingEdges, &IRoadGraph::GetFakeIngoingEdges,
+             m_ingoingCache, edges);
+  }
+
+  void GetEdges(Junction const & u,
+                void (IRoadGraph::*GetRegular)(Junction const & junction,
+                                               IRoadGraph::TEdgeVector & edges) const,
+                void (IRoadGraph::*GetFake)(Junction const & junction,
+                                            IRoadGraph::TEdgeVector & edges) const,
+                map<Junction, IRoadGraph::TEdgeVector> & cache, IRoadGraph::TEdgeVector & edges)
+  {
+    auto const it = cache.find(u);
+    if (it == cache.end())
+    {
+      auto & es = cache[u];
+      (m_graph.*GetRegular)(u, es);
+      edges.insert(edges.end(), es.begin(), es.end());
+    }
+    else
+    {
+      auto const & es = it->second;
+      edges.insert(edges.end(), es.begin(), es.end());
+    }
+    (m_graph.*GetFake)(u, edges);
   }
 
   template <typename Fn>
@@ -977,6 +1011,8 @@ private:
   }
 
   FeaturesRoadGraph & m_graph;
+  map<Junction, IRoadGraph::TEdgeVector> m_outgoingCache;
+  map<Junction, IRoadGraph::TEdgeVector> m_ingoingCache;
   RoadInfoGetter & m_roadInfoGetter;
   vector<vector<m2::PointD>> m_pivots;
 };
@@ -1030,8 +1066,8 @@ bool OpenLRSimpleDecoder::SegmentsFilter::Matches(LinearSegment const & segment)
 // OpenLRSimpleDecoder -----------------------------------------------------------------------------
 int const OpenLRSimpleDecoder::kHandleAllSegments = -1;
 
-OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, Index const & index)
-  : m_index(index)
+OpenLRSimpleDecoder::OpenLRSimpleDecoder(string const & dataFilename, vector<Index> const & indexes)
+  : m_indexes(indexes)
 {
   auto const load_result = m_document.load_file(dataFilename.data());
   if (!load_result)
@@ -1066,10 +1102,10 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
   size_t constexpr kProgressFrequency = 100;
 
   auto worker = [&segments, &paths, kBatchSize, kProgressFrequency, numThreads, this](
-      size_t threadNum, Stats & stats) {
-    FeaturesRoadGraph roadGraph(m_index, IRoadGraph::Mode::ObeyOnewayTag,
+      size_t threadNum, Index const & index, Stats & stats) {
+    FeaturesRoadGraph roadGraph(index, IRoadGraph::Mode::ObeyOnewayTag,
                                 make_unique<CarModelFactory>());
-    RoadInfoGetter roadInfoGetter(m_index);
+    RoadInfoGetter roadInfoGetter(index);
     AStarRouter astarRouter(roadGraph, roadInfoGetter);
 
     size_t const numSegments = segments.size();
@@ -1116,8 +1152,8 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
   vector<Stats> stats(numThreads);
   vector<thread> workers;
   for (size_t i = 1; i < numThreads; ++i)
-    workers.emplace_back(worker, i, ref(stats[i]));
-  worker(0 /* threadNum */, stats[0]);
+    workers.emplace_back(worker, i, ref(m_indexes[i]), ref(stats[i]));
+  worker(0 /* threadNum */, m_indexes[0], stats[0]);
   for (auto & worker : workers)
     worker.join();
 
