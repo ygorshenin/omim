@@ -181,6 +181,7 @@ add_subdirectory(search)
 add_subdirectory(tracking)
 add_subdirectory(traffic)
 add_subdirectory(partners_api)
+add_subdirectory(openlr)
 
 omim_add_test_subdirectory(qt_tstfrm)
 omim_add_test_subdirectory(3party/gmock)
