@@ -26,7 +26,7 @@ enum class ItemEvaluation
 
 struct SampleItem
 {
-  struct MWMSegemnt
+  struct MWMSegment
   {
     // TODO(mgsergio): switch to osm id.
     FeatureID m_fid;
@@ -34,7 +34,7 @@ struct SampleItem
   };
 
   PartnerSegmentId m_partnerSegmentId;
-  vector<MWMSegemnt> m_segments;
+  vector<MWMSegment> m_segments;
   // May become a number later.
   ItemEvaluation m_evaluation;
 };

@@ -70,7 +70,7 @@ struct GroupedSegments
 };
 
 vector<GroupedSegments>
-GroupSegmentsByFeatureIDAndDirection(DecodedSampleItem const & item,
+GroupSegmentsByFeatureIDAndDirection(openlr::SampleItem const & item,
                                      map<FeatureID, FeatureType> const & features)
 {
   // TODO(mgsergio): Grouped segments.

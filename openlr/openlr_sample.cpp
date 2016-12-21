@@ -12,7 +12,7 @@
 namespace
 {
 void ParseMWMSegments(string const & line, uint32_t const lineNumber,
-                      vector<openlr::SampleItem::MWMSegemnt> & segments, Index const & index)
+                      vector<openlr::SampleItem::MWMSegment> & segments, Index const & index)
 {
   vector<string> parts;
   strings::ParseCSVRow(line, '=', parts);
