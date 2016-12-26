@@ -29,6 +29,39 @@ DecodedSample::DecodedSample(Index const & index, openlr::SamplePool const & sam
   }
 }
 
+vector<m2::PointD> DecodedSample::GetPoints(size_t const index) const
+{
+  vector<m2::PointD> points;
+
+  auto const pushPoint = [&points](m2::PointD const & p)
+  {
+    if (points.empty() || !(points.back() - p).IsAlmostZero())
+      points.push_back(p);
+  };
+
+  auto const & item = m_decodedItems[index];
+  for (auto const & seg : item.m_segments)
+  {
+    auto const ftIt = m_features.find(seg.m_fid);
+    CHECK(ftIt != end(m_features), ("Can't find feature with id:", seg.m_fid));
+    auto const & ft = ftIt->second;
+    auto const firstP = ft.GetPoint(seg.m_segId);
+    auto const secondP = ft.GetPoint(seg.m_segId + 1);
+    if (seg.m_isForward)
+    {
+      pushPoint(firstP);
+      pushPoint(secondP);
+    }
+    else
+    {
+      pushPoint(secondP);
+      pushPoint(firstP);
+    }
+  }
+
+  return points;
+}
+
 // TrfficMode --------------------------------------------------------------------------------------
 TrafficMode::TrafficMode(string const & dataFileName, string const & sampleFileName,
                          Index const & index, unique_ptr<ITrafficDrawerDelegate> drawerDelagate,

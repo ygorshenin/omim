@@ -19,6 +19,7 @@ struct DecodedSample
   DecodedSample(Index const & index, openlr::SamplePool const & sample);
 
   openlr::SamplePool const & GetItems() const { return m_decodedItems; }
+  vector<m2::PointD> GetPoints(size_t const index) const;
 
   map<FeatureID, FeatureType> m_features;
   vector<openlr::SampleItem> m_decodedItems;

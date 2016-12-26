@@ -28,9 +28,17 @@ struct SampleItem
 {
   struct MWMSegment
   {
+    MWMSegment(FeatureID const & fid, uint32_t const segId, bool const isForward)
+      : m_fid(fid)
+      , m_segId(segId)
+      , m_isForward(isForward)
+    {
+    }
+
     // TODO(mgsergio): switch to osm id.
-    FeatureID m_fid;
-    uint32_t m_segId;
+    FeatureID const m_fid;
+    uint32_t const m_segId;
+    bool const m_isForward;
   };
 
   PartnerSegmentId m_partnerSegmentId;

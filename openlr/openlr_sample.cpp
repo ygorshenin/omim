@@ -33,9 +33,11 @@ void ParseMWMSegments(string const & line, uint32_t const lineNumber,
     if (!strings::to_uint(segParts[2], segId))
       MYTHROW(openlr::SamplePoolLoadError, ("Can't parse MWMSegment", seg, "line:", lineNumber));
 
-    // There are two more fields in segParts: is_forward and segment length, but we ignore them.
+    bool const isForward = (segParts[3] == "fwd");
 
-    segments.push_back({FeatureID(mwmId, featureIndex), segId});
+    // There is one more field in segParts: segment length, but we ignore it here.
+
+    segments.push_back({FeatureID(mwmId, featureIndex), segId, isForward});
   }
 }
 
