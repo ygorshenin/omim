@@ -139,17 +139,31 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
           points.emplace_back(point);
 
         auto positiveOffsetM = ref.m_positiveOffsetMeters;
-        if (points.size() == 2 && positiveOffsetM >= points[0].m_distanceToNextPointM)
+        if (positiveOffsetM >= points[0].m_distanceToNextPointM)
         {
           LOG(LWARNING, ("Wrong positive offset for segment:", segment.m_segmentId));
           positiveOffsetM = 0;
         }
 
         auto negativeOffsetM = ref.m_negativeOffsetMeters;
-        if (points.size() == 2 && negativeOffsetM >= points[0].m_distanceToNextPointM)
+        if (negativeOffsetM >= points[points.size() - 2].m_distanceToNextPointM)
         {
           LOG(LWARNING, ("Wrong negative offset for segment:", segment.m_segmentId));
           negativeOffsetM = 0;
+        }
+
+        {
+          double expectedLength = 0;
+          for (size_t i = 0; i + 1 < points.size(); ++i)
+            expectedLength += points[i].m_distanceToNextPointM;
+
+          if (positiveOffsetM + negativeOffsetM >= expectedLength)
+          {
+            LOG(LINFO,
+                ("Skipping", segment.m_segmentId, "due to wrong positive/negative offsets."));
+            ++stats.m_routeIsNotCalculated;
+            continue;
+          }
         }
 
         auto & path = paths[j];
