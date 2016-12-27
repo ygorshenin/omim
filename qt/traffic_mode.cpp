@@ -13,10 +13,7 @@ DecodedSample::DecodedSample(Index const & index, openlr::SamplePool const & sam
 {
   for (auto const & item : sample)
   {
-    m_decodedItems.emplace_back();
-    auto & decodedItem = m_decodedItems.back();
-    decodedItem.m_partnerSegmentId = item.m_partnerSegmentId;
-    decodedItem.m_evaluation = item.m_evaluation;
+    m_decodedItems.push_back(item);
     for (auto const & mwmSegment : item.m_segments)
     {
       auto const & fid = mwmSegment.m_fid;
@@ -28,24 +25,41 @@ DecodedSample::DecodedSample(Index const & index, openlr::SamplePool const & sam
         CHECK(g.GetFeatureByIndex(fid.m_index, ft), ("Can't read feature", fid));
         ft.ParseEverything();
       }
-      decodedItem.m_segments.push_back({mwmSegment.m_fid, mwmSegment.m_segId});
     }
   }
 }
 
-openlr::SamplePool DecodedSample::ToOpenlrSamplePool() const
+vector<m2::PointD> DecodedSample::GetPoints(size_t const index) const
 {
-  openlr::SamplePool pool;
-  for (auto const & decodedItem : m_decodedItems)
+  vector<m2::PointD> points;
+
+  auto const pushPoint = [&points](m2::PointD const & p)
   {
-    openlr::SampleItem item;
-    item.m_partnerSegmentId = decodedItem.m_partnerSegmentId;
-    item.m_evaluation = decodedItem.m_evaluation;
-    for (auto const & segment : decodedItem.m_segments)
-      item.m_segments.push_back({segment.m_fid, segment.m_segId});
-    pool.push_back(item);
+    if (points.empty() || !(points.back() - p).IsAlmostZero())
+      points.push_back(p);
+  };
+
+  auto const & item = m_decodedItems[index];
+  for (auto const & seg : item.m_segments)
+  {
+    auto const ftIt = m_features.find(seg.m_fid);
+    CHECK(ftIt != end(m_features), ("Can't find feature with id:", seg.m_fid));
+    auto const & ft = ftIt->second;
+    auto const firstP = ft.GetPoint(seg.m_segId);
+    auto const secondP = ft.GetPoint(seg.m_segId + 1);
+    if (seg.m_isForward)
+    {
+      pushPoint(firstP);
+      pushPoint(secondP);
+    }
+    else
+    {
+      pushPoint(secondP);
+      pushPoint(firstP);
+    }
   }
-  return pool;
+
+  return points;
 }
 
 // TrfficMode --------------------------------------------------------------------------------------
@@ -92,7 +106,7 @@ bool TrafficMode::SaveSampleAs(string const & fileName) const
 {
   try
   {
-    auto const & samplePool = m_decodedSample->ToOpenlrSamplePool();
+    auto const & samplePool = m_decodedSample->GetItems();
     openlr::SaveSamplePool(fileName, samplePool);
   }
   catch (openlr::SamplePoolSaveError const & e)

@@ -14,29 +14,15 @@
 class QItemSelection;
 class Index;
 
-// TODO(mgsergio): Use openlr::SampleItem::MWMSegment instead.
-struct Segment
-{
-  FeatureID m_fid;
-  uint32_t m_segId;
-};
-
-// TODO(mgsergio): Use openlr::SampleItem.
-struct DecodedSampleItem
-{
-  openlr::PartnerSegmentId m_partnerSegmentId;
-  vector<Segment> m_segments;
-  openlr::ItemEvaluation m_evaluation;
-};
-
 struct DecodedSample
 {
   DecodedSample(Index const & index, openlr::SamplePool const & sample);
 
-  openlr::SamplePool ToOpenlrSamplePool() const;
+  openlr::SamplePool const & GetItems() const { return m_decodedItems; }
+  vector<m2::PointD> GetPoints(size_t const index) const;
 
   map<FeatureID, FeatureType> m_features;
-  vector<DecodedSampleItem> m_decodedItems;
+  vector<openlr::SampleItem> m_decodedItems;
 };
 
 /// This class is used to delegate segments drawing to the DrapeEngine.
