@@ -24,8 +24,8 @@ class Router final
 public:
   Router(routing::FeaturesRoadGraph & graph, RoadInfoGetter & roadInfoGetter);
 
-  bool Go(vector<WayPoint> const & points, vector<routing::Edge> & path, double positiveOffsetM,
-          double negativeOffsetM);
+  bool Go(vector<WayPoint> const & points, double positiveOffsetM, double negativeOffsetM,
+          vector<routing::Edge> & path);
 
 private:
   struct Vertex final
@@ -70,7 +70,25 @@ private:
   using RoadGraphEdgesGetter = void (routing::IRoadGraph::*)(
       routing::Junction const & junction, routing::IRoadGraph::TEdgeVector & edges) const;
 
+  bool Init(vector<WayPoint> const & points, double positiveOffsetM, double negativeOffsetM);
+  bool FindPath(vector<routing::Edge> & path);
+
+  // Returns true if the bearing should be checked for |u|, if the
+  // real passed distance from the source vertex is |distanceM|.
+  bool NeedToCheckBearing(Vertex const & u, double distanceM) const;
+
   double GetPotential(Vertex const & u) const;
+
+  // Returns true if |u| is located near portal to the next stage.
+  // |pi| is the potential of |u|.
+  bool NearNextStage(Vertex const & u, double pi) const;
+
+  // Returns true if it's possible to move to the next stage from |u|.
+  // |pi| is the potential of |u|.
+  bool MayMoveToNextStage(Vertex const & u, double pi) const;
+
+  // Returns true if |u| is a final vertex and the router may stop now.
+  inline bool IsFinalVertex(Vertex const & u) const { return u.m_stage == m_pivots.size(); }
 
   inline double GetWeight(routing::Edge const & e) const
   {
@@ -121,17 +139,20 @@ private:
   template <typename It, typename Fn>
   void ForStagePrefix(It b, It e, size_t stage, Fn && fn);
 
-  bool ReconstructPath(vector<WayPoint> const & points, vector<Edge> & edges,
-                       double positiveOffsetM, double negativeOffsetM,
-                       vector<routing::Edge> & path);
+  bool ReconstructPath(vector<Edge> & edges, vector<routing::Edge> & path);
 
-  void FindSingleEdgeApproximation(vector<WayPoint> const & points, vector<Edge> const & edges,
-                                   vector<routing::Edge> & path);
+  void FindSingleEdgeApproximation(vector<Edge> const & edges, vector<routing::Edge> & path);
 
   routing::FeaturesRoadGraph & m_graph;
   map<routing::Junction, routing::IRoadGraph::TEdgeVector> m_outgoingCache;
   map<routing::Junction, routing::IRoadGraph::TEdgeVector> m_ingoingCache;
   RoadInfoGetter & m_roadInfoGetter;
+
+  vector<WayPoint> m_points;
+  double m_positiveOffsetM;
+  double m_negativeOffsetM;
   vector<vector<m2::PointD>> m_pivots;
+  routing::Junction m_sourceJunction;
+  routing::Junction m_targetJunction;
 };
 }  // namespace openlr

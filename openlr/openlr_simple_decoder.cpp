@@ -167,7 +167,7 @@ void OpenLRSimpleDecoder::Decode(string const & outputFilename, int const segmen
         }
 
         auto & path = paths[j];
-        if (!router.Go(points, path, positiveOffsetM, negativeOffsetM))
+        if (!router.Go(points, positiveOffsetM, negativeOffsetM, path))
           ++stats.m_routeIsNotCalculated;
 
         ++stats.m_total;
