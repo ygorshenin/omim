@@ -24,7 +24,9 @@ size_t const kMaxRoadCandidates = 10;
 double const kDistanceAccuracyM = 1000;
 double const kEps = 1e-9;
 double const kBearingDist = 25;
-double const kAnglesInBucket = 360.0 / 256;
+
+int const kNumBuckets = 256;
+double const kAnglesInBucket = 360.0 / kNumBuckets;
 
 uint32_t Bearing(m2::PointD const & a, m2::PointD const & b)
 {
@@ -72,7 +74,14 @@ public:
 
   inline void AddBearingPenalty(int expected, int actual)
   {
-    double angle = my::DegToRad(abs(expected - actual) * kAnglesInBucket);
+    ASSERT_LESS(expected, kNumBuckets, ());
+    ASSERT_GREATER_OR_EQUAL(expected, 0, ());
+
+    ASSERT_LESS(actual, kNumBuckets, ());
+    ASSERT_GREATER_OR_EQUAL(actual, 0, ());
+
+    int const diff = abs(expected - actual);
+    double angle = my::DegToRad(min(diff, kNumBuckets - diff) * kAnglesInBucket);
     m_penalty += kBearingErrorCoeff * angle * kBearingDist;
   }
 
