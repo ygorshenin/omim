@@ -8,7 +8,9 @@
 
 #include <indexer/scales.hpp>
 
-#include <geometry/distance.hpp>
+#include <geometry/parametrized_segment.hpp>
+
+#include <base/stl_helpers.hpp>
 
 using namespace routing;
 using namespace std;
@@ -23,9 +25,8 @@ double constexpr kMatchingRange = 20.0;
 double DistanceToSegment(m2::PointD const & segmentBegin, m2::PointD const & segmentEnd,
                          m2::PointD const & point)
 {
-  m2::ProjectionToSection<m2::PointD> projection;
-  projection.SetBounds(segmentBegin, segmentEnd);
-  m2::PointD const projectionPoint = projection(point);
+  m2::ParametrizedSegment<m2::PointD> const segment(segmentBegin, segmentEnd);
+  m2::PointD const projectionPoint = segment.ClosestPointTo(point);
   return MercatorBounds::DistanceOnEarth(point, projectionPoint);
 }
 
@@ -57,13 +58,14 @@ TrackMatcher::TrackMatcher(storage::Storage const & storage, NumMwmId mwmId,
 {
   auto localCountryFile = storage.GetLatestLocalFile(countryFile);
   CHECK(localCountryFile, ("Can't find latest country file for", countryFile.GetName()));
-  auto registerResult = m_index.Register(*localCountryFile);
+  auto registerResult = m_dataSource.Register(*localCountryFile);
   CHECK_EQUAL(registerResult.second, MwmSet::RegResult::Success,
               ("Can't register mwm", countryFile.GetName()));
 
-  MwmSet::MwmHandle const handle = m_index.GetMwmHandleByCountryFile(countryFile);
+  MwmSet::MwmHandle const handle = m_dataSource.GetMwmHandleByCountryFile(countryFile);
   m_graph = make_unique<IndexGraph>(
-      GeometryLoader::Create(m_index, handle, m_vehicleModel, false /* loadAltitudes */),
+      make_shared<Geometry>(
+          GeometryLoader::Create(m_dataSource, handle, m_vehicleModel, false /* loadAltitudes */)),
       EdgeEstimator::Create(VehicleType::Car, *m_vehicleModel, nullptr /* trafficStash */));
 
   DeserializeIndexGraph(*handle.GetValue<MwmValue>(), VehicleType::Car, *m_graph);
@@ -82,7 +84,7 @@ void TrackMatcher::MatchTrack(vector<DataPoint> const & track, vector<MatchedTra
   {
     for (; trackBegin < steps.size(); ++trackBegin)
     {
-      steps[trackBegin].FillCandidatesWithNearbySegments(m_index, *m_graph, *m_vehicleModel,
+      steps[trackBegin].FillCandidatesWithNearbySegments(m_dataSource, *m_graph, *m_vehicleModel,
                                                          m_mwmId);
       if (steps[trackBegin].HasCandidates())
         break;
@@ -129,11 +131,11 @@ TrackMatcher::Step::Step(DataPoint const & dataPoint)
 }
 
 void TrackMatcher::Step::FillCandidatesWithNearbySegments(
-    Index const & index, IndexGraph const & graph, VehicleModelInterface const & vehicleModel,
-    NumMwmId mwmId)
+    DataSource const & dataSource, IndexGraph const & graph,
+    VehicleModelInterface const & vehicleModel, NumMwmId mwmId)
 {
-  index.ForEachInRect(
-      [&](FeatureType const & ft) {
+  dataSource.ForEachInRect(
+      [&](FeatureType & ft) {
         if (!ft.GetID().IsValid())
           return;
 
@@ -188,7 +190,7 @@ void TrackMatcher::Step::FillCandidates(Step const & previousStep, IndexGraph & 
     }
   }
 
-  my::SortUnique(m_candidates);
+  base::SortUnique(m_candidates);
 
   m_candidates.erase(remove_if(m_candidates.begin(), m_candidates.end(),
                                [&](Candidate const & candidate) {

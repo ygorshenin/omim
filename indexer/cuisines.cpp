@@ -1,9 +1,9 @@
 #include "indexer/cuisines.hpp"
 
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
-#include "std/utility.hpp"
+using namespace std;
 
 namespace osm
 {
@@ -32,7 +32,7 @@ string TranslateImpl(platform::TGetTextByIdPtr const & ptr, string const & key)
 
 void Cuisines::Parse(string const & osmRawCuisinesTagValue, vector<string> & outCuisines)
 {
-  strings::Tokenize(osmRawCuisinesTagValue, ";", MakeBackInsertFunctor(outCuisines));
+  strings::Tokenize(osmRawCuisinesTagValue, ";", base::MakeBackInsertFunctor(outCuisines));
 }
 
 void Cuisines::ParseAndLocalize(string const & osmRawCuisinesTagValue, vector<string> & outCuisines,
@@ -56,5 +56,9 @@ string Cuisines::Translate(string const & singleOsmCuisine, string const & lang)
   return TranslateImpl(m_translations, singleOsmCuisine);
 }
 
-TAllCuisines Cuisines::AllSupportedCuisines() { return m_translations->GetAllSortedTranslations(); }
+AllCuisines Cuisines::AllSupportedCuisines(string const & lang)
+{
+  InitializeCuisinesForLocale(m_translations, lang);
+  return m_translations->GetAllSortedTranslations();
+}
 }  // namespace osm

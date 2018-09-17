@@ -9,8 +9,8 @@
 
 #include "indexer/cities_boundaries_serdes.hpp"
 #include "indexer/city_boundary.hpp"
+#include "indexer/data_source.hpp"
 #include "indexer/feature_processor.hpp"
-#include "indexer/index.hpp"
 #include "indexer/mwm_set.hpp"
 
 #include "platform/local_country_file.hpp"
@@ -22,7 +22,6 @@
 #include "base/assert.hpp"
 #include "base/checked_cast.hpp"
 #include "base/logging.hpp"
-#include "base/stl_add.hpp"
 #include "base/string_utils.hpp"
 
 #include <map>
@@ -40,11 +39,13 @@ namespace generator
 {
 namespace
 {
-bool ParseFeatureIdToOsmIdMapping(string const & path, map<uint32_t, vector<osm::Id>> & mapping)
+bool ParseFeatureIdToOsmIdMapping(string const & path,
+                                  map<uint32_t, vector<base::GeoObjectId>> & mapping)
 {
-  return ForEachOsmId2FeatureId(path, [&](osm::Id const & osmId, uint32_t const featureId) {
-    mapping[featureId].push_back(osmId);
-  });
+  return ForEachOsmId2FeatureId(path,
+                                [&](base::GeoObjectId const & osmId, uint32_t const featureId) {
+                                  mapping[featureId].push_back(osmId);
+                                });
 }
 
 bool ParseFeatureIdToTestIdMapping(string const & path, map<uint32_t, vector<uint64_t>> & mapping)
@@ -67,12 +68,13 @@ bool ParseFeatureIdToTestIdMapping(string const & path, map<uint32_t, vector<uin
 
 CBV GetLocalities(string const & dataPath)
 {
-  Index index;
-  auto const result = index.Register(platform::LocalCountryFile::MakeTemporary(dataPath));
+  FrozenDataSource dataSource;
+  auto const result = dataSource.Register(platform::LocalCountryFile::MakeTemporary(dataPath));
   CHECK_EQUAL(result.second, MwmSet::RegResult::Success, ("Can't register", dataPath));
 
-  search::MwmContext context(index.GetMwmHandleById(result.first));
-  return search::CategoriesCache(LocalitiesSource{}, my::Cancellable{}).Get(context);
+  search::MwmContext context(dataSource.GetMwmHandleById(result.first));
+  ::base::Cancellable const cancellable;
+  return search::CategoriesCache(LocalitiesSource{}, cancellable).Get(context);
 }
 
 template <typename BoundariesTable, typename MappingReader>
@@ -113,7 +115,7 @@ bool BuildCitiesBoundaries(string const & dataPath, BoundariesTable & table,
 bool BuildCitiesBoundaries(string const & dataPath, string const & osmToFeaturePath,
                            OsmIdToBoundariesTable & table)
 {
-  using Mapping = map<uint32_t, vector<osm::Id>>;
+  using Mapping = map<uint32_t, vector<base::GeoObjectId>>;
 
   return BuildCitiesBoundaries(dataPath, table, [&]() -> unique_ptr<Mapping> {
     Mapping mapping;
@@ -122,7 +124,7 @@ bool BuildCitiesBoundaries(string const & dataPath, string const & osmToFeatureP
       LOG(LERROR, ("Can't parse feature id to osm id mapping."));
       return {};
     }
-    return my::make_unique<Mapping>(move(mapping));
+    return make_unique<Mapping>(move(mapping));
   });
 }
 
@@ -137,18 +139,19 @@ bool BuildCitiesBoundariesForTesting(string const & dataPath, TestIdToBoundaries
       LOG(LERROR, ("Can't parse feature id to test id mapping."));
       return {};
     }
-    return my::make_unique<Mapping>(move(mapping));
+    return make_unique<Mapping>(move(mapping));
   });
 }
 
 bool SerializeBoundariesTable(std::string const & path, OsmIdToBoundariesTable & table)
 {
-  vector<vector<osm::Id>> allIds;
+  vector<vector<base::GeoObjectId>> allIds;
   vector<vector<CityBoundary>> allBoundaries;
-  table.ForEachCluster([&](vector<osm::Id> const & ids, vector<CityBoundary> const & boundaries) {
-    allIds.push_back(ids);
-    allBoundaries.push_back(boundaries);
-  });
+  table.ForEachCluster(
+      [&](vector<base::GeoObjectId> const & ids, vector<CityBoundary> const & boundaries) {
+        allIds.push_back(ids);
+        allBoundaries.push_back(boundaries);
+      });
 
   CHECK_EQUAL(allIds.size(), allBoundaries.size(), ());
 
@@ -162,7 +165,7 @@ bool SerializeBoundariesTable(std::string const & path, OsmIdToBoundariesTable &
     {
       WriteToSink(sink, static_cast<uint64_t>(ids.size()));
       for (auto const & id : ids)
-        WriteToSink(sink, id.EncodedId());
+        WriteToSink(sink, id.GetEncodedId());
     }
 
     return true;
@@ -176,7 +179,7 @@ bool SerializeBoundariesTable(std::string const & path, OsmIdToBoundariesTable &
 
 bool DeserializeBoundariesTable(std::string const & path, OsmIdToBoundariesTable & table)
 {
-  vector<vector<osm::Id>> allIds;
+  vector<vector<base::GeoObjectId>> allIds;
   vector<vector<CityBoundary>> allBoundaries;
 
   try
@@ -199,7 +202,7 @@ bool DeserializeBoundariesTable(std::string const & path, OsmIdToBoundariesTable
       for (auto & id : ids)
       {
         auto const encodedId = ReadPrimitiveFromSource<uint64_t>(source);
-        id = osm::Id(encodedId);
+        id = base::GeoObjectId(encodedId);
       }
     }
   }

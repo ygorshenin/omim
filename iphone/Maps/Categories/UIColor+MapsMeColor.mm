@@ -1,25 +1,10 @@
+#import "UIColorRoutines.h"
 #import "UIColor+MapsMeColor.h"
 
 namespace
 {
-
-CGFloat const alpha04 = 0.04;
-CGFloat const alpha12 = 0.12;
-CGFloat const alpha26 = 0.26;
-CGFloat const alpha30 = 0.3;
-CGFloat const alpha32 = 0.32;
-CGFloat const alpha36 = 0.36;
-CGFloat const alpha40 = 0.4;
-CGFloat const alpha54 = 0.54;
-CGFloat const alpha70 = 0.7;
-CGFloat const alpha80 = 0.8;
-CGFloat const alpha87 = 0.87;
-CGFloat const alpha90 = 0.9;
-CGFloat const alpha100 = 1.;
-
 BOOL isNightMode = NO;
 
-CGFloat scaled(CGFloat f) { return f / 255.; }
 NSDictionary<NSString *, UIColor *> * night = @{
   @"primaryDark":
       [UIColor colorWithRed:scaled(25.) green:scaled(30) blue:scaled(35.) alpha:alpha100],
@@ -63,12 +48,9 @@ NSDictionary<NSString *, UIColor *> * night = @{
   @"alertBackground":
       [UIColor colorWithRed:scaled(60.) green:scaled(64.) blue:scaled(68.) alpha:alpha90],
   @"blackOpaque": [UIColor colorWithWhite:1. alpha:alpha04],
-  @"bannerBackground":
-      [UIColor colorWithRed:scaled(71.) green:scaled(75.) blue:scaled(80.) alpha:alpha100],
-  @"bannerButtonBackground":
-      [UIColor colorWithRed:scaled(45.) green:scaled(48.) blue:scaled(50.) alpha:alpha100],
   @"toastBackground": [UIColor colorWithWhite:0. alpha:alpha87],
-  @"statusBarBackground": [UIColor colorWithWhite:0. alpha:alpha32]
+  @"statusBarBackground": [UIColor colorWithWhite:0. alpha:alpha32],
+  @"bannerBackground" : [UIColor colorWithRed:scaled(71) green:scaled(75) blue:scaled(79) alpha:alpha100]
 };
 
 NSDictionary<NSString *, UIColor *> * day = @{
@@ -113,12 +95,9 @@ NSDictionary<NSString *, UIColor *> * day = @{
       [UIColor colorWithRed:scaled(3.) green:scaled(122.) blue:scaled(255.) alpha:alpha26],
   @"alertBackground" : [UIColor colorWithWhite:1. alpha:alpha90],
   @"blackOpaque" : [UIColor colorWithWhite:0. alpha:alpha04],
-  @"bannerBackground" :
-      [UIColor colorWithRed:scaled(252.) green:scaled(247.) blue:scaled(237.) alpha:alpha100],
-  @"bannerButtonBackground" :
-      [UIColor colorWithRed:scaled(242.) green:scaled(234.) blue:scaled(218.) alpha:alpha100],
   @"toastBackground" : [UIColor colorWithWhite:1. alpha:alpha87],
-  @"statusBarBackground" : [UIColor colorWithWhite:1. alpha:alpha36]
+  @"statusBarBackground" : [UIColor colorWithWhite:1. alpha:alpha36],
+  @"bannerBackground" : [UIColor colorWithRed:scaled(249) green:scaled(251) blue:scaled(231) alpha:alpha100]
 };
 
 UIColor * color(SEL cmd)
@@ -143,7 +122,8 @@ UIColor * color(SEL cmd)
 - (UIColor *)opposite
 {
   NSString * key = [(isNightMode ? day : night) allKeysForObject:self].firstObject;
-  return key == nil ? nil : (isNightMode ? night : day)[key];
+  UIColor * color = (key == nil ? nil : (isNightMode ? night : day)[key]);
+  return color ?: self;
 }
 
 // Dark green color
@@ -343,16 +323,16 @@ UIColor * color(SEL cmd)
   return [UIColor colorWithRed:scaled(67) green:scaled(160) blue:scaled(71) alpha:alpha100];
 }
 
-+ (UIColor *)thorBackground
-{
-  return [UIColor colorWithRed:scaled(215) green:scaled(67) blue:scaled(19) alpha:alpha100];
-}
-
 + (UIColor *)bannerBackground
 {
   return color(_cmd);
 }
-+ (UIColor *)bannerButtonBackground { return color(_cmd); }
+
++ (UIColor *)bannerButtonBackground
+{
+  return [UIColor blackDividers];
+}
+
 + (UIColor *)toastBackground { return color(_cmd); }
 + (UIColor *)statusBarBackground { return color(_cmd); }
 + (UIColor *)colorWithName:(NSString *)colorName
@@ -363,4 +343,11 @@ UIColor * color(SEL cmd)
 #pragma clang diagnostic pop
 }
 
++ (UIColor *)facebookButtonBackground {
+  return [UIColor colorWithRed:scaled(59) green:scaled(89) blue:scaled(152) alpha:alpha100];
+}
+
++ (UIColor *)facebookButtonBackgroundDisabled {
+  return [self.facebookButtonBackground colorWithAlphaComponent:alpha70];
+}
 @end

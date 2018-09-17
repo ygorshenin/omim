@@ -105,6 +105,20 @@ SampleView::SampleView(QWidget * parent, Framework & framework)
   }
 
   {
+    auto * layout = BuildSubLayout<QHBoxLayout>(*mainLayout, *this /* parent */);
+
+    m_markAllAsRelevant = new QPushButton(tr("Mark all as Relevant"), this /* parent */);
+    connect(m_markAllAsRelevant, &QPushButton::clicked,
+            [this]() { emit OnMarkAllAsRelevantClicked(); });
+    layout->addWidget(m_markAllAsRelevant);
+
+    m_markAllAsIrrelevant = new QPushButton(tr("Mark all as Irrelevant"), this /* parent */);
+    connect(m_markAllAsIrrelevant, &QPushButton::clicked,
+            [this]() { emit OnMarkAllAsIrrelevantClicked(); });
+    layout->addWidget(m_markAllAsIrrelevant);
+  }
+
+  {
     auto * layout =
         BuildSubLayout<QVBoxLayout>(*mainLayout, *this /* parent */, &m_foundResultsBox);
     SetVerticalStretch(*m_foundResultsBox, 4 /* stretch */);
@@ -186,6 +200,9 @@ void SampleView::OnSearchStarted()
 {
   m_spinner->Show();
   m_showPosition->setEnabled(false);
+
+  m_markAllAsRelevant->setEnabled(false);
+  m_markAllAsIrrelevant->setEnabled(false);
 }
 
 void SampleView::OnSearchCompleted()
@@ -209,6 +226,9 @@ void SampleView::OnSearchCompleted()
   {
     m_showPosition->setEnabled(false);
   }
+
+  m_markAllAsRelevant->setEnabled(resultsAvailable);
+  m_markAllAsIrrelevant->setEnabled(resultsAvailable);
 }
 
 void SampleView::AddFoundResults(search::Results::ConstIter begin, search::Results::ConstIter end)
@@ -222,10 +242,7 @@ void SampleView::ShowNonFoundResults(std::vector<search::Sample::Result> const &
 {
   CHECK_EQUAL(results.size(), entries.size(), ());
 
-  auto & controller = m_framework.GetBookmarkManager().GetUserMarksController(UserMark::Type::SEARCH);
-  controller.SetIsVisible(true);
-  controller.SetIsDrawable(true);
-  controller.NotifyChanges();
+  m_framework.GetBookmarkManager().GetEditSession().SetIsVisible(UserMark::Type::SEARCH, true);
 
   m_nonFoundResults->Clear();
 
@@ -242,7 +259,8 @@ void SampleView::ShowNonFoundResults(std::vector<search::Sample::Result> const &
 
 void SampleView::ShowFoundResultsMarks(search::Results::ConstIter begin, search::Results::ConstIter end)
 {
-  m_framework.FillSearchResultsMarks(false /* clear */, begin, end);
+  m_framework.FillSearchResultsMarks(begin, end, false,
+                                     Framework::SearchMarkPostProcessing());
 }
 
 void SampleView::ShowNonFoundResultsMarks(std::vector<search::Sample::Result> const & results,
@@ -251,9 +269,8 @@ void SampleView::ShowNonFoundResultsMarks(std::vector<search::Sample::Result> co
 {
   CHECK_EQUAL(results.size(), entries.size(), ());
 
-  auto & controller = m_framework.GetBookmarkManager().GetUserMarksController(UserMark::Type::SEARCH);
-  controller.SetIsVisible(true);
-  controller.SetIsDrawable(true);
+  auto editSession = m_framework.GetBookmarkManager().GetEditSession();
+  editSession.SetIsVisible(UserMark::Type::SEARCH, true);
 
   for (size_t i = 0; i < results.size(); ++i)
   {
@@ -262,14 +279,15 @@ void SampleView::ShowNonFoundResultsMarks(std::vector<search::Sample::Result> co
     if (entry.m_deleted)
       continue;
 
-    SearchMarkPoint * mark =
-        static_cast<SearchMarkPoint *>(controller.CreateUserMark(result.m_pos));
+    auto * mark = editSession.CreateUserMark<SearchMarkPoint>(result.m_pos);
     mark->SetMarkType(SearchMarkType::NotFound);
   }
-  controller.NotifyChanges();
 }
 
-void SampleView::ClearSearchResultMarks() { m_framework.ClearSearchResultsMarks(); }
+void SampleView::ClearSearchResultMarks()
+{
+  m_framework.GetBookmarkManager().GetEditSession().ClearGroup(UserMark::Type::SEARCH);
+}
 
 void SampleView::ClearAllResults()
 {
@@ -293,6 +311,9 @@ void SampleView::Clear()
 
   m_showViewport->setEnabled(false);
   m_showPosition->setEnabled(false);
+
+  m_markAllAsRelevant->setEnabled(false);
+  m_markAllAsIrrelevant->setEnabled(false);
 
   m_relatedQueriesBox->hide();
 

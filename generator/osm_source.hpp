@@ -1,5 +1,6 @@
 #pragma once
 
+#include "generator/emitter_interface.hpp"
 #include "generator/generate_info.hpp"
 #include "generator/osm_element.hpp"
 
@@ -10,6 +11,11 @@
 #include <string>
 #include <vector>
 
+class FeatureBuilder1;
+class FeatureParams;
+
+namespace generator
+{
 class SourceReader
 {
   struct Deleter
@@ -33,35 +39,10 @@ public:
   uint64_t Read(char * buffer, uint64_t bufferSize);
 };
 
-class FeatureBuilder1;
-class FeatureParams;
-
-// Emitter is used in OsmElemen to FeatureBuilder translation process.
-class EmitterBase
-{
-public:
-  virtual ~EmitterBase() = default;
-
-  /// This method is used by OsmTranslator to pass |fb| to Emitter for further processing.
-  virtual void operator()(FeatureBuilder1 & fb) = 0;
-
-  virtual void EmitCityBoundary(FeatureBuilder1 const & fb, FeatureParams const & params) {}
-
-  /// Finish is used in GenerateFeatureImpl to make whatever work is needed after
-  /// all OmsElements are processed.
-  virtual bool Finish() { return true; }
-  /// Sets buckets (mwm names).
-  // TODO(syershov): Make this topic clear.
-  virtual void GetNames(std::vector<std::string> & names) const = 0;
-};
-
-std::unique_ptr<EmitterBase> MakeMainFeatureEmitter(feature::GenerateInfo const & info);
-
-using EmitterFactory = std::function<std::unique_ptr<EmitterBase>(feature::GenerateInfo const &)>;
-
-bool GenerateFeatures(feature::GenerateInfo & info,
-                      EmitterFactory factory = MakeMainFeatureEmitter);
+bool GenerateFeatures(feature::GenerateInfo & info, std::shared_ptr<EmitterInterface> emitter);
+bool GenerateRegionFeatures(feature::GenerateInfo & info, std::shared_ptr<EmitterInterface> emitter);
 bool GenerateIntermediateData(feature::GenerateInfo & info);
 
 void ProcessOsmElementsFromO5M(SourceReader & stream, std::function<void(OsmElement *)> processor);
 void ProcessOsmElementsFromXML(SourceReader & stream, std::function<void(OsmElement *)> processor);
+}  // namespace generator

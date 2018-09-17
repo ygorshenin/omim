@@ -9,11 +9,6 @@
 #include <algorithm>
 #include <utility>
 
-namespace
-{
-double constexpr KMPH2MPS = 1000.0 / (60 * 60);
-}  // namespace
-
 namespace routing
 {
 using namespace std;
@@ -28,9 +23,9 @@ void FillSegmentInfo(vector<Segment> const & segments, vector<Junction> const & 
   CHECK(!turns.empty(), ());
   CHECK(!times.empty(), ());
 
-  CHECK(is_sorted(turns.cbegin(), turns.cend(), my::LessBy(&turns::TurnItem::m_index)), ());
-  CHECK(is_sorted(streets.cbegin(), streets.cend(), my::LessBy(&Route::TStreetItem::first)), ());
-  CHECK(is_sorted(times.cbegin(), times.cend(), my::LessBy(&Route::TTimeItem::first)), ());
+  CHECK(is_sorted(turns.cbegin(), turns.cend(), base::LessBy(&turns::TurnItem::m_index)), ());
+  CHECK(is_sorted(streets.cbegin(), streets.cend(), base::LessBy(&Route::TStreetItem::first)), ());
+  CHECK(is_sorted(times.cbegin(), times.cend(), base::LessBy(&Route::TTimeItem::first)), ());
 
   CHECK_LESS(turns.back().m_index, junctions.size(), ());
   if (!streets.empty())
@@ -98,9 +93,9 @@ void FillSegmentInfo(vector<Segment> const & segments, vector<Junction> const & 
   }
 }
 
-void ReconstructRoute(IDirectionsEngine & engine, RoadGraphBase const & graph,
+void ReconstructRoute(IDirectionsEngine & engine, IndexRoadGraph const & graph,
                       shared_ptr<TrafficStash> const & trafficStash,
-                      my::Cancellable const & cancellable, vector<Junction> const & path,
+                      base::Cancellable const & cancellable, vector<Junction> const & path,
                       Route::TTimes && times, Route & route)
 {
   if (path.empty())
@@ -152,7 +147,6 @@ Segment ConvertEdgeToSegment(NumMwmIds const & numMwmIds, Edge const & edge)
   if (edge.IsFake())
     return Segment();
 
-
   NumMwmId const numMwmId =
       numMwmIds.GetId(edge.GetFeatureId().m_mwmId.GetInfo()->GetLocalFile().GetCountryFile());
   return Segment(numMwmId, edge.GetFeatureId().m_index, edge.GetSegId(), edge.IsForward());
@@ -165,15 +159,15 @@ void CalculateMaxSpeedTimes(RoadGraphBase const & graph, vector<Junction> const 
   if (path.empty())
     return;
 
-  // graph.GetMaxSpeedKMPH() below is used on purpose.
+  // graph.GetMaxSpeedKMpH() below is used on purpose.
   // The idea is while pedestrian (bicycle) routing ways for pedestrians (cyclists) are preferred.
   // At the same time routing along big roads is still possible but if there's
   // a pedestrian (bicycle) alternative it's prefered. To implement it a small speed
   // is set in pedestrian_model (bicycle_model) for big roads. On the other hand
   // the most likely a pedestrian (a cyclist) will go along big roads with average
-  // speed (graph.GetMaxSpeedKMPH()).
-  double const speedMPS = graph.GetMaxSpeedKMPH() * KMPH2MPS;
-  CHECK_GREATER(speedMPS, 0.0, ());
+  // speed (graph.GetMaxSpeedKMpH()).
+  double const speedMpS = KMPH2MPS(graph.GetMaxSpeedKMpH());
+  CHECK_GREATER(speedMpS, 0.0, ());
 
   times.reserve(path.size());
 
@@ -184,7 +178,7 @@ void CalculateMaxSpeedTimes(RoadGraphBase const & graph, vector<Junction> const 
   {
     double const lengthM =
         MercatorBounds::DistanceOnEarth(path[i - 1].GetPoint(), path[i].GetPoint());
-    trackTimeSec += lengthM / speedMPS;
+    trackTimeSec += lengthM / speedMpS;
 
     times.emplace_back(i, trackTimeSec);
   }

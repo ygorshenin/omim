@@ -14,7 +14,7 @@
 #include "coding/file_container.hpp"
 #include "coding/reader.hpp"
 
-#include "indexer/index.hpp"
+#include "indexer/data_source.hpp"
 
 #include <map>
 #include <memory>
@@ -66,8 +66,9 @@ class CrossMwmIndexGraph final
 public:
   using ReaderSourceFile = ReaderSource<FilesContainerR::TReader>;
 
-  CrossMwmIndexGraph(Index & index, std::shared_ptr<NumMwmIds> numMwmIds, VehicleType vehicleType)
-    : m_index(index), m_numMwmIds(numMwmIds), m_vehicleType(vehicleType)
+  CrossMwmIndexGraph(DataSource & dataSource, std::shared_ptr<NumMwmIds> numMwmIds,
+                     VehicleType vehicleType)
+    : m_dataSource(dataSource), m_numMwmIds(numMwmIds), m_vehicleType(vehicleType)
   {
   }
 
@@ -166,13 +167,13 @@ private:
 
   /// \brief Deserializes connectors for an mwm with |numMwmId|.
   /// \param fn is a function implementing deserialization.
-  /// \note Each CrossMwmConnector contained in |m_connectors| may be deserizalize in two stages.
+  /// \note Each CrossMwmConnector contained in |m_connectors| may be deserialized in two stages.
   /// The first one is transition deserialization and the second is weight deserialization.
   /// Transition deserialization is much faster and used more often.
   template <typename Fn>
   CrossMwmConnector<CrossMwmId> const & Deserialize(NumMwmId numMwmId, Fn && fn)
   {
-    MwmSet::MwmHandle handle = m_index.GetMwmHandleByCountryFile(m_numMwmIds->GetFile(numMwmId));
+    MwmSet::MwmHandle handle = m_dataSource.GetMwmHandleByCountryFile(m_numMwmIds->GetFile(numMwmId));
     if (!handle.IsAlive())
       MYTHROW(RoutingException, ("Mwm", m_numMwmIds->GetFile(numMwmId), "cannot be loaded."));
 
@@ -193,7 +194,7 @@ private:
     return it->second;
   }
 
-  Index & m_index;
+  DataSource & m_dataSource;
   std::shared_ptr<NumMwmIds> m_numMwmIds;
   VehicleType m_vehicleType;
 

@@ -1,10 +1,13 @@
 #pragma once
 
-#include "drape_frontend/render_state.hpp"
+#include "drape_frontend/color_constants.hpp"
+#include "drape_frontend/render_state_extension.hpp"
 #include "drape_frontend/shape_view_params.hpp"
 
 #include "drape/drape_global.hpp"
 #include "drape/pointers.hpp"
+
+#include "kml/type_utils.hpp"
 
 #include "indexer/feature_decl.hpp"
 
@@ -14,25 +17,20 @@
 
 namespace df
 {
-using MarkID = uint32_t;
-using IDCollection = std::vector<MarkID>;
-
-using MarkGroupID = size_t;
-
-struct MarkIDCollection
+struct IDCollections
 {
-  IDCollection m_marksID;
-  IDCollection m_linesID;
+  kml::MarkIdCollection m_markIds;
+  kml::TrackIdCollection m_lineIds;
 
   bool IsEmpty()
   {
-    return m_marksID.empty() && m_linesID.empty();
+    return m_markIds.empty() && m_lineIds.empty();
   }
 
   void Clear()
   {
-    m_marksID.clear();
-    m_linesID.clear();
+    m_markIds.clear();
+    m_lineIds.clear();
   }
 };
 
@@ -43,25 +41,30 @@ public:
   using SymbolNameZoomInfo = std::map<int, std::string>;
   using TitlesInfo = std::vector<dp::TitleDecl>;
   using SymbolSizes = std::vector<m2::PointF>;
+  using SymbolOffsets = std::vector<m2::PointF>;
 
-  UserPointMark();
-  virtual ~UserPointMark() {}
+  explicit UserPointMark(kml::MarkId id);
+  virtual ~UserPointMark() = default;
 
   virtual bool IsDirty() const = 0;
-  virtual void AcceptChanges() const = 0;
+  virtual void ResetChanges() const = 0;
 
-  MarkID GetId() const { return m_id; }
+  kml::MarkId GetId() const { return m_id; }
+  virtual kml::MarkGroupId GetGroupId() const = 0;
 
   virtual m2::PointD const & GetPivot() const = 0;
   virtual m2::PointD GetPixelOffset() const = 0;
   virtual dp::Anchor GetAnchor() const = 0;
+  virtual bool GetDepthTestEnabled() const = 0;
   virtual float GetDepth() const = 0;
-  virtual RenderState::DepthLayer GetDepthLayer() const = 0;
+  virtual DepthLayer GetDepthLayer() const = 0;
   virtual bool IsVisible() const = 0;
   virtual drape_ptr<TitlesInfo> GetTitleDecl() const = 0;
   virtual drape_ptr<SymbolNameZoomInfo> GetSymbolNames() const = 0;
+  virtual drape_ptr<SymbolNameZoomInfo> GetBadgeNames() const = 0;
   virtual drape_ptr<ColoredSymbolZoomInfo> GetColoredSymbols() const = 0;
   virtual drape_ptr<SymbolSizes> GetSymbolSizes() const = 0;
+  virtual drape_ptr<SymbolOffsets> GetSymbolOffsets() const = 0;
   virtual uint16_t GetPriority() const = 0;
   virtual uint32_t GetIndex() const = 0;
   virtual bool HasSymbolPriority() const = 0;
@@ -70,58 +73,53 @@ public:
   virtual int GetMinTitleZoom() const = 0;
   virtual FeatureID GetFeatureID() const = 0;
   virtual bool HasCreationAnimation() const = 0;
+  virtual df::ColorConstant GetColorConstant() const = 0;
 
 private:
-  MarkID m_id;
+  kml::MarkId m_id;
 };
 
 class UserLineMark
 {
 public:
-  UserLineMark();
-  virtual ~UserLineMark() {}
+  explicit UserLineMark(kml::TrackId id);
+  virtual ~UserLineMark() = default;
 
   virtual bool IsDirty() const = 0;
-  virtual void AcceptChanges() const = 0;
+  virtual void ResetChanges() const = 0;
 
-  virtual MarkID GetId() const { return m_id; }
+  virtual kml::TrackId GetId() const { return m_id; }
 
   virtual int GetMinZoom() const = 0;
-  virtual RenderState::DepthLayer GetDepthLayer() const = 0;
+  virtual DepthLayer GetDepthLayer() const = 0;
   virtual size_t GetLayerCount() const = 0;
-  virtual dp::Color const & GetColor(size_t layerIndex) const = 0;
+  virtual dp::Color GetColor(size_t layerIndex) const = 0;
   virtual float GetWidth(size_t layerIndex) const = 0;
   virtual float GetDepth(size_t layerIndex) const = 0;
   virtual std::vector<m2::PointD> const & GetPoints() const = 0;
 
 private:
-  MarkID m_id;
+  kml::TrackId m_id;
 };
 
 class UserMarksProvider
 {
 public:
-  UserMarksProvider();
-  virtual ~UserMarksProvider() {}
-
-  virtual bool IsDirty() const = 0;
-  virtual void AcceptChanges(MarkIDCollection & createdMarks, MarkIDCollection & removedMarks) = 0;
-
-  virtual bool IsDrawable() const = 0;
-
-  virtual size_t GetUserPointCount() const = 0;
-  /// never store UserPointMark reference
-  virtual UserPointMark const * GetUserPointMark(size_t index) const = 0;
-
-  virtual size_t GetUserLineCount() const = 0;
-  /// never store UserLineMark reference
-  virtual UserLineMark const * GetUserLineMark(size_t index) const = 0;
-
-  bool IsPendingOnDelete();
-  void DeleteLater();
-
-private:
-  bool m_pendingOnDelete;
+  virtual ~UserMarksProvider() = default;
+  virtual kml::GroupIdSet const & GetDirtyGroupIds() const = 0;
+  virtual kml::GroupIdSet const & GetRemovedGroupIds() const = 0;
+  virtual kml::GroupIdSet GetAllGroupIds() const = 0;
+  virtual bool IsGroupVisible(kml::MarkGroupId groupId) const = 0;
+  virtual bool IsGroupVisibilityChanged(kml::MarkGroupId groupId) const = 0;
+  virtual kml::MarkIdSet const & GetGroupPointIds(kml::MarkGroupId groupId) const = 0;
+  virtual kml::TrackIdSet const & GetGroupLineIds(kml::MarkGroupId groupId) const = 0;
+  virtual kml::MarkIdSet const & GetCreatedMarkIds() const = 0;
+  virtual kml::MarkIdSet const & GetRemovedMarkIds() const = 0;
+  virtual kml::MarkIdSet const & GetUpdatedMarkIds() const = 0;
+  virtual kml::TrackIdSet const & GetRemovedLineIds() const = 0;
+  /// Never store UserPointMark reference.
+  virtual UserPointMark const * GetUserPointMark(kml::MarkId markId) const = 0;
+  /// Never store UserLineMark reference.
+  virtual UserLineMark const * GetUserLineMark(kml::TrackId lineId) const = 0;
 };
-
-} // namespace df
+}  // namespace df

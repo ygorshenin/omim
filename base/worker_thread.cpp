@@ -6,9 +6,10 @@ using namespace std;
 
 namespace base
 {
-WorkerThread::WorkerThread()
+WorkerThread::WorkerThread(size_t threadsCount)
 {
-  m_thread = threads::SimpleThread(&WorkerThread::ProcessTasks, this);
+  for (size_t i = 0; i < threadsCount; ++i)
+    m_threads.emplace_back(threads::SimpleThread(&WorkerThread::ProcessTasks, this));
 }
 
 WorkerThread::~WorkerThread()
@@ -57,7 +58,8 @@ void WorkerThread::ProcessTasks()
         // while we are waiting.
         auto const when = m_delayed.top().m_when;
         m_cv.wait_until(lk, when, [this, when]() {
-          return m_shutdown || !m_immediate.empty() || m_delayed.top().m_when < when;
+          return m_shutdown || !m_immediate.empty() || m_delayed.empty() ||
+                 (!m_delayed.empty() && m_delayed.top().m_when < when);
         });
       }
       else
@@ -134,7 +136,7 @@ bool WorkerThread::Shutdown(Exit e)
     return false;
   m_shutdown = true;
   m_exit = e;
-  m_cv.notify_one();
+  m_cv.notify_all();
   return true;
 }
 
@@ -142,7 +144,11 @@ void WorkerThread::ShutdownAndJoin()
 {
   ASSERT(m_checker.CalledOnOriginalThread(), ());
   Shutdown(Exit::SkipPending);
-  if (m_thread.joinable())
-    m_thread.join();
+  for (auto & thread : m_threads)
+  {
+    if (thread.joinable())
+      thread.join();
+  }
+  m_threads.clear();
 }
 }  // namespace base

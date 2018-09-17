@@ -95,7 +95,7 @@ void MapWidget::CreateEngine()
   m_skin->ForEach(
       [&p](gui::EWidget widget, gui::Position const & pos) { p.m_widgetsInitInfo[widget] = pos; });
 
-  p.m_widgetsInitInfo[gui::WIDGET_SCALE_LABEL] = gui::Position(dp::LeftBottom);
+  p.m_widgetsInitInfo[gui::WIDGET_SCALE_FPS_LABEL] = gui::Position(dp::LeftBottom);
 
   m_framework.CreateDrapeEngine(make_ref(m_contextFactory), std::move(p));
   m_framework.SetViewportListener([this](ScreenBase const & /* screen */) {
@@ -169,7 +169,7 @@ df::TouchEvent MapWidget::GetTouchEvent(QMouseEvent * e, df::TouchEvent::ETouchT
 df::Touch MapWidget::GetSymmetrical(df::Touch const & touch) const
 {
   m2::PointD const pixelCenter = m_framework.GetPixelCenter();
-  m2::PointD const symmetricalLocation = pixelCenter + (pixelCenter - touch.m_location);
+  m2::PointD const symmetricalLocation = pixelCenter + pixelCenter - m2::PointD(touch.m_location);
 
   df::Touch result;
   result.m_id = touch.m_id + 1;

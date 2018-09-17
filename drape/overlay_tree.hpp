@@ -49,6 +49,8 @@ struct OverlayHasher
 };
 }  // namespace detail
 
+class DebugRenderer;
+
 using TOverlayContainer = buffer_vector<ref_ptr<OverlayHandle>, 8>;
 
 class OverlayTree : public m4::Tree<ref_ptr<OverlayHandle>, detail::OverlayTraits>
@@ -58,13 +60,14 @@ class OverlayTree : public m4::Tree<ref_ptr<OverlayHandle>, detail::OverlayTrait
 public:
   using HandlesCache = std::unordered_set<ref_ptr<OverlayHandle>, detail::OverlayHasher>;
 
-  OverlayTree(double visualScale);
+  explicit OverlayTree(double visualScale);
 
   void Clear();
   bool Frame();
   bool IsNeedUpdate() const;
+  void InvalidateOnNextFrame();
 
-  void StartOverlayPlacing(ScreenBase const & screen);
+  void StartOverlayPlacing(ScreenBase const & screen, int zoomLevel);
   void Add(ref_ptr<OverlayHandle> handle);
   void Remove(ref_ptr<OverlayHandle> handle);
   void EndOverlayPlacing();
@@ -92,6 +95,8 @@ public:
   using TDisplacementInfo = std::vector<DisplacementData>;
   TDisplacementInfo const & GetDisplacementInfo() const;
 
+  void SetDebugRectRenderer(ref_ptr<DebugRenderer> debugRectRenderer);
+
 private:
   ScreenBase const & GetModelView() const { return m_traits.GetModelView(); }
   void InsertHandle(ref_ptr<OverlayHandle> handle, int currentRank,
@@ -114,8 +119,10 @@ private:
   FeatureID m_selectedFeatureID;
 
   TDisplacementInfo m_displacementInfo;
+  ref_ptr<DebugRenderer> m_debugRectRenderer;
 
   HandlesCache m_displacers;
   uint32_t m_frameUpdatePeriod;
+  int m_zoomLevel = 1;
 };
 }  // namespace dp

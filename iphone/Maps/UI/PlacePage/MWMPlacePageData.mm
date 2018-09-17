@@ -2,6 +2,7 @@
 #import "AppInfo.h"
 #import "LocaleTranslator.h"
 #import "MWMBannerHelpers.h"
+#import "MWMBookmarksManager.h"
 #import "MWMNetworkPolicy.h"
 #import "MWMUGCViewModel.h"
 #import "SwiftBridge.h"
@@ -10,11 +11,17 @@
 
 #include "local_ads/event.hpp"
 
+#include "map/bookmark_helpers.hpp"
+
 #include "platform/preferred_languages.hpp"
 
 #include "partners_api/booking_api.hpp"
+#include "partners_api/booking_block_params.hpp"
 
 #include "3party/opening_hours/opening_hours.hpp"
+
+#include <string>
+#include <utility>
 
 using namespace place_page;
 
@@ -31,6 +38,8 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
 @property(copy, nonatomic) NSArray<MWMViatorItemModel *> * viatorItems;
 @property(nonatomic) NSNumberFormatter * currencyFormatter;
 @property(nonatomic, readwrite) MWMUGCViewModel * ugc;
+@property(nonatomic) NSInteger bookingDiscount;
+@property(nonatomic) BOOL isSmartDeal;
 
 @end
 
@@ -50,8 +59,6 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   std::vector<HotelReviewsRow> m_hotelReviewsRows;
 
   booking::HotelInfo m_hotelInfo;
-
-  uint64_t m_cianRequestId;
 }
 
 - (instancetype)initWithPlacePageInfo:(Info const &)info
@@ -99,6 +106,10 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
     {
     case taxi::Provider::Uber: provider = kStatUber; break;
     case taxi::Provider::Yandex: provider = kStatYandex; break;
+    case taxi::Provider::Maxim: provider = kStatMaxim; break;
+    // Dummy.
+    case taxi::Provider::Rutaxi: provider = kStatMaxim; break;
+    case taxi::Provider::Count: LOG(LERROR, ("Incorrect taxi provider")); break;
     }
     [Statistics logEvent:kStatPlacepageTaxiShow withParameters:@{ @"provider" : provider }];
   }
@@ -169,6 +180,51 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
       });
 }
 
+- (void)requestBookingData
+{
+  network_policy::CallPartnersApi([self](auto const & canUseNetwork) {
+    auto const api = GetFramework().GetBookingApi(canUseNetwork);
+    if (!api)
+      return;
+
+    std::string const currency = self.currencyFormatter.currencyCode.UTF8String;
+
+    auto const func = [self, currency](std::string const & hotelId,
+                                       booking::Blocks const & blocks) {
+      if (currency != blocks.m_currency)
+        return;
+
+      NSNumberFormatter * decimalFormatter = [[NSNumberFormatter alloc] init];
+      decimalFormatter.numberStyle = NSNumberFormatterDecimalStyle;
+
+      auto const price = blocks.m_totalMinPrice == booking::BlockInfo::kIncorrectPrice
+                              ? ""
+                              : std::to_string(blocks.m_totalMinPrice);
+
+      NSNumber * currencyNumber = [decimalFormatter
+                                   numberFromString:[@(price.c_str())
+                                                     stringByReplacingOccurrencesOfString:@"."
+                                                     withString:decimalFormatter
+                                                     .decimalSeparator]];
+      NSString * currencyString = [self.currencyFormatter stringFromNumber:currencyNumber];
+
+      dispatch_async(dispatch_get_main_queue(), ^{
+        self.cachedMinPrice = [NSString stringWithCoreFormat:L(@"place_page_starting_from")
+                                                   arguments:@[currencyString]];
+        self.bookingDiscount = blocks.m_maxDiscount;
+        self.isSmartDeal = blocks.m_hasSmartDeal;
+        if (self.bookingDataUpdatedCallback)
+          self.bookingDataUpdatedCallback();
+      });
+    };
+
+    auto params = booking::BlockParams::MakeDefault();
+    params.m_hotelId = self.sponsoredId.UTF8String;
+    params.m_currency = currency;
+    api->GetBlockAvailability(std::move(params), func);
+  });
+}
+
 - (void)fillPreviewSection
 {
   if (self.title.length) m_previewRows.push_back(PreviewRows::Title);
@@ -176,14 +232,23 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   if (self.subtitle.length || self.isMyPosition) m_previewRows.push_back(PreviewRows::Subtitle);
   if (self.schedule != OpeningHours::Unknown) m_previewRows.push_back(PreviewRows::Schedule);
   if (self.isBooking)
+  {
     m_previewRows.push_back(PreviewRows::Review);
-  if (self.address.length) m_previewRows.push_back(PreviewRows::Address);
-  m_previewRows.push_back(PreviewRows::Space);
+    [self requestBookingData];
+  }
 
+  if (self.address.length) m_previewRows.push_back(PreviewRows::Address);
+  if (self.hotelType)
+  {
+    m_previewRows.push_back(PreviewRows::Space);
+    m_previewRows.push_back(PreviewRows::SearchSimilar);
+  }
+
+  m_previewRows.push_back(PreviewRows::Space);
   NSAssert(!m_previewRows.empty(), @"Preview row's can't be empty!");
 
   if (network_policy::CanUseNetwork() && ![MWMSettings adForbidden] && m_info.HasBanner() &&
-      ![self isViator] && ![self isCian])
+      ![self isViator])
   {
     __weak auto wSelf = self;
     [[MWMBannersCache cache]
@@ -291,10 +356,7 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   if (!self.isViator)
     return;
 
-  if (Platform::ConnectionStatus() == Platform::EConnectionType::CONNECTION_NONE)
-    return;
-
-  network_policy::CallPartnersApi([self](platform::NetworkPolicy const & canUseNetwork) {
+  network_policy::CallPartnersApi([self](auto const & canUseNetwork) {
     auto api = GetFramework().GetViatorApi(canUseNetwork);
     if (!api)
       return;
@@ -338,68 +400,6 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   });
 }
 
-- (void)fillOnlineCianSection
-{
-  if (![self isCian])
-    return;
-
-  [self insertSpecialProjectsSectionWithProject:SpecialProject::Cian];
-
-  if (Platform::ConnectionStatus() == Platform::EConnectionType::CONNECTION_NONE)
-  {
-    self.cianIsReadyCallback(@[]);
-    return;
-  }
-
-  network_policy::CallPartnersApi([self](platform::NetworkPolicy const & canUseNetwork) {
-    auto api = GetFramework().GetCianApi(canUseNetwork);
-    if (!api)
-    {
-      self.cianIsReadyCallback(@[]);
-      return;
-    }
-    auto const latLon = [self latLon];
-
-    __weak auto wSuccessSelf = self;
-    __weak auto wErrorSelf = self;
-    m_cianRequestId = api->GetRentNearby(
-        latLon,
-        [wSuccessSelf](std::vector<cian::RentPlace> const & places, uint64_t const requestId) {
-          __strong auto self = wSuccessSelf;
-          if (!self || self->m_cianRequestId != requestId)
-            return;
-          NSMutableArray<MWMCianItemModel *> * items = [@[] mutableCopy];
-          for (auto const & p : places)
-          {
-            auto const & offers = p.m_offers;
-            NSCAssert(!offers.empty(), @"Cian misses offers for place.");
-            if (offers.empty())
-              continue;
-            auto const & firstOffer = offers.front();
-
-            auto pageURL = [NSURL URLWithString:@(firstOffer.m_url.c_str())];
-            if (!pageURL)
-              continue;
-            auto item =
-                [[MWMCianItemModel alloc] initWithRoomsCount:firstOffer.m_roomsCount
-                                                    priceRur:firstOffer.m_priceRur
-                                                     pageURL:pageURL
-                                                     address:@(firstOffer.m_address.c_str())];
-            [items addObject:item];
-          }
-
-          dispatch_async(dispatch_get_main_queue(),
-                         [self, items] { self.cianIsReadyCallback(items); });
-        },
-        [wErrorSelf](int code, uint64_t const requestId) {
-          __strong auto self = wErrorSelf;
-          if (!self || self->m_cianRequestId != requestId)
-            return;
-          dispatch_async(dispatch_get_main_queue(), [self] { self.cianIsReadyCallback(@[]); });
-        });
-  });
-}
-
 - (float)ratingRawValue
 {
   return m_info.GetRatingRawValue();
@@ -410,10 +410,7 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   if (!self.isBooking)
     return;
 
-  if (Platform::ConnectionStatus() == Platform::EConnectionType::CONNECTION_NONE)
-    return;
-
-  network_policy::CallPartnersApi([self](platform::NetworkPolicy const & canUseNetwork) {
+  network_policy::CallPartnersApi([self](auto const & canUseNetwork) {
     auto api = GetFramework().GetBookingApi(canUseNetwork);
     if (!api)
       return;
@@ -502,27 +499,27 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   auto & bmManager = f.GetBookmarkManager();
   if (isBookmark)
   {
-    auto const categoryIndex = f.LastEditedBMCategory();
-    BookmarkData bmData{m_info.FormatNewBookmarkName(), f.LastEditedBMType()};
-    auto const bookmarkIndex = bmManager.AddBookmark(categoryIndex, self.mercator, bmData);
-
-    auto category = f.GetBmCategory(categoryIndex);
-    NSAssert(category, @"Category can't be nullptr!");
-    auto bookmark = static_cast<Bookmark const *>(category->GetUserMark(bookmarkIndex));
-    f.FillBookmarkInfo(*bookmark, {bookmarkIndex, categoryIndex}, m_info);
-    category->NotifyChanges();
+    auto const categoryId = f.LastEditedBMCategory();
+    kml::BookmarkData bmData;
+    bmData.m_name = m_info.FormatNewBookmarkName();
+    bmData.m_color.m_predefinedColor = f.LastEditedBMColor();
+    bmData.m_point = self.mercator;
+    if (m_info.IsFeature())
+      SaveFeatureTypes(m_info.GetTypes(), bmData);
+    auto editSession = bmManager.GetEditSession();
+    auto const * bookmark = editSession.CreateBookmark(std::move(bmData), categoryId);
+    f.FillBookmarkInfo(*bookmark, m_info);
     m_sections.insert(m_sections.begin() + 1, Sections::Bookmark);
   }
   else
   {
-    auto const bac = m_info.GetBookmarkAndCategory();
-    auto category = bmManager.GetBmCategory(bac.m_categoryIndex);
-    f.ResetBookmarkInfo(*static_cast<Bookmark const *>(category->GetUserMark(bac.m_bookmarkIndex)),
-                        m_info);
-    NSAssert(category, @"Category can't be nullptr!");
-    category->DeleteUserMark(bac.m_bookmarkIndex);
-    category->NotifyChanges();
-    category->SaveToKMLFile();
+    auto const bookmarkId = m_info.GetBookmarkId();
+    auto const * bookmark = bmManager.GetBookmark(bookmarkId);
+    if (bookmark)
+    {
+      f.ResetBookmarkInfo(*bookmark, m_info);
+      [MWMBookmarksManager deleteBookmark:bookmarkId];
+    }
 
     m_sections.erase(remove(m_sections.begin(), m_sections.end(), Sections::Bookmark));
   }
@@ -541,6 +538,7 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
 
 #pragma mark - Getters
 
+- (BOOL)isPopular { return m_info.GetPopularity() > 0; }
 - (storage::TCountryId const &)countryId { return m_info.GetCountryId(); }
 - (FeatureID const &)featureId { return m_info.GetID(); }
 - (NSString *)title { return @(m_info.GetTitle().c_str()); }
@@ -577,10 +575,17 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
       initWithValue:@(rating::GetRatingFormatted(ratingRaw).c_str())
                type:[MWMPlacePageData ratingValueType:rating::GetImpress(ratingRaw)]];
 }
-- (NSString *)bookingApproximatePricing { return self.isBooking ? @(m_info.GetApproximatePricing().c_str()) : nil; }
+
+- (NSString *)bookingPricing
+{
+  ASSERT(self.isBooking, ("Only for booking.com hotels"));
+  return self.cachedMinPrice.length ? self.cachedMinPrice : @(m_info.GetApproximatePricing().c_str());
+}
+
 - (NSURL *)sponsoredURL
 {
-  if (m_info.IsSponsored())
+  // There are sponsors without URL. For such psrtners we do not show special button.
+  if (m_info.IsSponsored() && !m_info.GetSponsoredUrl().empty())
   {
     auto urlString = [@(m_info.GetSponsoredUrl().c_str())
         stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet
@@ -588,6 +593,15 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
     auto url = [NSURL URLWithString:urlString];
     return url;
   }
+  return nil;
+}
+
+- (NSURL *)deepLink
+{
+  auto const & link = m_info.GetSponsoredDeepLink();
+  if (m_info.IsSponsored() && !link.empty())
+    return [NSURL URLWithString:@(link.c_str())];
+  
   return nil;
 }
 
@@ -609,53 +623,6 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   return m_info.IsSponsored()
              ? @(m_info.GetMetadata().Get(feature::Metadata::FMD_SPONSORED_ID).c_str())
              : nil;
-}
-
-- (void)assignOnlinePriceToLabel:(UILabel *)label
-{
-  NSAssert(self.isBooking, @"Online price must be assigned to booking object!");
-  if (self.cachedMinPrice.length)
-  {
-    label.text = self.cachedMinPrice;
-    return;
-  }
-
-  if (Platform::ConnectionStatus() == Platform::EConnectionType::CONNECTION_NONE)
-    return;
-
-  std::string const currency = self.currencyFormatter.currencyCode.UTF8String;
-
-  auto const func = [self, label, currency](std::string const & hotelId, std::string const & minPrice,
-                                            std::string const & priceCurrency) {
-    if (currency != priceCurrency)
-      return;
-
-    NSNumberFormatter * decimalFormatter = [[NSNumberFormatter alloc] init];
-    decimalFormatter.numberStyle = NSNumberFormatterDecimalStyle;
-
-    NSNumber * currencyNumber = [decimalFormatter
-        numberFromString:[@(minPrice.c_str())
-                             stringByReplacingOccurrencesOfString:@"."
-                                                       withString:decimalFormatter
-                                                                      .decimalSeparator]];
-    NSString * currencyString = [self.currencyFormatter stringFromNumber:currencyNumber];
-
-    NSString * pattern =
-        [L(@"place_page_starting_from") stringByReplacingOccurrencesOfString:@"%s"
-                                                                  withString:@"%@"];
-
-    self.cachedMinPrice = [NSString stringWithFormat:pattern, currencyString];
-    dispatch_async(dispatch_get_main_queue(), ^{
-      label.text = self.cachedMinPrice;
-    });
-  };
-
-  network_policy::CallPartnersApi(
-      [self, currency, func](platform::NetworkPolicy const & canUseNetwork) {
-        auto const api = GetFramework().GetBookingApi(canUseNetwork);
-        if (api)
-          api->GetMinPrice(self.sponsoredId.UTF8String, currency, func);
-      });
 }
 
 - (NSNumberFormatter *)currencyFormatter
@@ -699,6 +666,28 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   return _photos;
 }
 
+- (boost::optional<int>)hotelRawApproximatePricing
+{
+  return m_info.GetRawApproximatePricing();
+}
+
+- (boost::optional<ftypes::IsHotelChecker::Type>)hotelType
+{
+  return m_info.GetHotelType();
+}
+
+#pragma mark - Partners
+
+- (NSString *)partnerName
+{
+  return self.isPartner ? @(m_info.GetPartnerName().c_str()) : nil;
+}
+
+- (int)partnerIndex
+{
+  return self.isPartner ? m_info.GetPartnerIndex() : -1;
+}
+
 #pragma mark - UGC
 
 - (ftraits::UGCRatingCategories)ugcRatingCategories { return m_info.GetRatingCategories(); }
@@ -732,14 +721,14 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   return m_info.GetSecondaryTitle().empty() ? nil : @(m_info.GetSecondaryTitle().c_str());
 }
 
-- (NSString *)bookmarkColor
+- (kml::PredefinedColor)bookmarkColor
 {
-  return m_info.IsBookmark() ? @(m_info.GetBookmarkData().GetType().c_str()) : nil;
+  return m_info.IsBookmark() ? m_info.GetBookmarkData().m_color.m_predefinedColor : kml::PredefinedColor::None;
 }
 
 - (NSString *)bookmarkDescription
 {
-  return m_info.IsBookmark() ? @(m_info.GetBookmarkData().GetDescription().c_str()) : nil;
+  return m_info.IsBookmark() ? @(GetPreferredBookmarkStr(m_info.GetBookmarkData().m_description).c_str()) : nil;
 }
 
 - (NSString *)bookmarkCategory
@@ -747,9 +736,19 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   return m_info.IsBookmark() ? @(m_info.GetBookmarkCategoryName().c_str()) : nil;
 }
 
-- (BookmarkAndCategory)bookmarkAndCategory
+- (kml::MarkId)bookmarkId
 {
-  return m_info.IsBookmark() ? m_info.GetBookmarkAndCategory() : BookmarkAndCategory();
+  return m_info.GetBookmarkId();
+}
+
+- (kml::MarkGroupId)bookmarkCategoryId
+{
+  return m_info.GetBookmarkCategoryId();
+}
+
+- (BOOL)isBookmarkFromCatalog
+{
+  return self.isBookmark && [MWMBookmarksManager isCategoryFromCatalog:self.bookmarkCategoryId];
 }
 
 #pragma mark - Local Ads
@@ -821,7 +820,7 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
   }
 }
 
-#pragma mark - Helpres
+#pragma mark - Helpers
 
 - (NSString *)phoneNumber { return @(m_info.GetPhone().c_str()); }
 - (BOOL)isBookmark { return m_info.IsBookmark(); }
@@ -829,14 +828,18 @@ NSString * const kUserDefaultsLatLonAsDMSKey = @"UserDefaultsLatLonAsDMS";
 - (BOOL)isBooking { return m_info.GetSponsoredType() == SponsoredType::Booking; }
 - (BOOL)isOpentable { return m_info.GetSponsoredType() == SponsoredType::Opentable; }
 - (BOOL)isViator { return m_info.GetSponsoredType() == SponsoredType::Viator; }
-- (BOOL)isCian { return m_info.GetSponsoredType() == SponsoredType::Cian; }
-- (BOOL)isThor { return m_info.GetSponsoredType() == SponsoredType::Thor; }
+- (BOOL)isPartner { return m_info.GetSponsoredType() == SponsoredType::Partner; }
 - (BOOL)isHolidayObject { return m_info.GetSponsoredType() == SponsoredType::Holiday; }
 - (BOOL)isBookingSearch { return !m_info.GetBookingSearchUrl().empty(); }
 - (BOOL)isMyPosition { return m_info.IsMyPosition(); }
-- (BOOL)isHTMLDescription { return strings::IsHTML(m_info.GetBookmarkData().GetDescription()); }
+- (BOOL)isHTMLDescription { return strings::IsHTML(GetPreferredBookmarkStr(m_info.GetBookmarkData().m_description)); }
 - (BOOL)isRoutePoint { return m_info.IsRoutePoint(); }
 - (BOOL)isPreviewExtended { return m_info.IsPreviewExtended(); }
+- (BOOL)isPartnerAppInstalled
+{
+  // TODO(): Load list of registered schemas from plist.
+  return [UIApplication.sharedApplication canOpenURL:self.deepLink];
+}
 
 + (MWMRatingSummaryViewValueType)ratingValueType:(rating::Impress)impress
 {

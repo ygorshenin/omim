@@ -25,7 +25,9 @@
 
 #include "Framework.h"
 
-#include "indexer/osm_editor.hpp"
+#include "editor/osm_editor.hpp"
+
+#include "indexer/feature_source.hpp"
 
 namespace
 {
@@ -167,7 +169,7 @@ void registerCellsForTableView(vector<MWMEditorCellType> const & cells, UITableV
 @property(nonatomic) MWMEditorAdditionalNamesHeader * additionalNamesHeader;
 @property(nonatomic) MWMEditorNotesFooter * notesFooter;
 @property(copy, nonatomic) NSString * note;
-@property(nonatomic) osm::Editor::FeatureStatus featureStatus;
+@property(nonatomic) FeatureStatus featureStatus;
 @property(nonatomic) BOOL isFeatureUploaded;
 
 @property(nonatomic) BOOL showAdditionalNames;
@@ -192,6 +194,13 @@ void registerCellsForTableView(vector<MWMEditorCellType> const & cells, UITableV
   self.featureStatus = osm::Editor::Instance().GetFeatureStatus(fid.m_mwmId, fid.m_index);
   self.isFeatureUploaded = osm::Editor::Instance().IsFeatureUploaded(fid.m_mwmId, fid.m_index);
   m_newAdditionalLanguages.clear();
+  if (self.isCreating)
+  {
+    self.navigationItem.leftBarButtonItem =
+    [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel
+                                                  target:self
+                                                  action:@selector(onCancel)];
+  }
 }
 
 - (void)setFeatureToEdit:(FeatureID const &)fid
@@ -224,27 +233,9 @@ void registerCellsForTableView(vector<MWMEditorCellType> const & cells, UITableV
                                                     action:@selector(onSave)];
 }
 
-- (void)backTap
+- (void)onCancel
 {
-  if (self.isCreating)
-    [self.navigationController popToRootViewControllerAnimated:YES];
-  else
-    [super backTap];
-}
-
-- (void)showBackButton
-{
-  if (self.isCreating)
-  {
-    self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemCancel
-                                                      target:self
-                                                      action:@selector(backTap)];
-  }
-  else
-  {
-    [super showBackButton];
-  }
+  [self.navigationController popToRootViewControllerAnimated:YES];
 }
 
 #pragma mark - Actions
@@ -288,23 +279,23 @@ void registerCellsForTableView(vector<MWMEditorCellType> const & cells, UITableV
 
   switch (f.SaveEditedMapObject(m_mapObject))
   {
-  case osm::Editor::NoUnderlyingMapError:
-  case osm::Editor::SavingError:
+  case osm::Editor::SaveResult::NoUnderlyingMapError:
+  case osm::Editor::SaveResult::SavingError:
     [self.navigationController popToRootViewControllerAnimated:YES];
     break;
-  case osm::Editor::NothingWasChanged:
+  case osm::Editor::SaveResult::NothingWasChanged:
     [self.navigationController popToRootViewControllerAnimated:YES];
     if (haveNote)
       [self showDropDown];
     break;
-  case osm::Editor::SavedSuccessfully:
+  case osm::Editor::SaveResult::SavedSuccessfully:
     [Statistics logEvent:(self.isCreating ? kStatEditorAddSuccess : kStatEditorEditSuccess)
           withParameters:info];
     osm_auth_ios::AuthorizationSetNeedCheck(YES);
     f.UpdatePlacePageInfoForCurrentSelection();
     [self.navigationController popToRootViewControllerAnimated:YES];
     break;
-  case osm::Editor::NoFreeSpaceError:
+  case osm::Editor::SaveResult::NoFreeSpaceError:
     [Statistics logEvent:(self.isCreating ? kStatEditorAddError : kStatEditorEditError)
           withParameters:info];
     [self.alertController presentNotEnoughSpaceAlert];
@@ -314,7 +305,7 @@ void registerCellsForTableView(vector<MWMEditorCellType> const & cells, UITableV
 
 - (void)showDropDown
 {
-  MWMDropDown * dd = [[MWMDropDown alloc] initWithSuperview:[MapViewController controller].view];
+  MWMDropDown * dd = [[MWMDropDown alloc] initWithSuperview:[MapViewController sharedController].view];
   [dd showWithMessage:L(@"editor_edits_sent_message")];
 }
 
@@ -661,20 +652,19 @@ void registerCellsForTableView(vector<MWMEditorCellType> const & cells, UITableV
   {
     MWMButtonCell * tCell = static_cast<MWMButtonCell *>(cell);
 
-    auto title = ^NSString *(osm::Editor::FeatureStatus s, BOOL isUploaded)
+    auto title = ^NSString *(FeatureStatus s, BOOL isUploaded)
     {
       if (isUploaded)
         return L(@"editor_place_doesnt_exist");
       switch (s)
       {
-      case osm::Editor::FeatureStatus::Untouched: return L(@"editor_place_doesnt_exist");
-      case osm::Editor::FeatureStatus::Deleted:
-      case osm::Editor::FeatureStatus::Obsolete:  // TODO(Vlad): Either make a valid button or
-                                                  // disable it.
+      case FeatureStatus::Untouched: return L(@"editor_place_doesnt_exist");
+      case FeatureStatus::Deleted:
+      case FeatureStatus::Obsolete:  // TODO(Vlad): Either make a valid button or disable it.
         NSAssert(false, @"Incorrect feature status!");
         return L(@"editor_place_doesnt_exist");
-      case osm::Editor::FeatureStatus::Modified: return L(@"editor_reset_edits_button");
-      case osm::Editor::FeatureStatus::Created: return L(@"editor_remove_place_button");
+      case FeatureStatus::Modified: return L(@"editor_reset_edits_button");
+      case FeatureStatus::Created: return L(@"editor_remove_place_button");
       }
     };
 
@@ -968,7 +958,7 @@ void registerCellsForTableView(vector<MWMEditorCellType> const & cells, UITableV
                 atLocation:location];
       GetFramework().CreateNote(self->m_mapObject, osm::Editor::NoteProblemType::PlaceDoesNotExist,
                                 additional);
-      [self backTap];
+      [self goBack];
       [self showDropDown];
     }];
   };
@@ -985,7 +975,7 @@ void registerCellsForTableView(vector<MWMEditorCellType> const & cells, UITableV
       NSAssert(false, @"We shouldn't call this if we can't roll back!");
 
     f.PokeSearchInViewport();
-    [self backTap];
+    [self goBack];
   };
 
   if (self.isFeatureUploaded)
@@ -996,23 +986,23 @@ void registerCellsForTableView(vector<MWMEditorCellType> const & cells, UITableV
   {
     switch (self.featureStatus)
     {
-    case osm::Editor::FeatureStatus::Untouched: placeDoesntExistAction(); break;
-    case osm::Editor::FeatureStatus::Modified:
+    case FeatureStatus::Untouched: placeDoesntExistAction(); break;
+    case FeatureStatus::Modified:
     {
       [self.alertController presentResetChangesAlertWithBlock:^{
         revertAction(NO);
       }];
       break;
     }
-    case osm::Editor::FeatureStatus::Created:
+    case FeatureStatus::Created:
     {
       [self.alertController presentDeleteFeatureAlertWithBlock:^{
         revertAction(YES);
       }];
       break;
     }
-    case osm::Editor::FeatureStatus::Deleted: break;
-    case osm::Editor::FeatureStatus::Obsolete: break;
+    case FeatureStatus::Deleted: break;
+    case FeatureStatus::Obsolete: break;
     }
   }
 }
@@ -1093,7 +1083,7 @@ void registerCellsForTableView(vector<MWMEditorCellType> const & cells, UITableV
     [ud synchronize];
     [self onSave];
   }];
-  
+
   return YES;
 }
 

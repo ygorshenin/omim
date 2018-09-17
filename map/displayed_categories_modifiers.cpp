@@ -1,25 +1,52 @@
 #include "map/displayed_categories_modifiers.hpp"
 
-#include "partners_api/cian_api.hpp"
-
 #include "base/macros.hpp"
 
 #include <algorithm>
+#include <vector>
 
-CianModifier::CianModifier(std::string const & city) : m_city(city) {}
-
-void CianModifier::Modify(search::DisplayedCategories::Keys & keys)
+namespace
 {
-  static int const kPos = 4;
-  static std::string const kCategoryName = "cian";
+std::vector<std::string> const kSponsoredCategories = {};
 
-  auto const supported = cian::Api::IsCitySupported(m_city);
-  auto const contains = std::find(keys.cbegin(), keys.cend(), kCategoryName) != keys.cend();
+search::DisplayedCategories::Keys::const_iterator FindInsertionPlace(
+    search::DisplayedCategories::Keys & keys, uint32_t position)
+{
+  for (auto it = keys.cbegin(); it != keys.cend(); ++it)
+  {
+    if (position == 0)
+      return it;
 
-  ASSERT_LESS(kPos, keys.size(), ());
+    // Do not count sponsored categories.
+    if (std::find(kSponsoredCategories.cbegin(), kSponsoredCategories.cend(), *it) ==
+        kSponsoredCategories.cend())
+    {
+      position--;
+    }
+  }
+  return keys.cend();
+}
+}  // namespace
+
+SponsoredCategoryModifier::SponsoredCategoryModifier(std::string const & currentCity,
+                                                     SupportedCities const & supportedCities,
+                                                     std::string const & categoryName,
+                                                     uint32_t position)
+  : m_currentCity(currentCity)
+  , m_supportedCities(supportedCities)
+  , m_categoryName(categoryName)
+  , m_position(position)
+{}
+
+void SponsoredCategoryModifier::Modify(search::DisplayedCategories::Keys & keys)
+{
+  auto const supported = m_supportedCities.find(m_currentCity) != m_supportedCities.cend();
+  auto const contains = std::find(keys.cbegin(), keys.cend(), m_categoryName) != keys.cend();
+
+  ASSERT_LESS(m_position, keys.size(), ());
 
   if (supported && !contains)
-    keys.insert(keys.cbegin() + kPos, kCategoryName);
+    keys.insert(FindInsertionPlace(keys, m_position), m_categoryName);
   else if (!supported && contains)
-    keys.erase(std::remove(keys.begin(), keys.end(), kCategoryName), keys.end());
+    keys.erase(std::remove(keys.begin(), keys.end(), m_categoryName), keys.end());
 }

@@ -12,6 +12,13 @@ namespace routing
 /// For example, route matching properties, rerouting properties and so on.
 struct RoutingSettings
 {
+  friend RoutingSettings GetRoutingSettings(VehicleType vehicleType);
+
+private:
+  RoutingSettings(bool matchRoute, bool soundDirection, double matchingThresholdM,
+                  bool keepPedestrianInfo, bool showTurnAfterNext, bool speedCameraWarning);
+
+public:
   /// \brief if m_matchRoute is equal to true the bearing follows the
   /// route direction if the current position is matched to the route.
   /// If m_matchRoute is equal to false GPS bearing is used while
@@ -35,8 +42,9 @@ struct RoutingSettings
   /// about the turn after the next in some cases.
   bool m_showTurnAfterNext;
 
-  /// \brief m_speedCameraWarning is a flag for enabling user notifications about speed cameras.
-  bool m_speedCameraWarning;
+  /// \brief m_speedCameraWarningEnabled is a flag for enabling user notifications about speed
+  /// cameras.
+  bool m_speedCameraWarningEnabled;
 };
 
 RoutingSettings GetRoutingSettings(VehicleType vehicleType);

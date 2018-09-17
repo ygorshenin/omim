@@ -32,7 +32,7 @@ bool CitiesBoundariesTable::Boundaries::HasPoint(m2::PointD const & p) const
 // CitiesBoundariesTable ---------------------------------------------------------------------------
 bool CitiesBoundariesTable::Load()
 {
-  auto handle = FindWorld(m_index);
+  auto handle = FindWorld(m_dataSource);
   if (!handle.IsAlive())
   {
     LOG(LWARNING, ("Can't find World map file."));
@@ -44,7 +44,8 @@ bool CitiesBoundariesTable::Load()
     return true;
 
   MwmContext context(move(handle));
-  auto const localities = CategoriesCache(LocalitiesSource{}, my::Cancellable{}).Get(context);
+  base::Cancellable const cancellable;
+  auto const localities = CategoriesCache(LocalitiesSource{}, cancellable).Get(context);
 
   auto const & cont = context.m_value.m_cont;
 
@@ -83,7 +84,7 @@ bool CitiesBoundariesTable::Load()
   size_t boundary = 0;
   localities.ForEach([&](uint64_t fid) {
     ASSERT_LESS(boundary, all.size(), ());
-    m_table[::base::asserted_cast<uint32_t>(fid)] = move(all[boundary]);
+    m_table[base::asserted_cast<uint32_t>(fid)] = move(all[boundary]);
     ++boundary;
   });
   ASSERT_EQUAL(boundary, all.size(), ());
@@ -104,5 +105,22 @@ bool CitiesBoundariesTable::Get(uint32_t fid, Boundaries & bs) const
     return false;
   bs = Boundaries(it->second, m_eps);
   return true;
+}
+
+void GetCityBoundariesInRectForTesting(CitiesBoundariesTable const & table, m2::RectD const & rect,
+                                       vector<uint32_t> & featureIds)
+{
+  featureIds.clear();
+  for (auto const & kv : table.m_table)
+  {
+    for (auto const & cb : kv.second)
+    {
+      if (rect.IsIntersect(m2::RectD(cb.m_bbox.Min(), cb.m_bbox.Max())))
+      {
+        featureIds.push_back(kv.first);
+        break;
+      }
+    }
+  }
 }
 }  // namespace search

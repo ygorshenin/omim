@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"向左急转。",
 "make_a_u_turn":"掉头。",
 "go_straight":"直行。",
+"exit":"出口.",
 "destination":"您将到达。",
 "you_have_reached_the_destination":"您已抵达。",
 "in_50_meters":"前方五十米",
@@ -61,5 +62,6 @@
 "in_5000_feet":"前方五千英尺",
 "in_1_mile":"前方一英里",
 "in_1_5_miles":"前方一点五英里",
-"in_2_miles":"前方两英里"
+"in_2_miles":"前方两英里",
+"unknown_camera":"Speed camera ahead"
 }

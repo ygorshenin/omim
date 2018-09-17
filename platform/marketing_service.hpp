@@ -9,7 +9,8 @@
 namespace marketing
 {
 // Tags.
-extern char const * const kMapVersion;
+extern char const * const kMapVersionMin;
+extern char const * const kMapVersionMax;
 extern char const * const kMapListing;
 extern char const * const kMapDownloadDiscovered;
 extern char const * const kMapLastDownloaded;
@@ -27,7 +28,8 @@ extern char const * const kRoutingTransitDiscovered;
 extern char const * const kEditorAddDiscovered;
 extern char const * const kEditorEditDiscovered;
 extern char const * const kTrafficDiscovered;
-extern char const * const kSponsoredThorDiscovered;
+extern char const * const kDiscoveryButtonDiscovered;
+extern char const * const kBookHotelOnBookingComDiscovered;
 
 // Events.
 extern char const * const kDownloaderMapActionFinished;

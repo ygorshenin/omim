@@ -1,3 +1,5 @@
+#import "UIColor+PartnerColor.h"
+
 @interface UIColor (MapsMeColor)
 
 + (UIColor *)primaryDark;
@@ -44,7 +46,6 @@
 + (UIColor *)ratingYellow;
 + (UIColor *)ratingLightGreen;
 + (UIColor *)ratingGreen;
-+ (UIColor *)thorBackground;
 
 + (UIColor *)colorWithName:(NSString *)colorName;
 
@@ -52,5 +53,8 @@
 + (BOOL)isNightMode;
 
 - (UIColor *)opposite;
+
++ (UIColor *)facebookButtonBackground;
++ (UIColor *)facebookButtonBackgroundDisabled;
 
 @end

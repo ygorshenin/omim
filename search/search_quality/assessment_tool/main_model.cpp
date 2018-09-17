@@ -23,7 +23,6 @@
 #include <functional>
 #include <iterator>
 
-using Relevance = search::Sample::Result::Relevance;
 using namespace std;
 
 // MainModel::SampleContext ------------------------------------------------------------------------
@@ -31,8 +30,8 @@ using namespace std;
 // MainModel ---------------------------------------------------------------------------------------
 MainModel::MainModel(Framework & framework)
   : m_framework(framework)
-  , m_index(m_framework.GetIndex())
-  , m_loader(m_index)
+  , m_dataSource(m_framework.GetDataSource())
+  , m_loader(m_dataSource)
   , m_contexts(
         [this](size_t sampleIndex, Edits::Update const & update) {
           OnUpdate(View::ResultType::Found, sampleIndex, update);
@@ -116,7 +115,7 @@ void MainModel::OnSampleSelected(int index)
   CHECK(m_threadChecker.CalledOnOriginalThread(), ());
 
   CHECK_GREATER_OR_EQUAL(index, 0, ());
-  CHECK_LESS(index, m_contexts.Size(), ());
+  CHECK_LESS(static_cast<size_t>(index), m_contexts.Size(), ());
   CHECK(m_view, ());
 
   m_selectedSample = index;
@@ -141,14 +140,14 @@ void MainModel::OnSampleSelected(int index)
     search::SearchParams params;
     sample.FillSearchParams(params);
     params.m_onResults = [this, index, sample, timestamp](search::Results const & results) {
-      vector<Edits::MaybeRelevance> relevances;
+      vector<boost::optional<Edits::Relevance>> relevances;
       vector<size_t> goldenMatching;
       vector<size_t> actualMatching;
 
       if (results.IsEndedNormal())
       {
         // Can't use m_loader here due to thread-safety issues.
-        search::FeatureLoader loader(m_index);
+        search::FeatureLoader loader(m_dataSource);
         search::Matcher matcher(loader);
 
         vector<search::Result> const actual(results.begin(), results.end());
@@ -160,7 +159,7 @@ void MainModel::OnSampleSelected(int index)
           if (j != search::Matcher::kInvalidId)
           {
             CHECK_LESS(j, relevances.size(), ());
-            relevances[j] = Edits::MaybeRelevance(sample.m_results[i].m_relevance);
+            relevances[j] = sample.m_results[i].m_relevance;
           }
         }
       }
@@ -177,31 +176,32 @@ void MainModel::OnSampleSelected(int index)
 void MainModel::OnResultSelected(int index)
 {
   CHECK_GREATER_OR_EQUAL(m_selectedSample, 0, ());
-  CHECK_LESS(m_selectedSample, m_contexts.Size(), ());
+  CHECK_LESS(static_cast<size_t>(m_selectedSample), m_contexts.Size(), ());
   auto const & context = m_contexts[m_selectedSample];
   auto const & foundResults = context.m_foundResults;
 
   CHECK_GREATER_OR_EQUAL(index, 0, ());
-  CHECK_LESS(index, foundResults.GetCount(), ());
+  CHECK_LESS(static_cast<size_t>(index), foundResults.GetCount(), ());
   m_view->MoveViewportToResult(foundResults[index]);
 }
 
 void MainModel::OnNonFoundResultSelected(int index)
 {
   CHECK_GREATER_OR_EQUAL(m_selectedSample, 0, ());
-  CHECK_LESS(m_selectedSample, m_contexts.Size(), ());
+  CHECK_LESS(static_cast<size_t>(m_selectedSample), m_contexts.Size(), ());
   auto const & context = m_contexts[m_selectedSample];
   auto const & results = context.m_nonFoundResults;
 
   CHECK_GREATER_OR_EQUAL(index, 0, ());
-  CHECK_LESS(index, results.size(), ());
+  CHECK_LESS(static_cast<size_t>(index), results.size(), ());
   m_view->MoveViewportToResult(results[index]);
 }
 
 void MainModel::OnShowViewportClicked()
 {
   CHECK(m_selectedSample != kInvalidIndex, ());
-  CHECK(m_selectedSample < m_contexts.Size(), ());
+  CHECK_GREATER_OR_EQUAL(m_selectedSample, 0, ());
+  CHECK_LESS(static_cast<size_t>(m_selectedSample), m_contexts.Size(), ());
 
   auto const & context = m_contexts[m_selectedSample];
   m_view->MoveViewportToRect(context.m_sample.m_viewport);
@@ -210,7 +210,8 @@ void MainModel::OnShowViewportClicked()
 void MainModel::OnShowPositionClicked()
 {
   CHECK(m_selectedSample != kInvalidIndex, ());
-  CHECK(m_selectedSample < m_contexts.Size(), ());
+  CHECK_GREATER_OR_EQUAL(m_selectedSample, 0, ());
+  CHECK_LESS(static_cast<size_t>(m_selectedSample), m_contexts.Size(), ());
 
   static int constexpr kViewportAroundTopResultsSizeM = 100;
   static double constexpr kViewportAroundTopResultsScale = 1.2;
@@ -244,12 +245,23 @@ void MainModel::OnShowPositionClicked()
   m_view->MoveViewportToRect(m2::Add(boundingBox, minRect));
 }
 
+void MainModel::OnMarkAllAsRelevantClicked()
+{
+  OnChangeAllRelevancesClicked(Edits::Relevance::Relevant);
+}
+
+void MainModel::OnMarkAllAsIrrelevantClicked()
+{
+  OnChangeAllRelevancesClicked(Edits::Relevance::Irrelevant);
+}
+
 bool MainModel::HasChanges() { return m_contexts.HasChanges(); }
 
 bool MainModel::AlreadyInSamples(FeatureID const & id)
 {
   CHECK(m_selectedSample != kInvalidIndex, ());
-  CHECK(m_selectedSample < m_contexts.Size(), ());
+  CHECK_GREATER_OR_EQUAL(m_selectedSample, 0, ());
+  CHECK_LESS(static_cast<size_t>(m_selectedSample), m_contexts.Size(), ());
 
   bool found = false;
   ForAnyMatchingEntry(m_contexts[m_selectedSample], id, [&](Edits & edits, size_t index) {
@@ -263,7 +275,8 @@ bool MainModel::AlreadyInSamples(FeatureID const & id)
 void MainModel::AddNonFoundResult(FeatureID const & id)
 {
   CHECK(m_selectedSample != kInvalidIndex, ());
-  CHECK(m_selectedSample < m_contexts.Size(), ());
+  CHECK_GREATER_OR_EQUAL(m_selectedSample, 0, ());
+  CHECK_LESS(static_cast<size_t>(m_selectedSample), m_contexts.Size(), ());
 
   auto & context = m_contexts[m_selectedSample];
 
@@ -287,7 +300,9 @@ void MainModel::OnUpdate(View::ResultType type, size_t sampleIndex, Edits::Updat
 {
   using Type = Edits::Update::Type;
 
-  CHECK_LESS(sampleIndex, m_contexts.Size(), ());
+  CHECK_GREATER_OR_EQUAL(sampleIndex, 0, ());
+  CHECK_LESS(static_cast<size_t>(sampleIndex), m_contexts.Size(), ());
+
   auto & context = m_contexts[sampleIndex];
 
   if (update.m_type == Type::Add)
@@ -312,7 +327,7 @@ void MainModel::OnUpdate(View::ResultType type, size_t sampleIndex, Edits::Updat
 }
 
 void MainModel::OnResults(uint64_t timestamp, size_t sampleIndex, search::Results const & results,
-                          vector<Edits::MaybeRelevance> const & relevances,
+                          vector<boost::optional<Edits::Relevance>> const & relevances,
                           vector<size_t> const & goldenMatching,
                           vector<size_t> const & actualMatching)
 {
@@ -338,7 +353,7 @@ void MainModel::OnResults(uint64_t timestamp, size_t sampleIndex, search::Result
     context.m_actualMatching = actualMatching;
 
     {
-      vector<Edits::MaybeRelevance> relevances;
+      vector<boost::optional<Edits::Relevance>> relevances;
 
       auto & nonFound = context.m_nonFoundResults;
       CHECK(nonFound.empty(), ());
@@ -383,6 +398,21 @@ void MainModel::ShowMarks(Context const & context)
                                    context.m_nonFoundResultsEdits.GetEntries());
 }
 
+void MainModel::OnChangeAllRelevancesClicked(Edits::Relevance relevance)
+{
+  CHECK_GREATER_OR_EQUAL(m_selectedSample, 0, ());
+  CHECK_LESS(static_cast<size_t>(m_selectedSample), m_contexts.Size(), ());
+  auto & context = m_contexts[m_selectedSample];
+
+  context.m_foundResultsEdits.SetAllRelevances(relevance);
+  context.m_nonFoundResultsEdits.SetAllRelevances(relevance);
+
+  m_view->OnResultChanged(m_selectedSample, View::ResultType::Found, Edits::Update::MakeAll());
+  m_view->OnResultChanged(m_selectedSample, View::ResultType::NonFound, Edits::Update::MakeAll());
+  m_view->OnSampleChanged(m_selectedSample, context.HasChanges());
+  m_view->OnSamplesChanged(m_contexts.HasChanges());
+}
+
 template <typename Fn>
 void MainModel::ForAnyMatchingEntry(Context & context, FeatureID const & id, Fn && fn)
 {
@@ -393,7 +423,7 @@ void MainModel::ForAnyMatchingEntry(Context & context, FeatureID const & id, Fn 
   for (size_t i = 0; i < foundResults.GetCount(); ++i)
   {
     auto const & result = foundResults[i];
-    if (result.GetResultType() != search::Result::RESULT_FEATURE)
+    if (result.GetResultType() != search::Result::Type::Feature)
       continue;
     if (result.GetFeatureID() == id)
       return fn(context.m_foundResultsEdits, i);

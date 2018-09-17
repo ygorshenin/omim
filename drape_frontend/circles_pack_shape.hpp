@@ -2,7 +2,7 @@
 
 #include "drape_frontend/map_shape.hpp"
 #include "drape_frontend/shape_view_params.hpp"
-#include "drape_frontend/render_state.hpp"
+#include "drape_frontend/render_state_extension.hpp"
 
 #include "drape/overlay_handle.hpp"
 #include "drape/pointers.hpp"
@@ -14,6 +14,7 @@
 namespace dp
 {
 class TextureManager;
+class GraphicsContext;
 }  // namespace dp
 
 namespace df
@@ -22,10 +23,11 @@ struct CirclesPackRenderData
 {
   uint32_t m_pointsCount;
 
-  dp::GLState m_state;
+  dp::RenderState m_state;
   drape_ptr<dp::RenderBucket> m_bucket;
   CirclesPackRenderData()
-    : m_pointsCount(0), m_state(CreateGLState(0, RenderState::OverlayLayer))
+    : m_pointsCount(0)
+    , m_state(CreateRenderState(gpu::Program::CirclePoint, DepthLayer::OverlayLayer))
   {}
 };
 
@@ -48,7 +50,7 @@ class CirclesPackHandle : public dp::OverlayHandle
   using TBase = dp::OverlayHandle;
 
 public:
-  CirclesPackHandle(size_t pointsCount);
+  explicit CirclesPackHandle(size_t pointsCount);
   void GetAttributeMutation(ref_ptr<dp::AttributeBufferMutator> mutator) const override;
   bool Update(ScreenBase const & screen) override;
   m2::RectD GetPixelRect(ScreenBase const & screen, bool perspective) const override;
@@ -67,6 +69,7 @@ private:
 class CirclesPackShape
 {
 public:
-  static void Draw(ref_ptr<dp::TextureManager> texMng, CirclesPackRenderData & data);
+  static void Draw(ref_ptr<dp::GraphicsContext> context, ref_ptr<dp::TextureManager> texMng,
+                   CirclesPackRenderData & data);
 };
 }  // namespace df

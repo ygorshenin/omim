@@ -7,7 +7,7 @@
 #include "search/model.hpp"
 #include "search/pre_ranker.hpp"
 #include "search/ranker.hpp"
-#include "search/search_integration_tests/helpers.hpp"
+#include "search/search_tests_support/helpers.hpp"
 #include "search/search_tests_support/test_search_engine.hpp"
 #include "search/suggest.hpp"
 
@@ -29,7 +29,7 @@
 #include "base/cancellable.hpp"
 #include "base/limited_priority_queue.hpp"
 #include "base/math.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 
 #include "std/algorithm.hpp"
 #include "std/iterator.hpp"
@@ -38,7 +38,7 @@
 using namespace generator::tests_support;
 using namespace search::tests_support;
 
-class Index;
+class DataSource;
 
 namespace storage
 {
@@ -52,11 +52,11 @@ namespace
 class TestRanker : public Ranker
 {
 public:
-  TestRanker(Index & index, storage::CountryInfoGetter & infoGetter,
+  TestRanker(DataSource & dataSource, storage::CountryInfoGetter & infoGetter,
              CitiesBoundariesTable const & boundariesTable, KeywordLangMatcher & keywordsScorer,
              Emitter & emitter, vector<Suggest> const & suggests, VillagesCache & villagesCache,
-             my::Cancellable const & cancellable, vector<PreRankerResult> & results)
-    : Ranker(index, boundariesTable, infoGetter, keywordsScorer, emitter,
+             base::Cancellable const & cancellable, vector<PreRankerResult> & results)
+    : Ranker(dataSource, boundariesTable, infoGetter, keywordsScorer, emitter,
              GetDefaultCategories(), suggests, villagesCache, cancellable)
     , m_results(results)
   {
@@ -88,7 +88,7 @@ class PreRankerTest : public SearchTest
 {
 public:
   vector<Suggest> m_suggests;
-  my::Cancellable m_cancellable;
+  base::Cancellable m_cancellable;
 };
 
 UNIT_CLASS_TEST(PreRankerTest, Smoke)
@@ -122,13 +122,13 @@ UNIT_CLASS_TEST(PreRankerTest, Smoke)
 
   vector<PreRankerResult> results;
   Emitter emitter;
-  CitiesBoundariesTable boundariesTable(m_index);
+  CitiesBoundariesTable boundariesTable(m_dataSource);
   VillagesCache villagesCache(m_cancellable);
   KeywordLangMatcher keywordsScorer(0 /* maxLanguageTiers */);
-  TestRanker ranker(m_index, m_engine.GetCountryInfoGetter(), boundariesTable, keywordsScorer,
+  TestRanker ranker(m_dataSource, m_engine.GetCountryInfoGetter(), boundariesTable, keywordsScorer,
                     emitter, m_suggests, villagesCache, m_cancellable, results);
 
-  PreRanker preRanker(m_index, ranker);
+  PreRanker preRanker(m_dataSource, ranker);
   PreRanker::Params params;
   params.m_viewport = kViewport;
   params.m_accuratePivotCenter = kPivot;
@@ -153,7 +153,7 @@ UNIT_CLASS_TEST(PreRankerTest, Smoke)
 
   preRanker.UpdateResults(true /* lastUpdate */);
 
-  TEST(all_of(emit.begin(), emit.end(), IdFunctor()), (emit));
+  TEST(all_of(emit.begin(), emit.end(), base::IdFunctor()), (emit));
   TEST(ranker.Finished(), ());
   TEST_EQUAL(results.size(), kBatchSize, ());
 

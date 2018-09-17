@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Ostro w lewo.",
 "make_a_u_turn":"Zawróć.",
 "go_straight":"Jedź prosto.",
+"exit":"Wyjście.",
 "destination":"Dojedziesz.",
 "you_have_reached_the_destination":"Dotarłeś do celu.",
 "in_50_meters":"Za pięćdziesiąt metrów",
@@ -61,5 +62,6 @@
 "in_5000_feet":"Za pięć tysięcy stóp",
 "in_1_mile":"Za jedną milę",
 "in_1_5_miles":"Za półtorej mili",
-"in_2_miles":"Za dwie mile"
+"in_2_miles":"Za dwie mile",
+"unknown_camera":"Speed camera ahead"
 }

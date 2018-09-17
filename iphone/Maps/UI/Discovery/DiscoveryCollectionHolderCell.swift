@@ -1,22 +1,17 @@
 class DiscoveryCollectionHolder: UITableViewCell {
   @IBOutlet private(set) weak var collectionView: UICollectionView!
-  @IBOutlet private weak var header: UILabel!
-
-  fileprivate func config(header: String, cellClass: AnyClass) {
-    collectionView.register(cellClass: cellClass)
-    self.header.text = header
-  }
+  @IBOutlet fileprivate weak var header: UILabel!
 }
 
 @objc(MWMDiscoveryViatorCollectionHolderCell)
 final class DiscoveryViatorCollectionHolderCell: DiscoveryCollectionHolder {
-  typealias Tap = () -> ()
+  typealias Tap = () -> Void
   private var tap: Tap?
 
   @objc func config(tap: @escaping Tap) {
     self.tap = tap
-    super.config(header: L("discovery_button_subtitle_things_to_do").uppercased(),
-                 cellClass: ViatorElement.self)
+    header.text = L("discovery_button_subtitle_things_to_do").uppercased()
+    collectionView.register(cellClass: ViatorElement.self)
   }
 
   @IBAction private func onTap() {
@@ -27,22 +22,34 @@ final class DiscoveryViatorCollectionHolderCell: DiscoveryCollectionHolder {
 @objc(MWMDiscoveryLocalExpertCollectionHolderCell)
 final class DiscoveryLocalExpertCollectionHolderCell: DiscoveryCollectionHolder {
   @objc func config() {
-    super.config(header: L("discovery_button_subtitle_local_guides").uppercased(),
-                 cellClass: DiscoveryLocalExpertCell.self)
+    header.text = L("discovery_button_subtitle_local_guides").uppercased()
+    collectionView.register(cellClass: DiscoveryLocalExpertCell.self)
+    collectionView.register(cellClass: DiscoveryMoreCell.self)
   }
 }
 
 @objc(MWMDiscoverySearchCollectionHolderCell)
 final class DiscoverySearchCollectionHolderCell: DiscoveryCollectionHolder {
   @objc func configAttractionsCell() {
-    config(header: L("discovery_button_subtitle_attractions").uppercased())
+    config(text: L("discovery_button_subtitle_attractions").uppercased())
   }
 
   @objc func configCafesCell() {
-    config(header: L("discovery_button_subtitle_eat_and_drink").uppercased())
+    config(text: L("discovery_button_subtitle_eat_and_drink").uppercased())
   }
 
-  private func config(header: String) {
-    super.config(header: header, cellClass: DiscoverySearchCell.self)
+  private func config(text: String) {
+    header.text = text
+    collectionView.register(cellClass: DiscoverySearchCell.self)
+    collectionView.register(cellClass: DiscoveryMoreCell.self)
+  }
+}
+
+@objc(MWMDiscoveryBookingCollectionHolderCell)
+final class DiscoveryBookingCollectionHolderCell: DiscoveryCollectionHolder {
+  @objc func config() {
+    header.text = L("discovery_button_subtitle_book_hotels").uppercased()
+    collectionView.register(cellClass: DiscoveryBookingCell.self)
+    collectionView.register(cellClass: DiscoveryMoreCell.self)
   }
 }

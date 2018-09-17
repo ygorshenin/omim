@@ -1,6 +1,8 @@
 package com.mapswithme.maps.search;
 
-import java.io.UnsupportedEncodingException;
+import android.support.annotation.MainThread;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 
 import com.mapswithme.maps.Framework;
 import com.mapswithme.maps.api.ParsedMwmRequest;
@@ -9,8 +11,7 @@ import com.mapswithme.util.Language;
 import com.mapswithme.util.Listeners;
 import com.mapswithme.util.concurrency.UiThread;
 
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
+import java.io.UnsupportedEncodingException;
 
 public enum SearchEngine implements NativeSearchListener,
                                     NativeMapSearchListener,
@@ -19,62 +20,74 @@ public enum SearchEngine implements NativeSearchListener,
   INSTANCE;
 
   // Query, which results are shown on the map.
-  private static String sSavedQuery;
+  @Nullable
+  private String mQuery;
 
   @Override
   public void onResultsUpdate(final SearchResult[] results, final long timestamp,
                               final boolean isHotel)
   {
-    UiThread.run(new Runnable()
-    {
-      @Override
-      public void run()
-      {
-        for (NativeSearchListener listener : mListeners)
-          listener.onResultsUpdate(results, timestamp, isHotel);
-        mListeners.finishIterate();
-      }
-    });
+    UiThread.run(
+        () ->
+        {
+          for (NativeSearchListener listener : mListeners)
+            listener.onResultsUpdate(results, timestamp, isHotel);
+          mListeners.finishIterate();
+        });
   }
 
   @Override
   public void onResultsEnd(final long timestamp)
   {
-    UiThread.run(new Runnable()
-    {
-      @Override
-      public void run()
-      {
-        for (NativeSearchListener listener : mListeners)
-          listener.onResultsEnd(timestamp);
-        mListeners.finishIterate();
-      }
-    });
+    UiThread.run(
+        () ->
+        {
+          for (NativeSearchListener listener : mListeners)
+            listener.onResultsEnd(timestamp);
+          mListeners.finishIterate();
+        });
   }
 
   @Override
   public void onMapSearchResults(final NativeMapSearchListener.Result[] results, final long timestamp, final boolean isLast)
   {
-    UiThread.run(new Runnable()
-    {
-      @Override
-      public void run()
-      {
-        for (NativeMapSearchListener listener : mMapListeners)
-          listener.onMapSearchResults(results, timestamp, isLast);
-        mMapListeners.finishIterate();
-      }
-    });
+    UiThread.run(
+        () ->
+        {
+          for (NativeMapSearchListener listener : mMapListeners)
+            listener.onMapSearchResults(results, timestamp, isLast);
+          mMapListeners.finishIterate();
+        });
+  }
+
+  public void onBookmarksResultsUpdate(@Nullable long[] bookmarkIds, long timestamp)
+  {
+    // Dummy. Will be implemented soon.
+  }
+
+  public void onBookmarksResultsEnd(@Nullable long[] bookmarkIds, long timestamp)
+  {
+    // Dummy. Will be implemented soon.
   }
 
   @Override
-  public void onFilterAvailableHotels(FeatureId[] availableHotels)
+  public void onFilterHotels(@BookingFilter.Type int type, @Nullable FeatureId[] hotels)
   {
-    //TODO: implement
+    UiThread.run(
+        () ->
+        {
+          for (NativeBookingFilterListener listener : mHotelListeners)
+            listener.onFilterHotels(type, hotels);
+          mHotelListeners.finishIterate();
+        });
   }
 
+  @NonNull
   private final Listeners<NativeSearchListener> mListeners = new Listeners<>();
+  @NonNull
   private final Listeners<NativeMapSearchListener> mMapListeners = new Listeners<>();
+  @NonNull
+  private final Listeners<NativeBookingFilterListener> mHotelListeners = new Listeners<>();
 
   public void addListener(NativeSearchListener listener)
   {
@@ -96,6 +109,16 @@ public enum SearchEngine implements NativeSearchListener,
     mMapListeners.unregister(listener);
   }
 
+  public void addHotelListener(@NonNull NativeBookingFilterListener listener)
+  {
+    mHotelListeners.register(listener);
+  }
+
+  public void removeHotelListener(@NonNull NativeBookingFilterListener listener)
+  {
+    mHotelListeners.unregister(listener);
+  }
+
   SearchEngine()
   {
     nativeInit();
@@ -107,7 +130,8 @@ public enum SearchEngine implements NativeSearchListener,
    * @param timestamp Search results are filtered according to it after multiple requests.
    * @return whether search was actually started.
    */
-  public static boolean search(String query, long timestamp, boolean hasLocation,
+  @MainThread
+  public boolean search(String query, long timestamp, boolean hasLocation,
                                double lat, double lon, @Nullable HotelsFilter hotelsFilter,
                                @Nullable BookingFilterParams bookingParams)
   {
@@ -120,7 +144,8 @@ public enum SearchEngine implements NativeSearchListener,
     return false;
   }
 
-  public static void searchInteractive(@NonNull String query, @NonNull String locale, long timestamp,
+  @MainThread
+  public void searchInteractive(@NonNull String query, @NonNull String locale, long timestamp,
                                        boolean isMapAndTable, @Nullable HotelsFilter hotelsFilter,
                                        @Nullable BookingFilterParams bookingParams)
   {
@@ -131,12 +156,14 @@ public enum SearchEngine implements NativeSearchListener,
     } catch (UnsupportedEncodingException ignored) { }
   }
 
-  public static void searchInteractive(@NonNull String query, long timestamp, boolean isMapAndTable,
+  @MainThread
+  public void searchInteractive(@NonNull String query, long timestamp, boolean isMapAndTable,
                                        @Nullable HotelsFilter hotelsFilter, @Nullable BookingFilterParams bookingParams)
   {
     searchInteractive(query, Language.getKeyboardLocale(), timestamp, isMapAndTable, hotelsFilter, bookingParams);
   }
 
+  @MainThread
   public static void searchMaps(String query, long timestamp)
   {
     try
@@ -145,46 +172,50 @@ public enum SearchEngine implements NativeSearchListener,
     } catch (UnsupportedEncodingException ignored) { }
   }
 
-  public static String getQuery()
+  public void setQuery(@Nullable String query)
   {
-    return sSavedQuery;
+    mQuery = query;
   }
 
-  public static void cancelApiCall()
+  @Nullable
+  public String getQuery()
+  {
+    return mQuery;
+  }
+
+  @MainThread
+  public void cancel()
+  {
+    cancelApiCall();
+    cancelAllSearches();
+  }
+  @MainThread
+  private static void cancelApiCall()
   {
     if (ParsedMwmRequest.hasRequest())
       ParsedMwmRequest.setCurrentRequest(null);
     Framework.nativeClearApiPoints();
   }
 
-  public static void cancelInteractiveSearch()
+  @MainThread
+  public void cancelInteractiveSearch()
   {
-    sSavedQuery = "";
+    mQuery = "";
     nativeCancelInteractiveSearch();
   }
 
-  public static void cancelEverywhereSearch()
+  @MainThread
+  private void cancelAllSearches()
   {
-    sSavedQuery = "";
-    nativeCancelEverywhereSearch();
-  }
-
-  public static void cancelAllSearches()
-  {
-    sSavedQuery = "";
+    mQuery = "";
     nativeCancelAllSearches();
   }
 
-  public static void showResult(int index)
+  @MainThread
+  public void showResult(int index)
   {
-    sSavedQuery = "";
+    mQuery = "";
     nativeShowResult(index);
-  }
-
-  public static void showAllResults(String query)
-  {
-    sSavedQuery = query;
-    nativeShowAllResults();
   }
 
   /**
@@ -209,13 +240,11 @@ public enum SearchEngine implements NativeSearchListener,
 
   private static native void nativeShowResult(int index);
 
-  private static native void nativeShowAllResults();
+  private static native void nativeCancelInteractiveSearch();
 
-  public static native void nativeCancelInteractiveSearch();
+  private static native void nativeCancelEverywhereSearch();
 
-  public static native void nativeCancelEverywhereSearch();
-
-  public static native void nativeCancelAllSearches();
+  private static native void nativeCancelAllSearches();
 
   /**
    * @return all existing hotel types

@@ -22,7 +22,7 @@
 - (void)mwm_refreshUI
 {
   [self.navigationController.navigationBar mwm_refreshUI];
-  MapViewController * mapViewController = [MapViewController controller];
+  MapViewController * mapViewController = [MapViewController sharedController];
   for (UIViewController * vc in self.navigationController.viewControllers.reverseObjectEnumerator)
   {
     if (![vc isEqual:mapViewController])
@@ -34,6 +34,8 @@
 - (void)viewDidLoad
 {
   [super viewDidLoad];
+  if (@available(iOS 11.0, *))
+    self.tableView.insetsContentViewsToSafeArea = YES;
   self.tableView.backgroundColor = [UIColor pressBackground];
   self.tableView.separatorColor = [UIColor blackDividers];
   [self.navigationController.navigationBar setTranslucent:NO];

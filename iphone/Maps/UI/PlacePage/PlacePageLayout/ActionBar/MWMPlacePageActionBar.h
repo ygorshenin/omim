@@ -5,8 +5,9 @@
 @protocol MWMActionBarSharedData<NSObject>
 
 - (BOOL)isBookmark;
+- (BOOL)isBookmarkFromCatalog;
 - (BOOL)isOpentable;
-- (BOOL)isThor;
+- (BOOL)isPartner;
 - (BOOL)isBooking;
 - (BOOL)isBookingSearch;
 - (BOOL)isApi;
@@ -15,6 +16,8 @@
 - (NSString *)title;
 - (NSString *)subtitle;
 - (NSString *)phoneNumber;
+- (int)partnerIndex;
+- (NSURL *)sponsoredURL;
 
 @end
 
@@ -25,9 +28,9 @@
 + (MWMPlacePageActionBar *)actionBarWithDelegate:(id<MWMActionBarProtocol>)delegate;
 - (void)configureWithData:(id<MWMActionBarSharedData>)data;
 
-@property(nonatomic) BOOL isBookmark;
 @property(nonatomic) BOOL isAreaNotDownloaded;
 
+- (void)setVisible:(BOOL)visible;
 - (void)setDownloadingProgress:(CGFloat)progress;
 - (void)setDownloadingState:(MWMCircularProgressState)state;
 

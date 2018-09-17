@@ -9,12 +9,13 @@ PRIVATE_HEADER="$BASE_PATH/private.h"
 PRIVATE_PROPERTIES="$BASE_PATH/android/secure.properties"
 PRIVATE_FABRIC_PROPERTIES="$BASE_PATH/android/fabric.properties"
 PRIVATE_PUSHWOOSH_PROPERTIES="$BASE_PATH/android/pushwoosh.properties"
+PRIVATE_LIBNOTIFY_PROPERTIES="$BASE_PATH/android/libnotify.properties"
 SAVED_PRIVATE_REPO_FILE="$BASE_PATH/.private_repository_url"
 TMP_REPO_DIR="$BASE_PATH/.tmp.private.repo"
 
-if [ ! -f "$BASE_PATH/omim.pro" ]; then
+if [ "$(git rev-parse --show-toplevel)" != "$(pwd -P)" ]; then
   echo "Please run this script from the root repository folder."
-  exit -1
+  exit 1
 fi
 
 if [ -f "$SAVED_PRIVATE_REPO_FILE" ]; then
@@ -92,6 +93,13 @@ else
 #define PASSPORT_URL ""
 #define PASSPORT_APP_NAME ""
 #define UGC_URL ""
+#define CLOUD_URL ""
+#define MAXIM_CLIENT_ID ""
+#define MAXIM_SERVER_TOKEN ""
+#define BOOKMARKS_CATALOG_FRONT_URL ""
+#define BOOKMARKS_CATALOG_DOWNLOAD_URL ""
+#define GOOGLE_WEB_CLIENT_ID ""
+#define RUTAXI_APP_TOKEN ""
 
 ' > "$PRIVATE_HEADER"
     echo 'ext {
@@ -101,6 +109,10 @@ else
   spropKeyPassword = "12345678"
 }
 ' > "$PRIVATE_PROPERTIES"
+
+    echo 'appId=XXXXX
+projectId=00000000
+' > "$PRIVATE_LIBNOTIFY_PROPERTIES"
 
     echo 'apiSecret=0000000000000000000000000000000000000000000000000000000000000000
 apiKey=0000000000000000000000000000000000000000

@@ -6,7 +6,7 @@
 
 #include "routing_common/num_mwm_id.hpp"
 
-#include "indexer/index.hpp"
+#include "indexer/data_source.hpp"
 
 #include <map>
 #include <memory>
@@ -19,26 +19,23 @@ class IndexRoadGraph : public RoadGraphBase
 public:
   IndexRoadGraph(std::shared_ptr<NumMwmIds> numMwmIds, IndexGraphStarter & starter,
                  std::vector<Segment> const & segments, std::vector<Junction> const & junctions,
-                 Index & index);
+                 DataSource & dataSource);
 
   // IRoadGraphBase overrides:
   virtual void GetOutgoingEdges(Junction const & junction, TEdgeVector & edges) const override;
   virtual void GetIngoingEdges(Junction const & junction, TEdgeVector & edges) const override;
-  virtual double GetMaxSpeedKMPH() const override;
+  virtual double GetMaxSpeedKMpH() const override;
   virtual void GetEdgeTypes(Edge const & edge, feature::TypesHolder & types) const override;
   virtual void GetJunctionTypes(Junction const & junction,
                                 feature::TypesHolder & types) const override;
-  virtual bool IsRouteEdgesImplemented() const override;
-  virtual bool IsRouteSegmentsImplemented() const override;
   virtual void GetRouteEdges(TEdgeVector & edges) const override;
   virtual void GetRouteSegments(std::vector<Segment> & segments) const override;
 
 private:
   void GetEdges(Junction const & junction, bool isOutgoing, TEdgeVector & edges) const;
-  Junction const & GetJunction(Segment const & segment, bool front) const;
   std::vector<Segment> const & GetSegments(Junction const & junction, bool isOutgoing) const;
 
-  Index & m_index;
+  DataSource & m_dataSource;
   std::shared_ptr<NumMwmIds> m_numMwmIds;
   IndexGraphStarter & m_starter;
   std::vector<Segment> m_segments;

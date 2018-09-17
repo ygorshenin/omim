@@ -33,7 +33,7 @@ bool IsContinuedBy(vector<PointD> const & hull, PointD const & p, double eps)
 
 vector<PointD> BuildConvexHull(vector<PointD> points, double eps)
 {
-  my::SortUnique(points);
+  base::SortUnique(points);
 
   auto const n = points.size();
 
@@ -49,7 +49,7 @@ vector<PointD> BuildConvexHull(vector<PointD> points, double eps)
       return true;
     if (IsCCW(rhs, lhs, pivot, eps))
       return false;
-    return lhs.SquareLength(pivot) < rhs.SquareLength(pivot);
+    return lhs.SquaredLength(pivot) < rhs.SquaredLength(pivot);
   });
 
   vector<PointD> hull;

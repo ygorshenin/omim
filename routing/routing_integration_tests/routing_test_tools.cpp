@@ -11,11 +11,11 @@
 #include "routing/index_router.hpp"
 #include "routing/online_absent_fetcher.hpp"
 #include "routing/online_cross_fetcher.hpp"
-#include "routing/road_graph_router.hpp"
 #include "routing/route.hpp"
 #include "routing/router_delegate.hpp"
+#include "routing/routing_callbacks.hpp"
 
-#include "indexer/index.hpp"
+#include "indexer/data_source.hpp"
 
 #include "storage/country_parent_getter.hpp"
 
@@ -28,20 +28,20 @@
 #include "geometry/latlon.hpp"
 
 #include "base/math.hpp"
-#include "base/stl_add.hpp"
 
 #include "std/functional.hpp"
 #include "std/limits.hpp"
 
 #include "private.h"
 
+#include <memory>
 #include <sys/resource.h>
 
 using namespace routing;
 using namespace routing_test;
 
 using TRouterFactory =
-    function<unique_ptr<IRouter>(Index & index, TCountryFileFn const & countryFileFn,
+    function<unique_ptr<IRouter>(DataSource & dataSource, TCountryFileFn const & countryFileFn,
                                  shared_ptr<NumMwmIds> numMwmIds)>;
 
 namespace
@@ -85,7 +85,7 @@ namespace integration
     return storage::CountryInfoReader::CreateCountryInfoReader(platform);
   }
 
-  unique_ptr<IndexRouter> CreateVehicleRouter(Index & index,
+  unique_ptr<IndexRouter> CreateVehicleRouter(DataSource & dataSource,
                                               storage::CountryInfoGetter const & infoGetter,
                                               traffic::TrafficCache const & trafficCache,
                                               vector<LocalCountryFile> const & localFiles,
@@ -103,23 +103,24 @@ namespace integration
     for (auto const & f : localFiles)
     {
       auto const & countryFile = f.GetCountryFile();
-      auto const mwmId = index.GetMwmIdByCountryFile(countryFile);
+      auto const mwmId = dataSource.GetMwmIdByCountryFile(countryFile);
+      CHECK(mwmId.IsAlive(), ());
       if (mwmId.GetInfo()->GetType() == MwmInfo::COUNTRY && countryFile.GetName() != "minsk-pass")
         numMwmIds->RegisterFile(countryFile);
     }
 
-    auto countryParentGetter = my::make_unique<storage::CountryParentGetter>();
+    auto countryParentGetter = std::make_unique<storage::CountryParentGetter>();
     CHECK(countryParentGetter, ());
 
     auto indexRouter = make_unique<IndexRouter>(vehicleType, false /* load altitudes*/,
                                                 *countryParentGetter, countryFileGetter,
                                                 getMwmRectByName, numMwmIds,
-                                                MakeNumMwmTree(*numMwmIds, infoGetter), trafficCache, index);
+                                                MakeNumMwmTree(*numMwmIds, infoGetter), trafficCache, dataSource);
 
     return indexRouter;
   }
 
-  unique_ptr<IRouter> CreateAStarRouter(Index & index,
+  unique_ptr<IRouter> CreateAStarRouter(DataSource & dataSource,
                                         storage::CountryInfoGetter const & infoGetter,
                                         vector<LocalCountryFile> const & localFiles,
                                         TRouterFactory const & routerFactory)
@@ -135,7 +136,7 @@ namespace integration
     for (auto const & file : localFiles)
       numMwmIds->RegisterFile(file.GetCountryFile());
 
-    unique_ptr<IRouter> router = routerFactory(index, countryFileGetter, numMwmIds);
+    unique_ptr<IRouter> router = routerFactory(dataSource, countryFileGetter, numMwmIds);
     return unique_ptr<IRouter>(move(router));
   }
 
@@ -169,8 +170,8 @@ namespace integration
                               m2::PointD const & finalPoint)
   {
     RouterDelegate delegate;
-    shared_ptr<Route> route(new Route("mapsme"));
-    IRouter::ResultCode result = routerComponents.GetRouter().CalculateRoute(
+    shared_ptr<Route> route = make_shared<Route>("mapsme", 0 /* route id */);
+    RouterResultCode result = routerComponents.GetRouter().CalculateRoute(
         Checkpoints(startPoint, finalPoint), startDirection, false /* adjust */, delegate, *route);
     ASSERT(route, ());
     return TRouteResult(route, result);
@@ -236,8 +237,8 @@ namespace integration
   {
     TRouteResult routeResult =
         CalculateRoute(routerComponents, startPoint, startDirection, finalPoint);
-    IRouter::ResultCode const result = routeResult.second;
-    TEST_EQUAL(result, IRouter::NoError, ());
+    RouterResultCode const result = routeResult.second;
+    TEST_EQUAL(result, RouterResultCode::NoError, ());
     TestRouteLength(*routeResult.first, expectedRouteMeters, relativeError);
   }
 
@@ -262,14 +263,14 @@ namespace integration
 
   const TestTurn & TestTurn::TestDirection(routing::turns::CarDirection expectedDirection) const
   {
-    TEST_EQUAL(m_direction, expectedDirection, ());
+    TEST_EQUAL(m_direction, expectedDirection, (m_direction));
     return *this;
   }
 
   const TestTurn & TestTurn::TestOneOfDirections(
       set<routing::turns::CarDirection> const & expectedDirections) const
   {
-    TEST(expectedDirections.find(m_direction) != expectedDirections.cend(), ());
+    TEST(expectedDirections.find(m_direction) != expectedDirections.cend(), (m_direction));
     return *this;
   }
 
@@ -297,9 +298,7 @@ namespace integration
     {
       return routerComponents.GetCountryInfoGetter().GetRegionCountryId(p);
     };
-    auto localFileChecker =
-        [&routerComponents](string const & /* countryFile */) -> bool
-    {
+    auto localFileChecker = [](string const & /* countryFile */) -> bool {
       // Always returns that the file is absent.
       return false;
     };

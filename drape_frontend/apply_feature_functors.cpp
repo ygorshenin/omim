@@ -11,10 +11,12 @@
 #include "drape_frontend/text_shape.hpp"
 #include "drape_frontend/visual_params.hpp"
 
+#include "editor/osm_editor.hpp"
+
 #include "indexer/drawing_rules.hpp"
 #include "indexer/drules_include.hpp"
+#include "indexer/feature_source.hpp"
 #include "indexer/map_style_reader.hpp"
-#include "indexer/osm_editor.hpp"
 #include "indexer/road_shields_parser.hpp"
 
 #include "geometry/clipping.hpp"
@@ -28,6 +30,7 @@
 #include "base/stl_helpers.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <mutex>
 #include <sstream>
@@ -65,7 +68,7 @@ uint32_t const kPathTextBaseTextIndex = 128;
 uint32_t const kShieldBaseTextIndex = 0;
 int const kShieldMinVisibleZoomLevel = 10;
 
-#ifdef CALC_FILTERED_POINTS
+#ifdef LINES_GENERATION_CALC_FILTERED_POINTS
 class LinesStat
 {
 public:
@@ -311,16 +314,16 @@ dp::FontDecl GetRoadShieldTextFont(dp::FontDecl const & baseFont, ftypes::RoadSh
   using ftypes::RoadShieldType;
 
   static std::unordered_map<int, df::ColorConstant> kColors = {
-      {my::Key(RoadShieldType::Generic_Green), kRoadShieldWhiteTextColor},
-      {my::Key(RoadShieldType::Generic_Blue), kRoadShieldWhiteTextColor},
-      {my::Key(RoadShieldType::UK_Highway), kRoadShieldUKYellowTextColor},
-      {my::Key(RoadShieldType::US_Interstate), kRoadShieldWhiteTextColor},
-      {my::Key(RoadShieldType::US_Highway), kRoadShieldBlackTextColor},
-      {my::Key(RoadShieldType::Generic_Red), kRoadShieldWhiteTextColor},
-      {my::Key(RoadShieldType::Generic_Orange), kRoadShieldBlackTextColor}
+      {base::Key(RoadShieldType::Generic_Green), kRoadShieldWhiteTextColor},
+      {base::Key(RoadShieldType::Generic_Blue), kRoadShieldWhiteTextColor},
+      {base::Key(RoadShieldType::UK_Highway), kRoadShieldUKYellowTextColor},
+      {base::Key(RoadShieldType::US_Interstate), kRoadShieldWhiteTextColor},
+      {base::Key(RoadShieldType::US_Highway), kRoadShieldBlackTextColor},
+      {base::Key(RoadShieldType::Generic_Red), kRoadShieldWhiteTextColor},
+      {base::Key(RoadShieldType::Generic_Orange), kRoadShieldBlackTextColor}
   };
 
-  auto it = kColors.find(my::Key(shield.m_type));
+  auto it = kColors.find(base::Key(shield.m_type));
   if (it != kColors.end())
     f.m_color = df::GetColorConstant(it->second);
 
@@ -332,14 +335,14 @@ dp::Color GetRoadShieldColor(dp::Color const & baseColor, ftypes::RoadShield con
   using ftypes::RoadShieldType;
 
   static std::unordered_map<int, df::ColorConstant> kColors = {
-      {my::Key(RoadShieldType::Generic_Green), kRoadShieldGreenBackgroundColor},
-      {my::Key(RoadShieldType::Generic_Blue), kRoadShieldBlueBackgroundColor},
-      {my::Key(RoadShieldType::UK_Highway), kRoadShieldGreenBackgroundColor},
-      {my::Key(RoadShieldType::Generic_Red), kRoadShieldRedBackgroundColor},
-      {my::Key(RoadShieldType::Generic_Orange), kRoadShieldOrangeBackgroundColor}
+      {base::Key(RoadShieldType::Generic_Green), kRoadShieldGreenBackgroundColor},
+      {base::Key(RoadShieldType::Generic_Blue), kRoadShieldBlueBackgroundColor},
+      {base::Key(RoadShieldType::UK_Highway), kRoadShieldGreenBackgroundColor},
+      {base::Key(RoadShieldType::Generic_Red), kRoadShieldRedBackgroundColor},
+      {base::Key(RoadShieldType::Generic_Orange), kRoadShieldOrangeBackgroundColor}
   };
 
-  auto it = kColors.find(my::Key(shield.m_type));
+  auto it = kColors.find(base::Key(shield.m_type));
   if (it != kColors.end())
     return df::GetColorConstant(it->second);
 
@@ -444,7 +447,6 @@ void BaseApplyFeature::ExtractCaptionParams(CaptionDefProto const * primaryProto
   titleDecl.m_primaryOptional = primaryProto->is_optional();
   titleDecl.m_secondaryOptional = true;
 
-
   if (secondaryProto)
   {
     dp::FontDecl auxDecl;
@@ -482,7 +484,7 @@ void BaseApplyFeature::SetHotelData(HotelData && hotelData)
 ApplyPointFeature::ApplyPointFeature(TileKey const & tileKey, TInsertShapeFn const & insertShape,
                                      FeatureID const & id, int minVisibleScale, uint8_t rank,
                                      CaptionDescription const & captions, float posZ,
-                                     int displacementMode, RenderState::DepthLayer depthLayer)
+                                     int displacementMode, DepthLayer depthLayer)
   : TBase(tileKey, insertShape, id, minVisibleScale, rank, captions)
   , m_posZ(posZ)
   , m_hasPoint(false)
@@ -495,14 +497,15 @@ ApplyPointFeature::ApplyPointFeature(TileKey const & tileKey, TInsertShapeFn con
   , m_displacementMode(displacementMode)
 {}
 
-void ApplyPointFeature::operator()(m2::PointD const & point, bool hasArea)
+void ApplyPointFeature::operator()(m2::PointD const & point, bool hasArea, bool isUGC)
 {
   auto const & editor = osm::Editor::Instance();
   m_hasPoint = true;
   m_hasArea = hasArea;
+  m_isUGC = isUGC;
   auto const featureStatus = editor.GetFeatureStatus(m_id);
-  m_createdByEditor = featureStatus == osm::Editor::FeatureStatus::Created;
-  m_obsoleteInEditor = featureStatus == osm::Editor::FeatureStatus::Obsolete;
+  m_createdByEditor = featureStatus == FeatureStatus::Created;
+  m_obsoleteInEditor = featureStatus == FeatureStatus::Obsolete;
   m_centerPoint = point;
 }
 
@@ -512,7 +515,7 @@ void ApplyPointFeature::ProcessPointRule(Stylist::TRuleWrapper const & rule)
     return;
 
   drule::BaseRule const * pRule = rule.first;
-  float const depth = static_cast<float>(rule.second);
+  auto const depth = static_cast<float>(rule.second);
 
   SymbolRuleProto const * symRule = pRule->GetSymbol();
   if (symRule != nullptr)
@@ -529,6 +532,8 @@ void ApplyPointFeature::ProcessPointRule(Stylist::TRuleWrapper const & rule)
     params.m_tileCenter = m_tileRect.Center();
     ExtractCaptionParams(capRule, pRule->GetCaption(1), depth, params);
     params.m_depthLayer = m_depthLayer;
+    params.m_depthTestEnabled = m_depthLayer != DepthLayer::NavigationLayer &&
+      m_depthLayer != DepthLayer::OverlayLayer;
     params.m_minVisibleScale = m_minVisibleScale;
     params.m_rank = m_rank;
     params.m_posZ = m_posZ;
@@ -563,24 +568,25 @@ void ApplyPointFeature::Finish(ref_ptr<dp::TextureManager> texMng)
     specialDisplacementMode = true;
     specialModePriority = CalculateHotelOverlayPriority(m_hotelData);
   }
-  else if (m_depthLayer == RenderState::NavigationLayer && GetStyleReader().IsCarNavigationStyle())
+  else if (m_depthLayer == DepthLayer::NavigationLayer && GetStyleReader().IsCarNavigationStyle())
   {
     specialDisplacementMode = true;
     specialModePriority = CalculateNavigationPoiPriority();
   }
 
   bool const hasPOI = m_symbolRule != nullptr;
-
+  double const mainScale = df::VisualParams::Instance().GetVisualScale();
   if (hasPOI)
   {
     PoiSymbolViewParams params(m_id);
     params.m_tileCenter = m_tileRect.Center();
+    params.m_depthTestEnabled = m_depthLayer != DepthLayer::NavigationLayer &&
+      m_depthLayer != DepthLayer::OverlayLayer;
     params.m_depth = static_cast<float>(m_symbolDepth);
     params.m_depthLayer = m_depthLayer;
     params.m_minVisibleScale = m_minVisibleScale;
     params.m_rank = m_rank;
     params.m_symbolName = m_symbolRule->name();
-    double const mainScale = df::VisualParams::Instance().GetVisualScale();
     params.m_extendingSize = static_cast<uint32_t>(mainScale * m_symbolRule->min_distance());
     params.m_posZ = m_posZ;
     params.m_hasArea = m_hasArea;
@@ -590,7 +596,7 @@ void ApplyPointFeature::Finish(ref_ptr<dp::TextureManager> texMng)
                                                            : SpecialDisplacement::None;
     params.m_specialPriority = specialModePriority;
 
-    m_insertShape(make_unique_dp<PoiSymbolShape>(m_centerPoint, params, m_tileKey, 0 /* text index */));
+    m_insertShape(make_unique_dp<PoiSymbolShape>(m2::PointD(m_centerPoint), params, m_tileKey, 0 /* text index */));
 
     dp::TextureManager::SymbolRegion region;
     texMng->GetSymbolRegion(params.m_symbolName, region);
@@ -599,12 +605,44 @@ void ApplyPointFeature::Finish(ref_ptr<dp::TextureManager> texMng)
 
   for (auto textParams : m_textParams)
   {
-    textParams.m_specialDisplacement = specialDisplacementMode ? SpecialDisplacement::SpecialMode
-                                                               : SpecialDisplacement::None;
+    if (m_captions.IsHouseNumberInMainText())
+    {
+      textParams.m_specialDisplacement = SpecialDisplacement::HouseNumber;
+    }
+    else
+    {
+      textParams.m_specialDisplacement = specialDisplacementMode ? SpecialDisplacement::SpecialMode
+                                                                 : SpecialDisplacement::None;
+    }
     textParams.m_specialPriority = specialModePriority;
     textParams.m_startOverlayRank = hasPOI ? dp::OverlayRank1 : dp::OverlayRank0;
-    m_insertShape(make_unique_dp<TextShape>(m_centerPoint, textParams, m_tileKey, symbolSize,
+    m_insertShape(make_unique_dp<TextShape>(m2::PointD(m_centerPoint), textParams, m_tileKey, symbolSize,
+                                            m2::PointF(0.0f, 0.0f) /* symbolOffset */,
                                             dp::Center /* symbolAnchor */, 0 /* textIndex */));
+  }
+
+  if (m_isUGC)
+  {
+    df::ColoredSymbolViewParams params;
+    params.m_featureID = m_id;
+    params.m_tileCenter = m_tileRect.Center();
+    params.m_color = dp::Color::Yellow();
+    params.m_radiusInPixels = hasPOI ? static_cast<float>(symbolSize.x / 2.0 + mainScale * 3)
+                                     : static_cast<float>(mainScale * 7);
+    params.m_anchor = dp::Center;
+    params.m_startOverlayRank = hasPOI ? dp::OverlayRank2 : dp::OverlayRank1;
+    params.m_specialDisplacement = specialDisplacementMode ? SpecialDisplacement::SpecialMode
+                                                           : SpecialDisplacement::None;
+    params.m_specialPriority = specialModePriority;
+    params.m_depthLayer = m_depthLayer;
+    params.m_minVisibleScale = m_minVisibleScale;
+    params.m_rank = m_rank;
+    params.m_depthTestEnabled = true;
+    params.m_depth = static_cast<float>(m_symbolDepth);
+
+    auto coloredShape = make_unique_dp<ColoredSymbolShape>(m2::PointD(m_centerPoint), params,
+                                                           m_tileKey, 0 /* textIndex */, true);
+    m_insertShape(std::move(coloredShape));
   }
 }
 
@@ -613,7 +651,7 @@ ApplyAreaFeature::ApplyAreaFeature(TileKey const & tileKey, TInsertShapeFn const
                                    bool skipAreaGeometry, float minPosZ, float posZ, int minVisibleScale,
                                    uint8_t rank, CaptionDescription const & captions, bool hatchingArea)
   : TBase(tileKey, insertShape, id, minVisibleScale, rank, captions, posZ,
-          dp::displacement::kDefaultMode, RenderState::OverlayLayer)
+          dp::displacement::kDefaultMode, DepthLayer::OverlayLayer)
   , m_minPosZ(minPosZ)
   , m_isBuilding(isBuilding)
   , m_skipAreaGeometry(skipAreaGeometry)
@@ -811,25 +849,24 @@ void ApplyAreaFeature::ProcessAreaRule(Stylist::TRuleWrapper const & rule)
 
 ApplyLineFeatureGeometry::ApplyLineFeatureGeometry(TileKey const & tileKey,
                                                    TInsertShapeFn const & insertShape,
-                                                   FeatureID const & id,
-                                                   double currentScaleGtoP,
+                                                   FeatureID const & id, double currentScaleGtoP,
                                                    int minVisibleScale, uint8_t rank,
                                                    size_t pointsCount)
   : TBase(tileKey, insertShape, id, minVisibleScale, rank, CaptionDescription())
   , m_currentScaleGtoP(static_cast<float>(currentScaleGtoP))
-  , m_sqrScale(math::sqr(currentScaleGtoP))
+  , m_sqrScale(currentScaleGtoP * currentScaleGtoP)
   , m_simplify(tileKey.m_zoomLevel >= kLineSimplifyLevelStart &&
                tileKey.m_zoomLevel <= kLineSimplifyLevelEnd)
   , m_initialPointsCount(pointsCount)
-#ifdef CALC_FILTERED_POINTS
-  , m_readedCount(0)
+#ifdef LINES_GENERATION_CALC_FILTERED_POINTS
+  , m_readCount(0)
 #endif
 {}
 
 void ApplyLineFeatureGeometry::operator() (m2::PointD const & point)
 {
-#ifdef CALC_FILTERED_POINTS
-  ++m_readedCount;
+#ifdef LINES_GENERATION_CALC_FILTERED_POINTS
+  ++m_readCount;
 #endif
 
   if (m_spline.IsNull())
@@ -842,9 +879,9 @@ void ApplyLineFeatureGeometry::operator() (m2::PointD const & point)
   }
   else
   {
-    static double minSegmentLength = math::sqr(4.0 * df::VisualParams::Instance().GetVisualScale());
+    static double minSegmentLength = pow(4.0 * df::VisualParams::Instance().GetVisualScale(), 2);
     if (m_simplify &&
-        ((m_spline->GetSize() > 1 && point.SquareLength(m_lastAddedPoint) * m_sqrScale < minSegmentLength) ||
+        ((m_spline->GetSize() > 1 && point.SquaredLength(m_lastAddedPoint) * m_sqrScale < minSegmentLength) ||
         m_spline->IsPrelonging(point)))
     {
       m_spline->ReplacePoint(point);
@@ -911,8 +948,8 @@ void ApplyLineFeatureGeometry::ProcessLineRule(Stylist::TRuleWrapper const & rul
 
 void ApplyLineFeatureGeometry::Finish()
 {
-#ifdef CALC_FILTERED_POINTS
-  LinesStat::Get().InsertLine(m_id, m_currentScaleGtoP, m_readedCount, m_spline->GetSize());
+#ifdef LINES_GENERATION_CALC_FILTERED_POINTS
+  LinesStat::Get().InsertLine(m_id, m_currentScaleGtoP, m_readCount, static_cast<int>(m_spline->GetSize()));
 #endif
 }
 
@@ -976,8 +1013,9 @@ void ApplyLineFeatureAdditional::GetRoadShieldsViewParams(ref_ptr<dp::TextureMan
   ShieldRuleProtoToFontDecl(m_shieldRule, baseFont);
   dp::FontDecl font = GetRoadShieldTextFont(baseFont, shield);
   textParams.m_tileCenter = m_tileRect.Center();
+  textParams.m_depthTestEnabled = false;
   textParams.m_depth = m_depth;
-  textParams.m_depthLayer = RenderState::OverlayLayer;
+  textParams.m_depthLayer = DepthLayer::OverlayLayer;
   textParams.m_minVisibleScale = kShieldMinVisibleZoomLevel;
   textParams.m_rank = m_rank;
   textParams.m_featureID = m_id;
@@ -1006,8 +1044,9 @@ void ApplyLineFeatureAdditional::GetRoadShieldsViewParams(ref_ptr<dp::TextureMan
     // Generated symbol properties.
     symbolParams.m_featureID = m_id;
     symbolParams.m_tileCenter = m_tileRect.Center();
+    symbolParams.m_depthTestEnabled = true;
     symbolParams.m_depth = m_depth;
-    symbolParams.m_depthLayer = RenderState::OverlayLayer;
+    symbolParams.m_depthLayer = DepthLayer::OverlayLayer;
     symbolParams.m_minVisibleScale = kShieldMinVisibleZoomLevel;
     symbolParams.m_rank = m_rank;
     symbolParams.m_anchor = anchor;
@@ -1034,7 +1073,8 @@ void ApplyLineFeatureAdditional::GetRoadShieldsViewParams(ref_ptr<dp::TextureMan
     std::string symbolName = GetRoadShieldSymbolName(shield, fontScale);
     poiParams.m_tileCenter = m_tileRect.Center();
     poiParams.m_depth = m_depth;
-    poiParams.m_depthLayer = RenderState::OverlayLayer;
+    poiParams.m_depthTestEnabled = false;
+    poiParams.m_depthLayer = DepthLayer::OverlayLayer;
     poiParams.m_minVisibleScale = kShieldMinVisibleZoomLevel;
     poiParams.m_rank = m_rank;
     poiParams.m_symbolName = symbolName;
@@ -1104,7 +1144,7 @@ void ApplyLineFeatureAdditional::Finish(ref_ptr<dp::TextureManager> texMng,
   if (m_clippedSplines.empty())
     return;
 
-  float const vs = static_cast<float>(df::VisualParams::Instance().GetVisualScale());
+  auto const vs = static_cast<float>(df::VisualParams::Instance().GetVisualScale());
 
   std::vector<m2::PointD> shieldPositions;
   if (m_shieldRule != nullptr && !roadShields.empty())
@@ -1190,6 +1230,7 @@ void ApplyLineFeatureAdditional::Finish(ref_ptr<dp::TextureManager> texMng,
 
       m_insertShape(make_unique_dp<TextShape>(shieldPos, textParams, m_tileKey,
                                               m2::PointF(0.0f, 0.0f) /* symbolSize */,
+                                              m2::PointF(0.0f, 0.0f) /* symbolOffset */,
                                               dp::Center /* symbolAnchor */, textIndex));
       if (IsColoredRoadShield(shield))
         m_insertShape(make_unique_dp<ColoredSymbolShape>(shieldPos, symbolParams, m_tileKey, textIndex));

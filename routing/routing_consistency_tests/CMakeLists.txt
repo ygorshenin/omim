@@ -24,9 +24,10 @@ omim_link_libraries(
   search
   storage
   mwm_diff
+  kml
+  editor
   indexer
   platform
-  editor
   geometry
   oauthcpp
   opening_hours

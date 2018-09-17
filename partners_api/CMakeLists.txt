@@ -13,27 +13,38 @@ set(
   booking_api.hpp
   booking_availability_params.cpp
   booking_availability_params.hpp
-  cian_api.cpp
-  cian_api.hpp
+  booking_block_params.cpp
+  booking_block_params.hpp
+  booking_params_base.hpp
   facebook_ads.cpp
   facebook_ads.hpp
   google_ads.cpp
   google_ads.hpp
   locals_api.cpp
   locals_api.hpp
+  maxim_api.cpp
+  maxim_api.hpp
+  megafon_countries.cpp
+  megafon_countries.hpp
   mopub_ads.cpp
   mopub_ads.hpp
   opentable_api.cpp
   opentable_api.hpp
+  partners.cpp
+  partners.hpp
   rb_ads.cpp
   rb_ads.hpp
+  rutaxi_api.cpp
+  rutaxi_api.hpp
   taxi_base.cpp
   taxi_base.hpp
-  taxi_countries.cpp
-  taxi_countries.hpp
+  taxi_delegate.hpp
   taxi_engine.cpp
   taxi_engine.hpp
-  taxi_places.hpp 
+  taxi_places.cpp
+  taxi_places.hpp
+  taxi_places_loader.cpp
+  taxi_places_loader.hpp
   taxi_provider.hpp
   uber_api.cpp
   uber_api.hpp
@@ -45,6 +56,6 @@ set(
   yandex_api.hpp
 )
 
-add_library(${PROJECT_NAME} ${SRC})
+omim_add_library(${PROJECT_NAME} ${SRC})
 
 omim_add_test_subdirectory(partners_api_tests)

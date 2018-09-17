@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <string>
 
+class DataSource;
 struct FeatureID;
 
 namespace search
@@ -20,13 +21,13 @@ public:
   // TODO (@milchakov): consider to reuse locality finder from search
   // engine.  Otherwise, CityFinder won't benefit from approximated
   // cities boundaries.
-  explicit CityFinder(Index const & index);
+  explicit CityFinder(DataSource const & dataSource);
 
   std::string GetCityName(m2::PointD const & p, int8_t lang);
   FeatureID GetCityFeatureID(m2::PointD const & p);
 
 private:
-  my::Cancellable m_cancellable;
+  base::Cancellable m_cancellable;
   search::CitiesBoundariesTable m_unusedBoundaries;
   search::VillagesCache m_unusedCache;
   search::LocalityFinder m_finder;

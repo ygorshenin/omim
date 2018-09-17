@@ -40,6 +40,7 @@ omim_link_libraries(
   qt_common
   map
   drape_frontend
+  shaders
   routing
   search_quality
   search
@@ -49,12 +50,14 @@ omim_link_libraries(
   routing_common
   transit
   ugc
-  indexer
   drape
   partners_api
   local_ads
+  kml
+  editor
+  indexer
+  metrics
   platform
-  editor 
   mwm_diff
   bsdiff
   geometry

@@ -4,22 +4,23 @@
 
 #include "base/thread.hpp"
 
-#include "std/bind.hpp"
-#include "std/cstring.hpp"
-#include "std/list.hpp"
+#include <cstring>
+#include <functional>
+#include <list>
+
+using namespace std::placeholders;
 
 #ifdef DEBUG
 
 namespace
 {
-
 class UserEventStreamTest : df::UserEventStream::Listener
 {
 public:
-  UserEventStreamTest(bool filtrateTouches)
+  explicit UserEventStreamTest(bool filtrateTouches)
     : m_filtrate(filtrateTouches)
   {
-    m_stream.SetTestBridge(bind(&UserEventStreamTest::TestBridge, this, _1));
+    m_stream.SetTestBridge(std::bind(&UserEventStreamTest::TestBridge, this, _1));
   }
 
   void OnTap(m2::PointD const & pt, bool isLong) override {}
@@ -28,7 +29,7 @@ public:
   void OnTwoFingersTap() override {}
   bool OnSingleTouchFiltrate(m2::PointD const & pt, df::TouchEvent::ETouchType type) override { return m_filtrate; }
   void OnDragStarted() override {}
-  void OnDragEnded(m2::PointD const & /*distance*/) override {}
+  void OnDragEnded(m2::PointD const & /* distance */) override {}
   void OnRotated() override {}
 
   void OnScaleStarted() override {}
@@ -36,7 +37,7 @@ public:
   void CorrectScalePoint(m2::PointD & pt1, m2::PointD & pt2) const override {}
   void CorrectGlobalScalePoint(m2::PointD & pt) const override {}
   void OnScaleEnded() override {}
-  void OnTouchMapAction() override {}
+  void OnTouchMapAction(df::TouchEvent::ETouchType touchType) override {}
   void OnAnimatedScaleEnded() override {}
   bool OnNewVisibleViewport(m2::RectD const & oldViewport, m2::RectD const & newViewport,
                             m2::PointD & gOffset) override
@@ -77,7 +78,7 @@ private:
 
 private:
   df::UserEventStream m_stream;
-  list<char const *> m_expectation;
+  std::list<char const *> m_expectation;
   bool m_filtrate;
 };
 
@@ -119,8 +120,7 @@ df::TouchEvent MakeTouchEvent(m2::PointD const & pt, df::TouchEvent::ETouchType 
 
   return e;
 }
-
-} // namespace
+}  // namespace
 
 UNIT_TEST(SimpleTap)
 {

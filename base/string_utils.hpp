@@ -2,7 +2,7 @@
 
 #include "base/buffer_vector.hpp"
 #include "base/macros.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -18,17 +18,20 @@
 /// All methods work with strings in utf-8 format
 namespace strings
 {
-typedef uint32_t UniChar;
+using UniChar = uint32_t;
 // typedef buffer_vector<UniChar, 32> UniString;
 
 /// Make new type, not typedef. Need to specialize DebugPrint.
 class UniString : public buffer_vector<UniChar, 32>
 {
-  typedef buffer_vector<UniChar, 32> BaseT;
+  using BaseT = buffer_vector<UniChar, 32>;
 
 public:
+  using value_type = UniChar;
+
   UniString() {}
   explicit UniString(size_t n, UniChar c = UniChar()) : BaseT(n, c) {}
+
   template <class IterT>
   UniString(IterT b, IterT e)
     : BaseT(b, e)
@@ -314,7 +317,7 @@ template <template <typename ...> class Collection = std::vector>
 Collection<std::string> Tokenize(std::string const & str, char const * delims)
 {
   Collection<std::string> c;
-  Tokenize(str, delims, MakeInsertFunctor(c));
+  Tokenize(str, delims, base::MakeInsertFunctor(c));
   return c;
 }
 
@@ -376,6 +379,18 @@ std::string to_string(T t)
   return ss.str();
 }
 
+WARN_UNUSED_RESULT inline bool to_any(std::string const & s, int & i) { return to_int(s, i); }
+WARN_UNUSED_RESULT inline bool to_any(std::string const & s, unsigned int & i) { return to_uint(s, i); }
+WARN_UNUSED_RESULT inline bool to_any(std::string const & s, uint64_t & i) { return to_uint64(s, i); }
+WARN_UNUSED_RESULT inline bool to_any(std::string const & s, int64_t & i) { return to_int64(s, i); }
+WARN_UNUSED_RESULT inline bool to_any(std::string const & s, float & f) { return to_float(s, f); }
+WARN_UNUSED_RESULT inline bool to_any(std::string const & s, double & d) { return to_double(s, d); }
+WARN_UNUSED_RESULT inline bool to_any(std::string const & s, std::string & result)
+{
+  result = s;
+  return true;
+}
+
 namespace impl
 {
 template <typename T>
@@ -434,6 +449,7 @@ std::string to_string_unsigned(T i)
 }
 }
 
+inline std::string to_string(int32_t i) { return impl::to_string_signed(i); }
 inline std::string to_string(int64_t i) { return impl::to_string_signed(i); }
 inline std::string to_string(uint64_t i) { return impl::to_string_unsigned(i); }
 /// Use this function to get string with fixed count of

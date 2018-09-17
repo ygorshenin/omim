@@ -49,14 +49,16 @@ public class RoutingInfo
 
     U_TURN_LEFT(R.drawable.ic_turn_uleft, R.drawable.ic_then_uleft),
     U_TURN_RIGHT(R.drawable.ic_turn_uright, R.drawable.ic_then_uright),
-    TAKE_THE_EXIT(R.drawable.ic_turn_finish, R.drawable.ic_then_finish),
 
     ENTER_ROUND_ABOUT(R.drawable.ic_turn_round, R.drawable.ic_then_round),
     LEAVE_ROUND_ABOUT(R.drawable.ic_turn_round, R.drawable.ic_then_round),
     STAY_ON_ROUND_ABOUT(R.drawable.ic_turn_round, R.drawable.ic_then_round),
 
     START_AT_THE_END_OF_STREET(0, 0),
-    REACHED_YOUR_DESTINATION(R.drawable.ic_turn_finish, R.drawable.ic_then_finish);
+    REACHED_YOUR_DESTINATION(R.drawable.ic_turn_finish, R.drawable.ic_then_finish),
+
+    EXIT_HIGHWAY_TO_LEFT(R.drawable.ic_exit_highway_to_left, R.drawable.ic_then_exit_highway_to_left),
+    EXIT_HIGHWAY_TO_RIGHT(R.drawable.ic_exit_highway_to_right, R.drawable.ic_then_exit_highway_to_right);
 
     private final int mTurnRes;
     private final int mNextTurnRes;

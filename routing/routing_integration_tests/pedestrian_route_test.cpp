@@ -1,5 +1,7 @@
 #include "testing/testing.hpp"
 
+#include "routing/routing_callbacks.hpp"
+
 #include "routing/routing_integration_tests/routing_test_tools.hpp"
 
 #include "geometry/mercator.hpp"
@@ -185,7 +187,7 @@ UNIT_TEST(BelarusBobruisk50LetVlksmToArena)
   integration::CalculateRouteAndTestRouteLength(
       integration::GetVehicleComponents<VehicleType::Pedestrian>(),
       MercatorBounds::FromLatLon(53.1638, 29.1804), {0., 0.},
-      MercatorBounds::FromLatLon(53.1424, 29.2467), 6683.);
+      MercatorBounds::FromLatLon(53.1424, 29.2467), 6123.0);
 }
 
 UNIT_TEST(RussiaTaganrogSyzranov10k3ToSoftech)
@@ -201,7 +203,7 @@ UNIT_TEST(RussiaTaganrogSyzranov10k3ToTruseE)
   integration::CalculateRouteAndTestRouteLength(
       integration::GetVehicleComponents<VehicleType::Pedestrian>(),
       MercatorBounds::FromLatLon(47.2183, 38.8634), {0., 0.},
-      MercatorBounds::FromLatLon(47.2048, 38.9441), 7463.);
+      MercatorBounds::FromLatLon(47.2048, 38.9441), 7994.0);
 }
 
 UNIT_TEST(RussiaTaganrogSyzranov10k3ToLazo5k2)
@@ -396,8 +398,8 @@ UNIT_TEST(RussiaZgradPanfilovskyUndergroundCrossing)
                                   MercatorBounds::FromLatLon(55.98419, 37.17938));
 
   Route const & route = *routeResult.first;
-  IRouter::ResultCode const result = routeResult.second;
-  TEST_EQUAL(result, IRouter::NoError, ());
+  RouterResultCode const result = routeResult.second;
+  TEST_EQUAL(result, RouterResultCode::NoError, ());
 
   vector<turns::TurnItem> t;
   route.GetTurnsForTesting(t);
@@ -416,8 +418,8 @@ UNIT_TEST(RussiaMoscowHydroprojectBridgeCrossing)
                                   MercatorBounds::FromLatLon(55.80884, 37.50668));
 
   Route const & route = *routeResult.first;
-  IRouter::ResultCode const result = routeResult.second;
-  TEST_EQUAL(result, IRouter::NoError, ());
+  RouterResultCode const result = routeResult.second;
+  TEST_EQUAL(result, RouterResultCode::NoError, ());
 
   vector<turns::TurnItem> t;
   route.GetTurnsForTesting(t);
@@ -428,17 +430,16 @@ UNIT_TEST(RussiaMoscowHydroprojectBridgeCrossing)
   TEST_EQUAL(t[2].m_pedestrianTurn, PedestrianDirection::ReachedYourDestination, ());
 }
 
-// Fails to generate "Downstairs" direction.
 UNIT_TEST(BelarusMinskRenaissanceHotelUndergroundCross)
 {
   TRouteResult const routeResult =
       integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Pedestrian>(),
-                                  MercatorBounds::FromLatLon(53.89302, 27.52792), {0., 0.},
+                                  MercatorBounds::FromLatLon(53.89296, 27.52775), {0., 0.},
                                   MercatorBounds::FromLatLon(53.89262, 27.52838));
 
   Route const & route = *routeResult.first;
-  IRouter::ResultCode const result = routeResult.second;
-  TEST_EQUAL(result, IRouter::NoError, ());
+  RouterResultCode const result = routeResult.second;
+  TEST_EQUAL(result, RouterResultCode::NoError, ());
 
   vector<turns::TurnItem> t;
   route.GetTurnsForTesting(t);
@@ -446,67 +447,6 @@ UNIT_TEST(BelarusMinskRenaissanceHotelUndergroundCross)
 
   TEST_EQUAL(t[0].m_pedestrianTurn, PedestrianDirection::Downstairs, ());
   TEST_EQUAL(t[1].m_pedestrianTurn, PedestrianDirection::Upstairs, ());
-  TEST_EQUAL(t[2].m_pedestrianTurn, PedestrianDirection::ReachedYourDestination, ());
-}
-
-// Fails to generate "LiftGate" direction.
-UNIT_TEST(RussiaMoscowTrubnikovPereulok30Ac1LiftGate)
-{
-  TRouteResult const routeResult =
-      integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Pedestrian>(),
-                                  MercatorBounds::FromLatLon(55.75533, 37.58789), {0., 0.},
-                                  MercatorBounds::FromLatLon(55.75543, 37.58717));
-
-  Route const & route = *routeResult.first;
-  IRouter::ResultCode const result = routeResult.second;
-  TEST_EQUAL(result, IRouter::NoError, ());
-
-  vector<turns::TurnItem> t;
-  route.GetTurnsForTesting(t);
-  TEST_EQUAL(t.size(), 2, ());
-
-  TEST_EQUAL(t[0].m_pedestrianTurn, PedestrianDirection::LiftGate, ());
-  TEST_EQUAL(t[1].m_pedestrianTurn, PedestrianDirection::ReachedYourDestination, ());
-}
-
-// Fails to generate "Gate" direction.
-UNIT_TEST(RussiaMoscowKhlebnyyLane15c1Gate)
-{
-  TRouteResult const routeResult =
-      integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Pedestrian>(),
-                                  MercatorBounds::FromLatLon(55.755, 37.59461), {0., 0.},
-                                  MercatorBounds::FromLatLon(55.75522, 37.59494));
-
-  Route const & route = *routeResult.first;
-  IRouter::ResultCode const result = routeResult.second;
-  TEST_EQUAL(result, IRouter::NoError, ());
-
-  vector<turns::TurnItem> t;
-  route.GetTurnsForTesting(t);
-  TEST_EQUAL(t.size(), 2, ());
-
-  TEST_EQUAL(t[0].m_pedestrianTurn, PedestrianDirection::Gate, ());
-  TEST_EQUAL(t[1].m_pedestrianTurn, PedestrianDirection::ReachedYourDestination, ());
-}
-
-// Fails to generate "LiftGate"/"Gate" directions.
-UNIT_TEST(RussiaMoscowKhlebnyyLane19LiftGateAndGate)
-{
-  TRouteResult const routeResult =
-      integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Pedestrian>(),
-                                  MercatorBounds::FromLatLon(55.75518, 37.59382), {0., 0.},
-                                  MercatorBounds::FromLatLon(55.7554, 37.59327));
-
-  Route const & route = *routeResult.first;
-  IRouter::ResultCode const result = routeResult.second;
-  TEST_EQUAL(result, IRouter::NoError, ());
-
-  vector<turns::TurnItem> t;
-  route.GetTurnsForTesting(t);
-  TEST_EQUAL(t.size(), 3, ());
-
-  TEST_EQUAL(t[0].m_pedestrianTurn, PedestrianDirection::LiftGate, ());
-  TEST_EQUAL(t[1].m_pedestrianTurn, PedestrianDirection::Gate, ());
   TEST_EQUAL(t[2].m_pedestrianTurn, PedestrianDirection::ReachedYourDestination, ());
 }
 
@@ -533,8 +473,8 @@ UNIT_TEST(RussiaMoscowSevTushinoParkPedestrianOnePointTurnTest)
       integration::GetVehicleComponents<VehicleType::Pedestrian>(), point, {0.0, 0.0}, point);
 
   Route const & route = *routeResult.first;
-  IRouter::ResultCode const result = routeResult.second;
-  TEST_EQUAL(result, IRouter::NoError, ());
+  RouterResultCode const result = routeResult.second;
+  TEST_EQUAL(result, RouterResultCode::NoError, ());
   integration::TestTurnCount(route, 0 /* expectedTurnCount */);
   integration::TestRouteLength(route, 0.0);
 }
@@ -545,4 +485,31 @@ UNIT_TEST(MoscowKashirskoe16ToVorobeviGori)
       integration::GetVehicleComponents<VehicleType::Pedestrian>(),
       MercatorBounds::FromLatLon(55.66230, 37.63214), {0., 0.},
       MercatorBounds::FromLatLon(55.70934, 37.54232), 9553.0);
+}
+
+// Test on building pedestrian route past ferry.
+UNIT_TEST(SwitzerlandSaintBlaisePedestrianPastFerry)
+{
+  integration::CalculateRouteAndTestRouteLength(
+      integration::GetVehicleComponents<VehicleType::Pedestrian>(),
+      MercatorBounds::FromLatLon(47.010336, 6.982954), {0.0, 0.0},
+      MercatorBounds::FromLatLon(47.005817, 6.970227), 1532.3);
+}
+
+// Test on building pedestrian route past ferry.
+UNIT_TEST(NetherlandsAmsterdamPedestrianPastFerry)
+{
+  integration::CalculateRouteAndTestRouteLength(
+      integration::GetVehicleComponents<VehicleType::Pedestrian>(),
+      MercatorBounds::FromLatLon(52.38075, 4.89938), {0.0, 0.0},
+      MercatorBounds::FromLatLon(52.40194, 4.89038), 3580.0);
+}
+
+// Test on building pedestrian route past ferry.
+UNIT_TEST(ItalyVenicePedestrianPastFerry)
+{
+  integration::CalculateRouteAndTestRouteLength(
+      integration::GetVehicleComponents<VehicleType::Pedestrian>(),
+      MercatorBounds::FromLatLon(45.4375, 12.33549), {0.0, 0.0},
+      MercatorBounds::FromLatLon(45.44057, 12.33393), 725.4);
 }

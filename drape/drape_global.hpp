@@ -1,6 +1,6 @@
 #pragma once
 
-#include "color.hpp"
+#include "drape/color.hpp"
 
 #include "geometry/point2d.hpp"
 
@@ -15,27 +15,6 @@ enum ApiVersion
   OpenGLES2 = 0,
   OpenGLES3
 };
-
-enum TextureFormat
-{
-  RGBA8,
-  ALPHA,
-  RED_GREEN,
-  UNSPECIFIED
-};
-
-inline uint8_t GetBytesPerPixel(TextureFormat format)
-{
-  uint8_t result = 0;
-  switch (format)
-  {
-  case RGBA8: result = 4; break;
-  case ALPHA: result = 1; break;
-  case RED_GREEN: result = 2; break;
-  default: ASSERT(false, ()); break;
-  }
-  return result;
-}
 
 enum Anchor
 {
@@ -72,8 +51,7 @@ struct FontDecl
   FontDecl(Color const & color, float size, bool isSdf = true,
            Color const & outlineColor = Color::Transparent())
     : m_color(color), m_outlineColor(outlineColor), m_size(size), m_isSdf(isSdf)
-  {
-  }
+  {}
 
   Color m_color = Color::Transparent();
   Color m_outlineColor = Color::Transparent();

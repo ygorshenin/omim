@@ -13,6 +13,8 @@ import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 
+import com.mapswithme.maps.base.BaseActivity;
+import com.mapswithme.maps.base.BaseActivityDelegate;
 import com.mapswithme.maps.downloader.UpdaterDialogFragment;
 import com.mapswithme.maps.editor.ViralFragment;
 import com.mapswithme.maps.news.BaseNewsFragment;
@@ -23,15 +25,17 @@ import com.mapswithme.maps.permissions.StoragePermissionsDialogFragment;
 import com.mapswithme.util.Config;
 import com.mapswithme.util.Counters;
 import com.mapswithme.util.PermissionsUtils;
+import com.mapswithme.util.ThemeUtils;
 import com.mapswithme.util.UiUtils;
 import com.mapswithme.util.concurrency.UiThread;
 import com.mapswithme.util.statistics.PushwooshHelper;
+import com.my.tracker.MyTracker;
 
 public class SplashActivity extends AppCompatActivity
-    implements BaseNewsFragment.NewsDialogListener
+    implements BaseNewsFragment.NewsDialogListener, BaseActivity
 {
-  public static final String EXTRA_INTENT = "extra_intent";
   private static final String EXTRA_ACTIVITY_TO_START = "extra_activity_to_start";
+  public static final String EXTRA_INITIAL_INTENT = "extra_initial_intent";
   private static final int REQUEST_PERMISSIONS = 1;
   private static final long FIRST_START_DELAY = 1000;
   private static final long DELAY = 100;
@@ -80,11 +84,18 @@ public class SplashActivity extends AppCompatActivity
     }
   };
 
+  @NonNull
+  private final BaseActivityDelegate mBaseDelegate = new BaseActivityDelegate(this);
+
   public static void start(@NonNull Context context,
-                           @Nullable Class<? extends Activity> activityToStart)
+                           @Nullable Class<? extends Activity> activityToStart,
+                           @Nullable Intent initialIntent)
   {
     Intent intent = new Intent(context, SplashActivity.class);
-    intent.putExtra(EXTRA_ACTIVITY_TO_START, activityToStart);
+    if (activityToStart != null)
+      intent.putExtra(EXTRA_ACTIVITY_TO_START, activityToStart);
+    if (initialIntent != null)
+      intent.putExtra(EXTRA_INITIAL_INTENT, initialIntent);
     context.startActivity(intent);
   }
 
@@ -99,12 +110,20 @@ public class SplashActivity extends AppCompatActivity
   protected void onCreate(@Nullable Bundle savedInstanceState)
   {
     super.onCreate(savedInstanceState);
+    mBaseDelegate.onCreate();
     handleUpdateMapsFragmentCorrectly(savedInstanceState);
     UiThread.cancelDelayedTasks(mPermissionsDelayedTask);
     UiThread.cancelDelayedTasks(mInitCoreDelayedTask);
     UiThread.cancelDelayedTasks(mFinalDelayedTask);
     Counters.initCounters(this);
     initView();
+  }
+
+  @Override
+  protected void onNewIntent(Intent intent)
+  {
+    super.onNewIntent(intent);
+    mBaseDelegate.onNewIntent(intent);
   }
 
   private void handleUpdateMapsFragmentCorrectly(@Nullable Bundle savedInstanceState)
@@ -141,9 +160,18 @@ public class SplashActivity extends AppCompatActivity
   }
 
   @Override
+  protected void onStart()
+  {
+    super.onStart();
+    mBaseDelegate.onStart();
+    MyTracker.onStartActivity(this);
+  }
+
+  @Override
   protected void onResume()
   {
     super.onResume();
+    mBaseDelegate.onResume();
     mCanceled = false;
     mPermissionsGranted = PermissionsUtils.isExternalStorageGranted();
     DialogFragment storagePermissionsDialog = StoragePermissionsDialogFragment.find(this);
@@ -177,11 +205,27 @@ public class SplashActivity extends AppCompatActivity
   @Override
   protected void onPause()
   {
+    super.onPause();
+    mBaseDelegate.onPause();
     mCanceled = true;
     UiThread.cancelDelayedTasks(mPermissionsDelayedTask);
     UiThread.cancelDelayedTasks(mInitCoreDelayedTask);
     UiThread.cancelDelayedTasks(mFinalDelayedTask);
-    super.onPause();
+  }
+
+  @Override
+  protected void onStop()
+  {
+    super.onStop();
+    mBaseDelegate.onStop();
+    MyTracker.onStopActivity(this);
+  }
+
+  @Override
+  protected void onDestroy()
+  {
+    super.onDestroy();
+    mBaseDelegate.onDestroy();
   }
 
   private void resumeDialogs()
@@ -291,15 +335,40 @@ public class SplashActivity extends AppCompatActivity
   private void processNavigation()
   {
     Intent input = getIntent();
-    Intent intent = new Intent(this, DownloadResourcesLegacyActivity.class);
+    Intent result = new Intent(this, DownloadResourcesLegacyActivity.class);
     if (input != null)
     {
-      Class<? extends Activity> type = (Class<? extends Activity>) input.getSerializableExtra(EXTRA_ACTIVITY_TO_START);
-      if (type != null)
-        intent = new Intent(this, type);
-      intent.putExtra(EXTRA_INTENT, input);
+      if (input.hasExtra(EXTRA_ACTIVITY_TO_START))
+      {
+        result = new Intent(this,
+                            (Class<? extends Activity>) input.getSerializableExtra(EXTRA_ACTIVITY_TO_START));
+      }
+
+      Intent initialIntent = input.hasExtra(EXTRA_INITIAL_INTENT) ?
+                           input.getParcelableExtra(EXTRA_INITIAL_INTENT) :
+                           input;
+      result.putExtra(EXTRA_INITIAL_INTENT, initialIntent);
     }
-    startActivity(intent);
+    startActivity(result);
     finish();
+  }
+
+  @Override
+  @NonNull
+  public Activity get()
+  {
+    return this;
+  }
+
+  @Override
+  public int getThemeResourceId(@NonNull String theme)
+  {
+    if (ThemeUtils.isDefaultTheme(theme))
+      return R.style.MwmTheme;
+
+    if (ThemeUtils.isNightTheme(theme))
+      return R.style.MwmTheme_Night;
+
+    throw new IllegalArgumentException("Attempt to apply unsupported theme: " + theme);
   }
 }

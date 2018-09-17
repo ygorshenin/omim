@@ -19,19 +19,19 @@ import android.support.v7.preference.TwoStatePreference;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.style.ForegroundColorSpan;
+import android.view.View;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
-import com.mapswithme.maps.BuildConfig;
 import com.mapswithme.maps.Framework;
 import com.mapswithme.maps.MwmApplication;
 import com.mapswithme.maps.R;
+import com.mapswithme.maps.bookmarks.data.BookmarkManager;
 import com.mapswithme.maps.downloader.MapManager;
 import com.mapswithme.maps.downloader.OnmapDownloader;
 import com.mapswithme.maps.editor.ProfileActivity;
 import com.mapswithme.maps.location.LocationHelper;
 import com.mapswithme.maps.location.TrackRecorder;
-import com.mapswithme.maps.search.SearchFragment;
 import com.mapswithme.maps.sound.LanguageData;
 import com.mapswithme.maps.sound.TtsPlayer;
 import com.mapswithme.util.Config;
@@ -292,6 +292,7 @@ public class SettingsPrefsFragment extends BaseXmlSettingsFragment
     initZoomPrefsCallbacks();
     initMapStylePrefsCallbacks();
     initAutoDownloadPrefsCallbacks();
+    initBackupBookmarksPrefsCallbacks();
     initLargeFontSizePrefsCallbacks();
     initTransliterationPrefsCallbacks();
     init3dModePrefsCallbacks();
@@ -300,13 +301,19 @@ public class SettingsPrefsFragment extends BaseXmlSettingsFragment
     initStatisticsPrefsCallback();
     initPlayServicesPrefsCallbacks();
     initAutoZoomPrefsCallbacks();
-    initSimplifiedTrafficColorsPrefsCallbacks();
     initDisplayShowcasePrefs();
     initLoggingEnabledPrefsCallbacks();
     initEmulationBadStorage();
     initUseMobileDataPrefsCallbacks();
-
+    initOptOut();
     updateTts();
+  }
+
+  private boolean onToggleOptOut(Object newValue)
+  {
+    boolean isEnabled = (boolean) newValue;
+    Statistics.INSTANCE.trackSettingsToggle(isEnabled);
+    return true;
   }
 
   @Override
@@ -389,26 +396,6 @@ public class SettingsPrefsFragment extends BaseXmlSettingsFragment
       });
       removePreference(getString(R.string.pref_navigation), mLangInfoLink);
     }
-  }
-
-  private void initSimplifiedTrafficColorsPrefsCallbacks()
-  {
-    final TwoStatePreference prefSimplifiedColors = (TwoStatePreference)findPreference(
-        getString(R.string.pref_traffic_simplified_colors));
-    if (prefSimplifiedColors == null)
-      return;
-
-    boolean simplifiedColorsEnabled = Framework.nativeGetSimplifiedTrafficColorsEnabled();
-    prefSimplifiedColors.setChecked(simplifiedColorsEnabled);
-    prefSimplifiedColors.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener()
-    {
-      @Override
-      public boolean onPreferenceChange(Preference preference, Object newValue)
-      {
-        Framework.nativeSetSimplifiedTrafficColorsEnabled((Boolean)newValue);
-        return true;
-      }
-    });
   }
 
   private void initLargeFontSizePrefsCallbacks()
@@ -515,30 +502,16 @@ public class SettingsPrefsFragment extends BaseXmlSettingsFragment
     if (pref == null)
       return;
 
-    if (!MwmApplication.prefs().getBoolean(SearchFragment.PREFS_SHOW_ENABLE_LOGGING_SETTING,
-                                           BuildConfig.BUILD_TYPE.equals("beta")))
-    {
-      removePreference(getString(R.string.pref_settings_general), pref);
-    }
-    else
-    {
-      final boolean isLoggingEnabled = LoggerFactory.INSTANCE.isFileLoggingEnabled();
-      ((TwoStatePreference) pref).setChecked(isLoggingEnabled);
-      pref.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener()
-      {
-        @Override
-        public boolean onPreferenceChange(Preference preference, Object newValue)
+    final boolean isLoggingEnabled = LoggerFactory.INSTANCE.isFileLoggingEnabled();
+    ((TwoStatePreference) pref).setChecked(isLoggingEnabled);
+    pref.setOnPreferenceChangeListener(
+        (preference, newValue) ->
         {
-          boolean oldVal = isLoggingEnabled;
           boolean newVal = (Boolean) newValue;
-          if (oldVal != newVal)
-          {
+          if (isLoggingEnabled != newVal)
             LoggerFactory.INSTANCE.setFileLoggingEnabled(newVal);
-          }
           return true;
-        }
-      });
-    }
+        });
   }
 
   private void initEmulationBadStorage()
@@ -749,6 +722,24 @@ public class SettingsPrefsFragment extends BaseXmlSettingsFragment
     });
   }
 
+  private void initBackupBookmarksPrefsCallbacks()
+  {
+    TwoStatePreference pref = (TwoStatePreference)findPreference(getString(R.string.pref_backupbookmarks));
+    if (pref == null)
+      return;
+
+    boolean curValue = BookmarkManager.INSTANCE.isCloudEnabled();
+    pref.setChecked(curValue);
+    pref.setOnPreferenceChangeListener(
+        (preference, newValue) ->
+        {
+          Boolean value = (Boolean) newValue;
+          BookmarkManager.INSTANCE.setCloudEnabled(value);
+          Statistics.INSTANCE.trackBmSettingsToggle(value);
+          return true;
+        });
+  }
+
   private void initMapStylePrefsCallbacks()
   {
     final ListPreference pref = (ListPreference)findPreference(getString(R.string.pref_map_style));
@@ -848,6 +839,15 @@ public class SettingsPrefsFragment extends BaseXmlSettingsFragment
         return true;
       }
     });
+  }
+
+  private void initOptOut()
+  {
+    String key = getString(R.string.pref_opt_out_fabric_activated);
+    Preference pref = findPreference(key);
+    if (pref == null)
+      return;
+    pref.setOnPreferenceChangeListener((preference, newValue) -> onToggleOptOut(newValue));
   }
 
   private void removePreference(@NonNull String categoryKey, @NonNull Preference preference)

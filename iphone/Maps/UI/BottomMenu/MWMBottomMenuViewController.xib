@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="13771" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES">
-    <device id="retina4_7" orientation="portrait">
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.XIB" version="3.0" toolsVersion="14113" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina5_9" orientation="portrait">
         <adaptation id="fullscreen"/>
     </device>
     <dependencies>
         <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="13772"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="14088"/>
         <capability name="Constraints with non-1.0 multipliers" minToolsVersion="5.1"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
         <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
     </dependencies>
     <objects>
@@ -20,10 +21,14 @@
             </connections>
         </placeholder>
         <placeholder placeholderIdentifier="IBFirstResponder" id="-2" customClass="UIResponder"/>
-        <view clearsContextBeforeDrawing="NO" contentMode="scaleToFill" id="zuH-WU-hiP" customClass="MWMBottomMenuView">
+        <view clearsContextBeforeDrawing="NO" contentMode="scaleToFill" id="zuH-WU-hiP" customClass="MWMBottomMenuView" propertyAccessControl="all">
             <rect key="frame" x="0.0" y="0.0" width="320" height="197"/>
             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
             <subviews>
+                <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="4Uc-SH-J1o">
+                    <rect key="frame" x="0.0" y="0.0" width="320" height="261"/>
+                    <color key="backgroundColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                </view>
                 <view opaque="NO" clearsContextBeforeDrawing="NO" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="vum-s3-PHx" userLabel="MainButtons">
                     <rect key="frame" x="0.0" y="0.0" width="320" height="48"/>
                     <subviews>
@@ -98,6 +103,7 @@
                         </view>
                     </subviews>
                     <color key="backgroundColor" red="0.0" green="0.0" blue="0.0" alpha="0.0" colorSpace="custom" customColorSpace="sRGB"/>
+                    <accessibility key="accessibilityConfiguration" identifier="MainButtons"/>
                     <constraints>
                         <constraint firstAttribute="height" constant="48" id="69A-eu-uLp"/>
                         <constraint firstItem="No0-ld-JX3" firstAttribute="centerY" secondItem="vum-s3-PHx" secondAttribute="centerY" id="8nL-zT-Y7b"/>
@@ -127,6 +133,7 @@
                 <view clipsSubviews="YES" contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="oxg-Qt-HzS" userLabel="Separator">
                     <rect key="frame" x="0.0" y="48" width="320" height="1"/>
                     <color key="backgroundColor" red="0.0" green="0.0" blue="0.0" alpha="0.12" colorSpace="custom" customColorSpace="sRGB"/>
+                    <accessibility key="accessibilityConfiguration" identifier="Separator"/>
                     <constraints>
                         <constraint firstAttribute="height" constant="1" id="wSx-Bp-1WM"/>
                     </constraints>
@@ -147,13 +154,17 @@
                     </connections>
                 </collectionView>
             </subviews>
-            <color key="backgroundColor" red="1" green="1" blue="1" alpha="0.80000000000000004" colorSpace="custom" customColorSpace="sRGB"/>
+            <color key="backgroundColor" white="0.0" alpha="0.0" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
             <constraints>
-                <constraint firstItem="NfG-tt-q8G" firstAttribute="top" secondItem="zuH-WU-hiP" secondAttribute="top" constant="49" id="BPe-1P-hHH"/>
+                <constraint firstItem="4Uc-SH-J1o" firstAttribute="top" secondItem="vum-s3-PHx" secondAttribute="top" id="0Jc-AD-Qya"/>
+                <constraint firstItem="4Uc-SH-J1o" firstAttribute="leading" secondItem="NfG-tt-q8G" secondAttribute="leading" id="A3A-xh-RBr"/>
+                <constraint firstItem="4Uc-SH-J1o" firstAttribute="trailing" secondItem="NfG-tt-q8G" secondAttribute="trailing" id="HOK-aO-I55"/>
                 <constraint firstItem="oxg-Qt-HzS" firstAttribute="top" secondItem="vum-s3-PHx" secondAttribute="bottom" id="NZl-aK-dLq"/>
                 <constraint firstItem="vum-s3-PHx" firstAttribute="top" secondItem="zuH-WU-hiP" secondAttribute="top" id="PQS-ro-25e"/>
                 <constraint firstItem="NfG-tt-q8G" firstAttribute="width" secondItem="vum-s3-PHx" secondAttribute="width" id="cgE-Yw-p2V"/>
+                <constraint firstItem="NfG-tt-q8G" firstAttribute="top" secondItem="vum-s3-PHx" secondAttribute="bottom" constant="1" id="hi5-kN-yM1"/>
                 <constraint firstItem="vum-s3-PHx" firstAttribute="leading" secondItem="zuH-WU-hiP" secondAttribute="leading" id="kza-JN-Dul"/>
+                <constraint firstItem="4Uc-SH-J1o" firstAttribute="bottom" secondItem="NfG-tt-q8G" secondAttribute="bottom" constant="64" id="nSu-d5-zf7"/>
                 <constraint firstItem="oxg-Qt-HzS" firstAttribute="width" secondItem="vum-s3-PHx" secondAttribute="width" id="ohC-pa-lJs"/>
                 <constraint firstAttribute="trailing" secondItem="vum-s3-PHx" secondAttribute="trailing" id="sM6-P2-rN9"/>
                 <constraint firstItem="oxg-Qt-HzS" firstAttribute="leading" secondItem="zuH-WU-hiP" secondAttribute="leading" id="vjV-VK-BXO"/>
@@ -163,21 +174,23 @@
             <nil key="simulatedTopBarMetrics"/>
             <nil key="simulatedBottomBarMetrics"/>
             <freeformSimulatedSizeMetrics key="simulatedDestinationMetrics"/>
+            <viewLayoutGuide key="safeArea" id="aaw-Hz-zma"/>
             <connections>
                 <outlet property="additionalButtons" destination="NfG-tt-q8G" id="44E-Zh-Sfk"/>
                 <outlet property="additionalButtonsHeight" destination="Tiw-DM-q4q" id="bNP-wf-rYd"/>
                 <outlet property="downloadBadge" destination="uDI-ZC-4wx" id="7BL-z6-Xyh"/>
+                <outlet property="extraBottomView" destination="4Uc-SH-J1o" id="HmI-Jo-jfq"/>
                 <outlet property="mainButtonsHeight" destination="69A-eu-uLp" id="Q4N-kN-l4l"/>
                 <outlet property="menuButton" destination="svD-yi-GrZ" id="JH2-aG-h1U"/>
                 <outlet property="separatorHeight" destination="wSx-Bp-1WM" id="f7K-ic-Yai"/>
             </connections>
-            <point key="canvasLocation" x="34" y="309"/>
+            <point key="canvasLocation" x="34" y="308.5"/>
         </view>
     </objects>
     <resources>
         <image name="ic_menu" width="48" height="48"/>
         <image name="ic_menu_bookmark_list" width="48" height="48"/>
-        <image name="ic_menu_discovery" width="48" height="48"/>
+        <image name="ic_menu_discovery" width="24" height="24"/>
         <image name="ic_menu_point_to_point" width="48" height="48"/>
         <image name="ic_menu_search" width="48" height="48"/>
     </resources>

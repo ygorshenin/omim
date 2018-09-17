@@ -3,6 +3,8 @@
 @interface MWMDefaultAlert : MWMAlert
 
 + (instancetype)routeNotFoundAlert;
++ (instancetype)routeNotFoundNoPublicTransportAlert;
++ (instancetype)routeNotFoundTooLongPedestrianAlert;
 + (instancetype)routeFileNotExistAlert;
 + (instancetype)endPointNotFoundAlert;
 + (instancetype)startPointNotFoundAlert;
@@ -34,5 +36,19 @@
 + (instancetype)deleteFeatureAlertWithBlock:(MWMVoidBlock)block;
 + (instancetype)personalInfoWarningAlertWithBlock:(MWMVoidBlock)block;
 + (instancetype)trackWarningAlertWithCancelBlock:(MWMVoidBlock)block;
++ (instancetype)infoAlert:(NSString *)title text:(NSString *)text;
++ (instancetype)convertBookmarksWithCount:(NSUInteger)count okBlock:(MWMVoidBlock)okBlock;
++ (instancetype)bookmarkConversionErrorAlert;
+
++ (instancetype)restoreBookmarkAlertWithMessage:(NSString *)message
+                              rightButtonAction:(MWMVoidBlock)rightButton
+                               leftButtonAction:(MWMVoidBlock)leftButton;
+
++ (instancetype)defaultAlertWithTitle:(NSString *)title
+                              message:(NSString *)message
+                     rightButtonTitle:(NSString *)rightButtonTitle
+                      leftButtonTitle:(NSString *)leftButtonTitle
+                    rightButtonAction:(MWMVoidBlock)action
+                      statisticsEvent:(NSString *)statisticsEvent;
 
 @end

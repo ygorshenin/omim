@@ -1,4 +1,5 @@
 #include "qt/about.hpp"
+#include "qt/bookmark_dialog.hpp"
 #include "qt/draw_widget.hpp"
 #include "qt/mainwindow.hpp"
 #include "qt/osm_auth_dialog.hpp"
@@ -23,7 +24,7 @@
 #include "build_style/build_statistics.h"
 #include "build_style/run_tests.h"
 
-#include "drape/debug_rect_renderer.hpp"
+#include "drape_frontend/debug_rect_renderer.hpp"
 #endif // BUILD_DESIGNER
 
 #include <QtGui/QCloseEvent>
@@ -124,7 +125,8 @@ MainWindow::MainWindow(Framework & framework, bool apiOpenGLES3, QString const &
 #ifndef NO_DOWNLOADER
   // Show intro dialog if necessary
   bool bShow = true;
-  (void)settings::Get("ShowWelcome", bShow);
+  string const showWelcome = "ShowWelcome";
+  settings::TryGet(showWelcome, bShow);
 
   if (bShow)
   {
@@ -267,6 +269,10 @@ void MainWindow::CreateNavigationBar()
     m_trafficEnableAction->setChecked(m_pDrawWidget->GetFramework().LoadTrafficEnabled());
     pToolBar->addSeparator();
 
+    m_bookmarksAction = pToolBar->addAction(QIcon(":/navig64/bookmark.png"), tr("Show bookmarks and tracks"),
+                                            this, SLOT(OnBookmarksAction()));
+    pToolBar->addSeparator();
+
 #ifndef BUILD_DESIGNER
     m_selectStartRoutePoint = new QAction(QIcon(":/navig64/point-start.png"),
                                           tr("Start point"), this);
@@ -308,7 +314,6 @@ void MainWindow::CreateNavigationBar()
     clearAction->setToolTip(tr("Clear route"));
     pToolBar->addSeparator();
 
-    // TODO(AlexZ): Replace icon.
     m_pCreateFeatureAction = pToolBar->addAction(QIcon(":/navig64/select.png"), tr("Create Feature"),
                                                  this, SLOT(OnCreateFeatureClicked()));
     m_pCreateFeatureAction->setCheckable(true);
@@ -321,6 +326,12 @@ void MainWindow::CreateNavigationBar()
                                           this, SLOT(OnSwitchSelectionMode()));
     m_selectionMode->setCheckable(true);
     m_selectionMode->setToolTip(tr("Turn on/off selection mode"));
+
+    m_selectionCityBoundariesMode =
+        pToolBar->addAction(QIcon(":/navig64/city_boundaries.png"), tr("City boundaries selection mode"),
+                            this, SLOT(OnSwitchCityBoundariesSelectionMode()));
+    m_selectionCityBoundariesMode->setCheckable(true);
+    m_selectionCityBoundariesMode->setChecked(m_pDrawWidget->GetFramework().LoadTrafficEnabled());
 
     m_clearSelection = pToolBar->addAction(QIcon(":/navig64/clear.png"), tr("Clear selection"),
                                            this, SLOT(OnClearSelection()));
@@ -376,7 +387,7 @@ void MainWindow::CreateNavigationBar()
     m_pDrawDebugRectAction->setCheckable(true);
     m_pDrawDebugRectAction->setChecked(false);
     m_pDrawDebugRectAction->setToolTip(tr("Debug style"));
-    dp::DebugRectRenderer::Instance().SetEnabled(false);
+    m_pDrawWidget->GetFramework().EnableDebugRectRendering(false);
 
     // Add "Get statistics" button
     m_pGetStatisticsAction = pToolBar->addAction(QIcon(":/navig64/chart.png"),
@@ -548,10 +559,32 @@ void MainWindow::OnCreateFeatureClicked()
 
 void MainWindow::OnSwitchSelectionMode()
 {
+  if (m_selectionCityBoundariesMode->isChecked())
+  {
+    // Unchecking selection city boundaries mode.
+    m_selectionCityBoundariesMode->setChecked(false);
+    m_pDrawWidget->SetCityBoundariesSelectionMode(false);
+  }
+
   m_pDrawWidget->SetSelectionMode(m_selectionMode->isChecked());
 }
 
-void MainWindow::OnClearSelection() { m_pDrawWidget->GetFramework().GetDrapeApi().Clear(); }
+void MainWindow::OnSwitchCityBoundariesSelectionMode()
+{
+  if (m_selectionMode->isChecked())
+  {
+    // Unchecking selection mode.
+    m_selectionMode->setChecked(false);
+    m_pDrawWidget->SetSelectionMode(false);
+  }
+
+  m_pDrawWidget->SetCityBoundariesSelectionMode(m_selectionCityBoundariesMode->isChecked());
+}
+
+void MainWindow::OnClearSelection()
+{
+  m_pDrawWidget->GetFramework().GetDrapeApi().Clear();
+}
 
 void MainWindow::OnSearchButtonClicked()
 {
@@ -658,7 +691,7 @@ void MainWindow::OnRecalculateGeomIndex()
 void MainWindow::OnDebugStyle()
 {
   bool const checked = m_pDrawDebugRectAction->isChecked();
-  dp::DebugRectRenderer::Instance().SetEnabled(checked);
+  m_pDrawWidget->GetFramework().EnableDebugRectRendering(checked);
   m_pDrawWidget->RefreshDrawingRules();
 }
 
@@ -834,6 +867,13 @@ void MainWindow::OnFollowRoute()
 void MainWindow::OnClearRoute()
 {
   m_pDrawWidget->ClearRoute();
+}
+
+void MainWindow::OnBookmarksAction()
+{
+  BookmarkDialog dlg(this, m_pDrawWidget->GetFramework());
+  dlg.ShowModal();
+  m_pDrawWidget->update();
 }
 
 // static

@@ -5,7 +5,6 @@
 #include "geometry/point2d.hpp"
 
 #include "base/newtype.hpp"
-#include "base/stl_add.hpp"
 #include "base/visitor.hpp"
 
 #include <algorithm>
@@ -135,7 +134,7 @@ class Stop
 public:
   NEWTYPE(StopId, WrappedStopId);
 
-  Stop() : m_featureIdentifiers(true /* serializeFeatureIdOnly */) {};
+  Stop() : m_featureIdentifiers(true /* serializeFeatureIdOnly */){};
   Stop(StopId id, OsmId osmId, FeatureId featureId, TransferId transferId,
        std::vector<LineId> const & lineIds, m2::PointD const & point,
        std::vector<TitleAnchor> const & titleAnchors);
@@ -155,7 +154,8 @@ public:
 
 private:
   DECLARE_TRANSIT_TYPE_FRIENDS
-  DECLARE_VISITOR_AND_DEBUG_PRINT(Stop, visitor(m_id, "id"), visitor(m_featureIdentifiers, "osm_id"),
+  DECLARE_VISITOR_AND_DEBUG_PRINT(Stop, visitor(m_id, "id"),
+                                  visitor(m_featureIdentifiers, "osm_id"),
                                   visitor(m_transferId, "transfer_id"),
                                   visitor(m_lineIds, "line_ids"), visitor(m_point, "point"),
                                   visitor(m_titleAnchors, "title_anchors"))
@@ -195,7 +195,7 @@ private:
 class Gate
 {
 public:
-  Gate() : m_featureIdentifiers(false /* serializeFeatureIdOnly */) {};
+  Gate() : m_featureIdentifiers(false /* serializeFeatureIdOnly */){};
   Gate(OsmId osmId, FeatureId featureId, bool entrance, bool exit, Weight weight,
        std::vector<StopId> const & stopIds, m2::PointD const & point);
 
@@ -222,11 +222,12 @@ private:
                                   visitor(m_weight, "weight"), visitor(m_stopIds, "stop_ids"),
                                   visitor(m_point, "point"))
 
-  // |m_featureIdentifiers| contains feature id of a feature which represents gates. Usually it's a point feature.
+  // |m_featureIdentifiers| contains feature id of a feature which represents gates. Usually it's a
+  // point feature.
   FeatureIdentifiers m_featureIdentifiers;
-  // |m_bestPedestrianSegment| is a segment which can be used for pedestrian routing to leave and enter the gate.
-  // The segment may be invalid because of map date. If so there's no pedestrian segment which can be used
-  // to reach the gate.
+  // |m_bestPedestrianSegment| is a segment which can be used for pedestrian routing to leave and
+  // enter the gate. The segment may be invalid because of map date. If so there's no pedestrian
+  // segment which can be used to reach the gate.
   SingleMwmSegment m_bestPedestrianSegment;
   bool m_entrance = true;
   bool m_exit = true;
@@ -262,7 +263,7 @@ class EdgeFlags
 {
 public:
   DECLARE_TRANSIT_TYPE_FRIENDS
-  friend string DebugPrint(EdgeFlags const & f);
+  friend std::string DebugPrint(EdgeFlags const & f);
 
   uint8_t GetFlags() const;
   void SetFlags(uint8_t flags);
@@ -327,7 +328,7 @@ private:
 
   WrappedEdgeId m_stop1Id = WrappedEdgeId(kInvalidStopId);
   StopId m_stop2Id = kInvalidStopId;
-  Weight m_weight = kInvalidWeight; // in seconds
+  Weight m_weight = kInvalidWeight;  // in seconds
   LineId m_lineId = kInvalidLineId;
   EdgeFlags m_flags;
   std::vector<ShapeId> m_shapeIds;
@@ -423,7 +424,10 @@ class Shape
 {
 public:
   Shape() = default;
-  Shape(ShapeId const & id, std::vector<m2::PointD> const & polyline) : m_id(id), m_polyline(polyline) {}
+  Shape(ShapeId const & id, std::vector<m2::PointD> const & polyline)
+    : m_id(id), m_polyline(polyline)
+  {
+  }
 
   bool operator<(Shape const & rhs) const { return m_id < rhs.m_id; }
   bool operator==(Shape const & rhs) const { return m_id == rhs.m_id; }
@@ -465,15 +469,31 @@ private:
 };
 
 template <class Item>
-bool IsValid(std::vector<Item> const & items)
+void CheckValid(std::vector<Item> const & items, std::string const & name)
 {
-  return std::all_of(items.cbegin(), items.cend(), [](Item const & item) { return item.IsValid(); });
+  for (auto const & i : items)
+    CHECK(i.IsValid(), (i, "is not valid. Table name:", name));
 }
 
 template <class Item>
-bool IsValidSortedUnique(std::vector<Item> const & items)
+void CheckSorted(std::vector<Item> const & items, std::string const & name)
 {
-  return IsValid(items) && IsSortedAndUnique(items.cbegin(), items.cend());
+  CHECK(std::is_sorted(items.cbegin(), items.cend()), ("Table is not sorted. Table name:", name));
+}
+
+template <class Item>
+void CheckUnique(std::vector<Item> const & items, std::string const & name)
+{
+  auto const it = std::adjacent_find(items.cbegin(), items.cend());
+  CHECK(it == items.cend(), (*it, "is not unique. Table name:", name));
+}
+
+template <class Item>
+void CheckValidSortedUnique(std::vector<Item> const & items, std::string const & name)
+{
+  CheckValid(items, name);
+  CheckSorted(items, name);
+  CheckUnique(items, name);
 }
 
 EdgeFlags GetEdgeFlags(bool transfer, StopId stopId1, StopId stopId2,

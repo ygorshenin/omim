@@ -1,19 +1,20 @@
 #include "testing/testing.hpp"
 
-#include "indexer/indexer_tests_support/test_with_classificator.hpp"
-
 #include "generator/generator_tests_support/test_mwm_builder.hpp"
+#include "generator/generator_tests_support/test_with_classificator.hpp"
 
 #include "generator/feature_builder.hpp"
 #include "generator/osm2type.hpp"
 #include "generator/osm_element.hpp"
 
 #include "indexer/classificator.hpp"
+#include "indexer/data_source.hpp"
 #include "indexer/feature.hpp"
 #include "indexer/feature_data.hpp"
-#include "indexer/index.hpp"
 
 #include "platform/local_country_file.hpp"
+
+#include "base/stl_helpers.hpp"
 
 #include <cstdint>
 #include <set>
@@ -25,7 +26,7 @@ using namespace std;
 
 namespace
 {
-class GenerateTest : public indexer::tests_support::TestWithClassificator
+class GenerateTest : public TestWithClassificator
 {
 public:
   void MakeFeature(TestMwmBuilder & builder, pair<string, string> const & tag,
@@ -64,11 +65,11 @@ UNIT_CLASS_TEST(GenerateTest, GenerateDeprecatedTypes)
     MakeFeature(builder, {"shop", "estate_agent"}, {2, 2});
   }
 
-  Index index;
-  TEST_EQUAL(index.Register(file).second, MwmSet::RegResult::Success, ());
+  FrozenDataSource dataSource;
+  TEST_EQUAL(dataSource.Register(file).second, MwmSet::RegResult::Success, ());
 
   // New types.
-  StringIL arr[] = {{"shop"}, {"office"}};
+  base::StringIL arr[] = {{"shop"}, {"office"}};
 
   Classificator const & cl = classif();
   set<uint32_t> types;
@@ -80,7 +81,7 @@ UNIT_CLASS_TEST(GenerateTest, GenerateDeprecatedTypes)
     ++count;
     ft.ForEachType([&](uint32_t t) { TEST(types.count(t) > 0, (cl.GetReadableObjectName(t))); });
   };
-  index.ForEachInScale(fn, scales::GetUpperScale());
+  dataSource.ForEachInScale(fn, scales::GetUpperScale());
 
   TEST_EQUAL(count, 3, ());
 

@@ -62,7 +62,7 @@ void LoadRestrictions(string const & mwmFilePath, RestrictionVec & restrictions)
   }
   catch (Reader::OpenException const & e)
   {
-    TEST(false, ("Error while reading", ROAD_ACCESS_FILE_TAG, "section.", e.Msg()));
+    TEST(false, ("Error while reading", RESTRICTIONS_FILE_TAG, "section.", e.Msg()));
   }
 }
 
@@ -95,7 +95,7 @@ void TestRestrictionBuilding(string const & restrictionContent, string const & m
 
   // Adding restriction section to mwm.
   string const restrictionFullPath = my::JoinPath(writableDir, restrictionRelativePath);
-  string const mwmFullPath = my::JoinPath(writableDir, mwmRelativePath);
+  string const & mwmFullPath = scopedMwm.GetFullPath();
   BuildRoadRestrictions(mwmFullPath, restrictionFullPath, mappingFullPath);
 
   // Reading from mwm section and testing restrictions.

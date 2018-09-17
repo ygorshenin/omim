@@ -1,5 +1,4 @@
 #import "MapViewController.h"
-#import "BookmarksRootVC.h"
 #import "BookmarksVC.h"
 #import "EAGLView.h"
 #import "MWMAPIBar.h"
@@ -23,6 +22,8 @@
 #include "Framework.h"
 
 #include "drape_frontend/user_event_stream.hpp"
+
+#import <Crashlytics/Crashlytics.h>
 
 // If you have a "missing header error" here, then please run configure.sh script in the root repo
 // folder.
@@ -99,7 +100,7 @@ BOOL gIsFirstMyPositionMode = YES;
 
 @implementation MapViewController
 
-+ (MapViewController *)controller { return [MapsAppDelegate theApp].mapViewController; }
++ (MapViewController *)sharedController { return [MapsAppDelegate theApp].mapViewController; }
 #pragma mark - Map Navigation
 
 - (void)dismissPlacePage { [self.controlsManager dismissPlacePage]; }
@@ -191,8 +192,6 @@ BOOL gIsFirstMyPositionMode = YES;
 
 - (BOOL)hasForceTouch
 {
-  if (isIOS8)
-    return NO;
   return self.view.traitCollection.forceTouchCapability == UIForceTouchCapabilityAvailable;
 }
 
@@ -218,10 +217,10 @@ BOOL gIsFirstMyPositionMode = YES;
 
 #pragma mark - ViewController lifecycle
 
-- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
 - (void)viewWillTransitionToSize:(CGSize)size
        withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator
 {
+  [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
   [self.alertController viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
   [self.controlsManager viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
   [self.welcomePageController viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
@@ -238,16 +237,13 @@ BOOL gIsFirstMyPositionMode = YES;
 - (void)viewWillAppear:(BOOL)animated
 {
   [super viewWillAppear:animated];
-  [NSNotificationCenter.defaultCenter removeObserver:self
-                                                name:UIDeviceOrientationDidChangeNotification
-                                              object:nil];
 
   if ([MWMNavigationDashboardManager manager].state == MWMNavigationDashboardStateHidden)
     self.controlsManager.menuState = self.controlsManager.menuRestoreState;
 
   [self updateStatusBarStyle];
   GetFramework().InvalidateRendering();
-  [self showWelcomeScreenIfNeeded];
+  [self.welcomePageController show];
   [self showViralAlertIfNeeded];
   [self checkAuthorization];
 }
@@ -258,6 +254,7 @@ BOOL gIsFirstMyPositionMode = YES;
   self.view.clipsToBounds = YES;
   [self processMyPositionStateModeEvent:MWMMyPositionModePendingPosition];
   [MWMKeyboard addObserver:self];
+  self.welcomePageController = [MWMWelcomePageController controllerWithParent:self];
 }
 
 - (void)mwm_refreshUI
@@ -266,11 +263,6 @@ BOOL gIsFirstMyPositionMode = YES;
   [self.navigationController.navigationBar mwm_refreshUI];
   [self.controlsManager mwm_refreshUI];
   [self.downloadDialog mwm_refreshUI];
-}
-
-- (void)showWelcomeScreenIfNeeded
-{
-  self.welcomePageController = [MWMWelcomePageController controllerWithParent:self];
 }
 
 - (void)closePageController:(MWMWelcomePageController *)pageController
@@ -323,7 +315,7 @@ BOOL gIsFirstMyPositionMode = YES;
   self.controlsManager.menuRestoreState = self.controlsManager.menuState;
 }
 
-- (BOOL)prefersStatusBarHidden { return self.apiBar.isVisible; }
+- (BOOL)prefersStatusBarHidden { return NO; }
 - (UIStatusBarStyle)preferredStatusBarStyle
 {
   return [self.controlsManager preferredStatusBarStyle];
@@ -366,10 +358,8 @@ BOOL gIsFirstMyPositionMode = YES;
 - (void)openMigration { [self performSegueWithIdentifier:kMigrationSegue sender:self]; }
 - (void)openBookmarks
 {
-  BOOL const oneCategory = (GetFramework().GetBmCategoriesCount() == 1);
-  MWMTableViewController * vc =
-      oneCategory ? [[BookmarksVC alloc] initWithCategory:0] : [[BookmarksRootVC alloc] init];
-  [self.navigationController pushViewController:vc animated:YES];
+  [self.navigationController pushViewController:[[MWMBookmarksTabViewController alloc] init]
+                                       animated:YES];
 }
 
 - (void)openMapsDownloader:(MWMMapDownloaderMode)mode
@@ -402,6 +392,77 @@ BOOL gIsFirstMyPositionMode = YES;
 - (void)openBookmarkEditorWithData:(MWMPlacePageData *)data
 {
   [self performSegueWithIdentifier:kPP2BookmarkEditingSegue sender:data];
+}
+
+- (void)showUGCAuth
+{
+  [Statistics logEvent:kStatUGCReviewAuthShown];
+  if (IPAD)
+  {
+    auto controller = [[MWMAuthorizationViewController alloc]
+                       initWithPopoverSourceView:self.controlsManager.anchorView
+                       sourceComponent:MWMAuthorizationSourceUGC
+                       permittedArrowDirections:UIPopoverArrowDirectionDown
+                       successHandler:nil
+                       errorHandler:nil
+                       completionHandler:nil];
+
+    [self presentViewController:controller animated:YES completion:nil];
+    return;
+  }
+
+  auto controller = [[MWMAuthorizationViewController alloc]
+                     initWithBarButtonItem:nil
+                           sourceComponent:MWMAuthorizationSourceUGC
+                            successHandler:nil
+                              errorHandler:nil
+                         completionHandler:nil];
+
+  [self presentViewController:controller animated:YES completion:nil];
+}
+
+- (void)showBookmarksLoadedAlert:(UInt64)categoryId
+{
+  for (UIViewController * vc in self.navigationController.viewControllers)
+  {
+    if ([vc isMemberOfClass:MWMBookmarksTabViewController.class])
+    {
+      auto alert = [[BookmarksLoadedViewController alloc] init];
+      alert.onViewBlock = ^{
+        [self dismissViewControllerAnimated:YES completion:nil];
+        [self.navigationController popToRootViewControllerAnimated:YES];
+        GetFramework().ShowBookmarkCategory(categoryId);
+      };
+      alert.onCancelBlock = ^{
+        [self.navigationController dismissViewControllerAnimated:YES completion:nil];
+      };
+      [self.navigationController presentViewController:alert animated:YES completion:nil];
+      return;
+    }
+  }
+  if (![MWMRouter isOnRoute])
+      [[MWMToast toastWithText:L(@"guide_downloaded_title")] show];
+}
+
+- (void)openCatalogAnimated:(BOOL)animated
+{
+  [self openCatalogDeeplink:nil animated:animated];
+}
+
+- (void)openCatalogDeeplink:(NSURL *)deeplinkUrl animated:(BOOL)animated
+{
+  [self.navigationController popToRootViewControllerAnimated:NO];
+  auto bookmarks = [[MWMBookmarksTabViewController alloc] init];
+  bookmarks.activeTab = ActiveTabCatalog;
+  MWMCatalogWebViewController *catalog;
+  if (deeplinkUrl)
+    catalog = [[MWMCatalogWebViewController alloc] init:deeplinkUrl];
+  else
+    catalog = [[MWMCatalogWebViewController alloc] init];
+
+  NSMutableArray<UIViewController *> * controllers = [self.navigationController.viewControllers mutableCopy];
+  [controllers addObjectsFromArray:@[bookmarks, catalog]];
+  [self.navigationController setViewControllers:controllers animated:animated];
 }
 
 - (void)processMyPositionStateModeEvent:(MWMMyPositionMode)mode
@@ -454,6 +515,16 @@ BOOL gIsFirstMyPositionMode = YES;
 
 - (void)processCountryEvent:(TCountryId const &)countryId
 {
+  if (countryId.empty())
+  {
+#ifdef OMIM_PRODUCTION
+    auto err = [[NSError alloc] initWithDomain:kMapsmeErrorDomain code:1
+                      userInfo:@{@"Description" : @"attempt to get info from empty countryId"}];
+    [[Crashlytics sharedInstance] recordError:err];
+#endif
+    return;
+  }
+
   NodeStatuses nodeStatuses{};
   GetFramework().GetStorage().GetNodeStatuses(countryId, nodeStatuses);
   if (nodeStatuses.m_status != NodeStatus::Error)
@@ -505,7 +576,7 @@ BOOL gIsFirstMyPositionMode = YES;
       searchState = MWMSearchManagerStateDefault;
     else if ([action isEqualToString:@"me.maps.3daction.route"])
       [self.controlsManager onRoutePrepare];
-    [MWMSearchManager manager].state = MWMSearchManagerStateHidden;
+    [MWMSearchManager manager].state = searchState;
   }
   else
   {
@@ -524,7 +595,6 @@ BOOL gIsFirstMyPositionMode = YES;
   return _apiBar;
 }
 
-- (void)showAPIBar { self.apiBar.isVisible = YES; }
 #pragma mark - ShowDialog callback
 
 - (void)presentDisabledLocationAlert { [self.alertController presentDisabledLocationAlert]; }

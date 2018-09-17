@@ -74,6 +74,8 @@ public:
   }
 
   std::set<NumMwmId> GetMwms() const;
+  std::set<NumMwmId> GetStartMwms() const;
+  std::set<NumMwmId> GetFinishMwms() const;
 
   // Checks whether |weight| meets non-pass-through crossing restrictions according to placement of
   // start and finish in pass-through/non-pass-through area and number of non-pass-through crosses.
@@ -100,6 +102,7 @@ public:
 
   RouteWeight CalcSegmentWeight(Segment const & segment) const;
   RouteWeight CalcRouteSegmentWeight(std::vector<Segment> const & route, size_t segmentIndex) const;
+  double CalcSegmentETA(Segment const & segment) const;
 
 private:
   // Start or finish ending information. 
@@ -138,7 +141,7 @@ private:
 
   // Adds fake edges of type PartOfReal which correspond real edges from |edges| and are connected
   // to |segment|
-  void AddFakeEdges(Segment const & segment, vector<SegmentEdge> & edges) const;
+  void AddFakeEdges(Segment const & segment, bool isOutgoing, std::vector<SegmentEdge> & edges) const;
 
   // Checks whether ending belongs to pass-through or non-pass-through zone.
   bool EndingPassThroughAllowed(Ending const & ending);

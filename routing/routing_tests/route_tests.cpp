@@ -70,14 +70,13 @@ location::GpsInfo GetGps(double x, double y)
   info.m_latitude = MercatorBounds::YToLat(y);
   info.m_longitude = MercatorBounds::XToLon(x);
   info.m_horizontalAccuracy = 2;
-  info.m_speed = -1;
   return info;
 }
 }  // namespace
 
 UNIT_TEST(AddAdsentCountryToRouteTest)
 {
-  Route route("TestRouter");
+  Route route("TestRouter", 0 /* route id */);
   route.AddAbsentCountry("A");
   route.AddAbsentCountry("A");
   route.AddAbsentCountry("B");
@@ -91,7 +90,7 @@ UNIT_TEST(AddAdsentCountryToRouteTest)
 
 UNIT_TEST(DistanceToCurrentTurnTest)
 {
-  Route route("TestRouter");
+  Route route("TestRouter", 0 /* route id */);
   vector<RouteSegment> routeSegments;
   GetTestRouteSegments(kTestGeometry, kTestTurns2, kTestNames2, kTestTimes2, routeSegments);
   route.SetGeometry(kTestGeometry.begin(), kTestGeometry.end());
@@ -129,7 +128,7 @@ UNIT_TEST(DistanceToCurrentTurnTest)
 
 UNIT_TEST(NextTurnTest)
 {
-  Route route("TestRouter");
+  Route route("TestRouter", 0 /* route id */);
   vector<RouteSegment> routeSegments;
   GetTestRouteSegments(kTestGeometry, kTestTurns2, kTestNames2, kTestTimes2, routeSegments);
   route.SetRouteSegments(routeSegments);
@@ -159,7 +158,7 @@ UNIT_TEST(NextTurnTest)
 
 UNIT_TEST(NextTurnsTest)
 {
-  Route route("TestRouter");
+  Route route("TestRouter", 0 /* route id */);
   route.SetGeometry(kTestGeometry.begin(), kTestGeometry.end());
   vector<RouteSegment> routeSegments;
   GetTestRouteSegments(kTestGeometry, kTestTurns2, kTestNames2, kTestTimes2, routeSegments);
@@ -227,7 +226,7 @@ UNIT_TEST(SelfIntersectedRouteMatchingTest)
       {{0.0001, 0.0}, {0.0001, 0.0002}, {0.0002, 0.0002}, {0.0002, 0.0001}, {0.0, 0.0001}});
   double constexpr kRoundingErrorMeters = 0.001;
 
-  Route route("TestRouter");
+  Route route("TestRouter", 0 /* route id */);
   route.SetGeometry(kRouteGeometry.begin(), kRouteGeometry.end());
   
   vector<RouteSegment> routeSegments;
@@ -278,7 +277,7 @@ UNIT_TEST(SelfIntersectedRouteMatchingTest)
 
 UNIT_TEST(RouteNameTest)
 {
-  Route route("TestRouter");
+  Route route("TestRouter", 0 /* route id */);
 
   route.SetGeometry(kTestGeometry.begin(), kTestGeometry.end());
   vector<RouteSegment> routeSegments;

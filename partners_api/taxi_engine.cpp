@@ -1,16 +1,19 @@
 #include "partners_api/taxi_engine.hpp"
-#include "partners_api/taxi_places.hpp"
+#include "partners_api/maxim_api.hpp"
+#include "partners_api/rutaxi_api.hpp"
+#include "partners_api/taxi_places_loader.hpp"
 #include "partners_api/uber_api.hpp"
 #include "partners_api/yandex_api.hpp"
 
 #include "geometry/latlon.hpp"
+#include "geometry/mercator.hpp"
 
 #include "base/macros.hpp"
-#include "base/stl_add.hpp"
 
 #include <algorithm>
 #include <initializer_list>
 #include <iterator>
+#include <memory>
 #include <utility>
 
 namespace
@@ -113,11 +116,28 @@ void ResultMaker::DecrementRequestCount()
 // Engine -----------------------------------------------------------------------------------------
 Engine::Engine(std::vector<ProviderUrl> urls /* = {} */)
 {
-  AddApi<yandex::Api>(urls, Provider::Type::Yandex, places::kYandexEnabledPlaces, {{}});
-  AddApi<uber::Api>(urls, Provider::Type::Uber, {{}}, places::kUberDisabledPlaces);
+  AddApi<yandex::Api>(urls, Provider::Type::Yandex);
+  AddApi<uber::Api>(urls, Provider::Type::Uber);
+  AddApi<maxim::Api>(urls, Provider::Type::Maxim);
+  AddApi<rutaxi::Api>(urls, Provider::Type::Rutaxi);
 }
 
-void Engine::SetDelegate(std::unique_ptr<Delegate> delegate) { m_delegate = std::move(delegate); }
+void Engine::SetDelegate(std::unique_ptr<Delegate> delegate)
+{
+  m_delegate = std::move(delegate);
+
+  auto it = std::find_if(m_apis.begin(), m_apis.end(), [](ApiItem const & item)
+  {
+    return item.m_type == Provider::Type::Rutaxi;
+  });
+
+  if (it != m_apis.end())
+  {
+    auto rutaxiPtr = dynamic_cast<rutaxi::Api *>(it->m_api.get());
+    CHECK(rutaxiPtr != nullptr, ());
+    rutaxiPtr->SetDelegate(m_delegate.get());
+  }
+}
 
 /// Requests list of available products. Returns request identificator immediately.
 uint64_t Engine::GetAvailableProducts(ms::LatLon const & from, ms::LatLon const & to,
@@ -130,13 +150,14 @@ uint64_t Engine::GetAvailableProducts(ms::LatLon const & from, ms::LatLon const 
 
   auto const reqId = ++m_requestId;
   auto const maker = m_maker;
+  auto const pointFrom = MercatorBounds::FromLatLon(from);
 
   maker->Reset(reqId, m_apis.size(), successFn, errorFn);
   for (auto const & api : m_apis)
   {
     auto type = api.m_type;
 
-    if (!IsAvailableAtPos(type, from))
+    if (!IsAvailableAtPos(type, pointFrom))
     {
       maker->DecrementRequestCount(reqId);
       maker->MakeResult(reqId);
@@ -175,51 +196,57 @@ RideRequestLinks Engine::GetRideRequestLinks(Provider::Type type, std::string co
 std::vector<Provider::Type> Engine::GetProvidersAtPos(ms::LatLon const & pos) const
 {
   std::vector<Provider::Type> result;
+  auto const point = MercatorBounds::FromLatLon(pos);
 
   for (auto const & api : m_apis)
   {
-    if (IsAvailableAtPos(api.m_type, pos))
+    if (IsAvailableAtPos(api.m_type, point))
       result.push_back(api.m_type);
   }
 
   return result;
 }
 
-bool Engine::IsAvailableAtPos(Provider::Type type, ms::LatLon const & pos) const
+bool Engine::IsAvailableAtPos(Provider::Type type, m2::PointD const & point) const
 {
-  if (AreAllCountriesDisabled(type, pos))
+  if (IsDisabledAtPos(type, point))
     return false;
 
-  return IsAnyCountryEnabled(type, pos);
+  return IsEnabledAtPos(type, point);
 }
 
-bool Engine::AreAllCountriesDisabled(Provider::Type type, ms::LatLon const & latlon) const
+bool Engine::IsDisabledAtPos(Provider::Type type, m2::PointD const & point) const
 {
   auto const it = FindByProviderType(type, m_apis.cbegin(), m_apis.cend());
 
   CHECK(it != m_apis.cend(), ());
 
-  auto const countryIds = m_delegate->GetCountryIds(latlon);
-  auto const city = m_delegate->GetCityName(latlon);
+  if (it->IsMwmDisabled(m_delegate->GetMwmId(point)))
+    return true;
+
+  auto const countryIds = m_delegate->GetCountryIds(point);
+  auto const city = m_delegate->GetCityName(point);
 
   return it->AreAllCountriesDisabled(countryIds, city);
 }
 
-bool Engine::IsAnyCountryEnabled(Provider::Type type, ms::LatLon const & latlon) const
+bool Engine::IsEnabledAtPos(Provider::Type type, m2::PointD const & point) const
 {
   auto const it = FindByProviderType(type, m_apis.cbegin(), m_apis.cend());
 
   CHECK(it != m_apis.cend(), ());
 
-  auto const countryIds = m_delegate->GetCountryIds(latlon);
-  auto const city = m_delegate->GetCityName(latlon);
+  if (it->IsMwmEnabled(m_delegate->GetMwmId(point)))
+    return true;
+
+  auto const countryIds = m_delegate->GetCountryIds(point);
+  auto const city = m_delegate->GetCityName(point);
 
   return it->IsAnyCountryEnabled(countryIds, city);
 }
 
 template <typename ApiType>
-void Engine::AddApi(std::vector<ProviderUrl> const & urls, Provider::Type type,
-                    Countries const & enabled, Countries const & disabled)
+void Engine::AddApi(std::vector<ProviderUrl> const & urls, Provider::Type type)
 {
   auto const it = std::find_if(urls.cbegin(), urls.cend(), [type](ProviderUrl const & item)
   {
@@ -227,8 +254,8 @@ void Engine::AddApi(std::vector<ProviderUrl> const & urls, Provider::Type type,
   });
 
   if (it != urls.cend())
-    m_apis.emplace_back(type, my::make_unique<ApiType>(it->m_url), enabled, disabled);
+    m_apis.emplace_back(type, std::make_unique<ApiType>(it->m_url));
   else
-    m_apis.emplace_back(type, my::make_unique<ApiType>(), enabled, disabled);
+    m_apis.emplace_back(type, std::make_unique<ApiType>());
 }
 }  // namespace taxi

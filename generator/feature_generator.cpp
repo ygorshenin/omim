@@ -1,8 +1,9 @@
 #include "generator/feature_generator.hpp"
+
+#include "generator/feature_builder.hpp"
 #include "generator/generate_info.hpp"
 #include "generator/intermediate_data.hpp"
 #include "generator/intermediate_elements.hpp"
-#include "generator/osm_translator.hpp"
 
 #include "indexer/cell_id.hpp"
 #include "indexer/data_header.hpp"
@@ -12,7 +13,7 @@
 
 #include "base/assert.hpp"
 #include "base/logging.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <functional>
 #include "std/target_os.hpp"
@@ -37,6 +38,7 @@ FeaturesCollector::~FeaturesCollector()
   (void)GetFileSize(m_datFile);
 }
 
+// static
 uint32_t FeaturesCollector::GetFileSize(FileWriter const & f)
 {
   // .dat file should be less than 4Gb
@@ -105,7 +107,7 @@ uint32_t FeaturesCollector::WriteFeatureBase(std::vector<char> const & bytes, Fe
 
 uint32_t FeaturesCollector::operator()(FeatureBuilder1 const & fb)
 {
-  FeatureBuilder1::TBuffer bytes;
+  FeatureBuilder1::Buffer bytes;
   fb.Serialize(bytes);
   uint32_t const featureId = WriteFeatureBase(bytes, fb);
   CHECK_LESS(0, m_featureID, ());
@@ -129,7 +131,7 @@ FeaturesAndRawGeometryCollector::~FeaturesAndRawGeometryCollector()
 uint32_t FeaturesAndRawGeometryCollector::operator()(FeatureBuilder1 const & fb)
 {
   uint32_t const featureId = FeaturesCollector::operator()(fb);
-  FeatureBuilder1::TGeometry const & geom = fb.GetGeometry();
+  FeatureBuilder1::Geometry const & geom = fb.GetGeometry();
   if (geom.empty())
     return featureId;
 
@@ -137,12 +139,12 @@ uint32_t FeaturesAndRawGeometryCollector::operator()(FeatureBuilder1 const & fb)
 
   uint64_t numGeometries = geom.size();
   m_rawGeometryFileStream.Write(&numGeometries, sizeof(numGeometries));
-  for (FeatureBuilder1::TPointSeq const & points : geom)
+  for (FeatureBuilder1::PointSeq const & points : geom)
   {
     uint64_t numPoints = points.size();
     m_rawGeometryFileStream.Write(&numPoints, sizeof(numPoints));
     m_rawGeometryFileStream.Write(points.data(),
-                                  sizeof(FeatureBuilder1::TPointSeq::value_type) * points.size());
+                                  sizeof(FeatureBuilder1::PointSeq::value_type) * points.size());
   }
   return featureId;
 }

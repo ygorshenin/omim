@@ -1,10 +1,7 @@
 #pragma once
 
-#include "base/worker_thread.hpp"
-
-#include <condition_variable>
 #include <functional>
-#include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -24,29 +21,55 @@ public:
     // m_reviewIds must be sorted.
     std::vector<ReviewId> m_reviewIds;
   };
+
   enum SocialTokenType
   {
     Facebook,
-    Google
+    Google,
+    Phone
+  };
+
+  struct Subscriber
+  {
+    enum class Action
+    {
+      DoNothing,
+      RemoveSubscriber
+    };
+    using AuthenticateHandler = std::function<void(bool success)>;
+    using ChangeTokenHandler = std::function<void(std::string const & accessToken)>;
+
+    Action m_postCallAction = Action::DoNothing;
+    AuthenticateHandler m_onAuthenticate;
+    ChangeTokenHandler m_onChangeToken;
   };
 
   using BuildRequestHandler = std::function<void(platform::HttpClient &)>;
   using SuccessHandler = std::function<void(std::string const &)>;
-  using ErrorHandler = std::function<void(int)>;
+  using ErrorHandler = std::function<void(int, std::string const & response)>;
   using CompleteUploadingHandler = std::function<void(bool)>;
 
   User();
-  ~User();
-  void Authenticate(std::string const & socialToken, SocialTokenType socialTokenType);
+  void Authenticate(std::string const & socialToken, SocialTokenType socialTokenType,
+                    bool privacyAccepted, bool termsAccepted, bool promoAccepted);
   bool IsAuthenticated() const;
   void ResetAccessToken();
   void UpdateUserDetails();
 
+  void AddSubscriber(std::unique_ptr<Subscriber> && subscriber);
+  void ClearSubscribers();
+
   std::string GetAccessToken() const;
+  std::string GetUserName() const;
+  std::string GetUserId() const;
   Details GetDetails() const;
 
-  void UploadUserReviews(std::string && dataStr,
+  void UploadUserReviews(std::string && dataStr, size_t numberOfUnsynchronized,
                          CompleteUploadingHandler const & onCompleteUploading);
+
+  static std::string GetPhoneAuthUrl(std::string const & redirectUri);
+  static std::string GetPrivacyPolicyLink();
+  static std::string GetTermsOfUseLink();
 
 private:
   void Init();
@@ -55,11 +78,26 @@ private:
   void Request(std::string const & url, BuildRequestHandler const & onBuildRequest,
                SuccessHandler const & onSuccess, ErrorHandler const & onError = nullptr);
 
+  void RequestImpl(std::string const & url, BuildRequestHandler const & onBuildRequest,
+                   SuccessHandler const & onSuccess, ErrorHandler const & onError,
+                   uint8_t attemptIndex, uint32_t waitingTimeInSeconds);
+
+  void NotifySubscribersImpl();
+  void ClearSubscribersImpl();
+
+  bool StartAuthentication();
+  void FinishAuthentication();
+
   std::string m_accessToken;
+  std::string m_userName;
+  std::string m_userId;
   mutable std::mutex m_mutex;
-  std::condition_variable m_condition;
-  bool m_needTerminate = false;
   bool m_authenticationInProgress = false;
   Details m_details;
-  base::WorkerThread m_workerThread;
+  std::vector<std::unique_ptr<Subscriber>> m_subscribers;
 };
+
+namespace lightweight
+{
+bool IsUserAuthenticated();
+}  //namespace lightweight

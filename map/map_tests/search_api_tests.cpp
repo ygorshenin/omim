@@ -10,6 +10,7 @@
 #include "search/search_tests_support/test_results_matching.hpp"
 #include "search/search_tests_support/test_with_custom_mwms.hpp"
 
+#include "map/bookmarks_search_params.hpp"
 #include "map/search_api.hpp"
 #include "map/viewport_search_params.hpp"
 
@@ -17,7 +18,6 @@
 #include "storage/storage.hpp"
 
 #include "indexer/classificator.hpp"
-#include "indexer/index.hpp"
 
 #include <atomic>
 #include <functional>
@@ -56,12 +56,12 @@ public:
   void RunUITask(function<void()> fn) override { fn(); }
 };
 
-class SearchAPITest : public TestWithCustomMwms
+class SearchAPITest : public generator::tests_support::TestWithCustomMwms
 {
 public:
   SearchAPITest()
     : m_infoGetter(CountryInfoReader::CreateCountryInfoReader(GetPlatform()))
-    , m_api(m_index, m_storage, *m_infoGetter, m_delegate)
+    , m_api(m_dataSource, m_storage, *m_infoGetter, m_delegate)
   {
   }
 
@@ -75,9 +75,9 @@ protected:
 UNIT_CLASS_TEST(SearchAPITest, MultipleViewportsRequests)
 {
   TestCafe cafe1(m2::PointD(0, 0), "cafe 1", "en");
-  TestCafe cafe2(m2::PointD(0, 0), "cafe 2", "en");
+  TestCafe cafe2(m2::PointD(0.5, 0.5), "cafe 2", "en");
   TestCafe cafe3(m2::PointD(10, 10), "cafe 3", "en");
-  TestCafe cafe4(m2::PointD(10, 10), "cafe 4", "en");
+  TestCafe cafe4(m2::PointD(10.5, 10.5), "cafe 4", "en");
 
   auto const id = BuildCountry("Wonderland", [&](TestMwmBuilder & builder) {
     builder.Add(cafe1);
@@ -107,7 +107,7 @@ UNIT_CLASS_TEST(SearchAPITest, MultipleViewportsRequests)
     if (stage == 0)
     {
       Rules const rules = {ExactMatch(id, cafe1), ExactMatch(id, cafe2)};
-      TEST(MatchResults(m_index, rules, results), ());
+      TEST(MatchResults(m_dataSource, rules, results), ());
 
       promise0.set_value();
     }
@@ -115,7 +115,7 @@ UNIT_CLASS_TEST(SearchAPITest, MultipleViewportsRequests)
     {
       TEST_EQUAL(stage, 1, ());
       Rules const rules = {ExactMatch(id, cafe3), ExactMatch(id, cafe4)};
-      TEST(MatchResults(m_index, rules, results), ());
+      TEST(MatchResults(m_dataSource, rules, results), ());
 
       promise1.set_value();
     }
@@ -128,5 +128,40 @@ UNIT_CLASS_TEST(SearchAPITest, MultipleViewportsRequests)
   ++stage;
   m_api.OnViewportChanged(m2::RectD(9, 9, 11, 11));
   future1.wait();
+}
+
+UNIT_CLASS_TEST(SearchAPITest, BookmarksSearch)
+{
+  vector<pair<kml::MarkId, kml::BookmarkData>> marks;
+
+  kml::BookmarkData data;
+  kml::SetDefaultStr(data.m_name, "R&R dinner");
+  kml::SetDefaultStr(data.m_description, "They've got a cherry pie there that'll kill ya!");
+  marks.emplace_back(0, data);
+  kml::SetDefaultStr(data.m_name, "Silver Mustang Casino");
+  kml::SetDefaultStr(data.m_description, "Joyful place, owners Bradley and Rodney are very friendly!");
+  marks.emplace_back(1, data);
+  kml::SetDefaultStr(data.m_name, "Great Northern Hotel");
+  kml::SetDefaultStr(data.m_description, "Clean place with a reasonable price");
+  marks.emplace_back(2, data);
+  m_api.OnBookmarksCreated(marks);
+
+  promise<vector<kml::MarkId>> promise;
+  auto future = promise.get_future();
+
+  BookmarksSearchParams params;
+  params.m_query = "gread silver hotel";
+  params.m_onResults = [&](vector<kml::MarkId> const & results,
+                           BookmarksSearchParams::Status status) {
+    if (status != BookmarksSearchParams::Status::Completed)
+      return;
+    promise.set_value(results);
+  };
+
+  m_api.OnViewportChanged(m2::RectD(-1, -1, 1, 1));
+  m_api.SearchInBookmarks(params);
+
+  auto const ids = future.get();
+  TEST_EQUAL(ids, vector<kml::MarkId>({2, 1}), ());
 }
 }  // namespace

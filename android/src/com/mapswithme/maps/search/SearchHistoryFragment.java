@@ -14,17 +14,18 @@ import com.mapswithme.maps.widget.PlaceholderView;
 import com.mapswithme.maps.widget.SearchToolbarController;
 import com.mapswithme.util.UiUtils;
 
-public class SearchHistoryFragment extends BaseMwmRecyclerFragment
+public class SearchHistoryFragment extends BaseMwmRecyclerFragment<SearchHistoryAdapter>
 {
   private PlaceholderView mPlaceHolder;
 
   private void updatePlaceholder()
   {
-    UiUtils.showIf(getAdapter() != null && getAdapter().getItemCount() == 0, mPlaceHolder);
+    UiUtils.showIf(getAdapter().getItemCount() == 0, mPlaceHolder);
   }
 
+  @NonNull
   @Override
-  protected RecyclerView.Adapter createAdapter()
+  protected SearchHistoryAdapter createAdapter()
   {
     return new SearchHistoryAdapter(((SearchToolbarController.Container) getParentFragment()).getController());
   }
@@ -44,17 +45,14 @@ public class SearchHistoryFragment extends BaseMwmRecyclerFragment
     mPlaceHolder.setContent(R.drawable.img_search_empty_history_light,
                             R.string.search_history_title, R.string.search_history_text);
 
-    if (getAdapter() != null)
+    getAdapter().registerAdapterDataObserver(new RecyclerView.AdapterDataObserver()
     {
-      getAdapter().registerAdapterDataObserver(new RecyclerView.AdapterDataObserver()
+      @Override
+      public void onChanged()
       {
-        @Override
-        public void onChanged()
-        {
-          updatePlaceholder();
-        }
-      });
-    }
+        updatePlaceholder();
+      }
+    });
     updatePlaceholder();
   }
 

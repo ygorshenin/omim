@@ -9,7 +9,10 @@ set(
   booking_filter_test.cpp
   bookmarks_test.cpp
   chart_generator_tests.cpp
+  cloud_tests.cpp
+  extrapolator_tests.cpp
   feature_getters_tests.cpp
+  framework_light_tests.cpp
   ge0_parser_tests.cpp
   geourl_test.cpp
   gps_track_collection_test.cpp
@@ -18,6 +21,7 @@ set(
   kmz_unarchive_test.cpp
   mwm_url_tests.cpp
   search_api_tests.cpp
+  tips_tests.cpp
   transliteration_test.cpp
   working_time_tests.cpp
 )
@@ -26,49 +30,51 @@ omim_add_test(${PROJECT_NAME} ${SRC})
 
 omim_link_libraries(
   ${PROJECT_NAME}
+  metrics_tests_support
   search_tests_support
+  editor_tests_support
   generator_tests_support
-  indexer_tests_support
   generator
   map
   drape_frontend
+  shaders
+  drape
   routing
   traffic
-  routing_common
   transit
+  tracking
+  routing_common
   search
   storage
-  tracking
-  drape
-  ugc
-  indexer
-  partners_api
-  local_ads
-  platform
-  editor
+  metrics
   mwm_diff
   bsdiff
+  ugc
+  partners_api
+  local_ads
+  kml
+  editor
+  indexer
+  platform
   geometry
   coding
   base
-  freetype
-  icu
+
   agg
   expat
-  protobuf
+  freetype
+  icu
   jansson
-  stats_client
   minizip
-  succinct
-  pugixml
-  stats_client
-  opening_hours
   oauthcpp
-  drape_frontend
-  drape
-  tess2
-  stb_image
+  opening_hours
+  protobuf
+  pugixml
   sdf_image
+  stb_image
+  succinct
+  tess2
+  stats_client
   ${Qt5Widgets_LIBRARIES}
   ${Qt5Network_LIBRARIES}
   ${LIBZ}

@@ -1,17 +1,7 @@
 project(drape_frontend)
 
-execute_process(
-  COMMAND python ${OMIM_ROOT}/tools/autobuild/shader_preprocessor.py
-  ${OMIM_ROOT}/drape_frontend/shaders
-  shader_index.txt
-  shaders_lib.glsl
-  ${OMIM_ROOT}/drape_frontend
-  shader_def
-)
-
 include_directories(
   .
-  watch
   ${OMIM_ROOT}/3party/protobuf/protobuf/src
   ${OMIM_ROOT}/3party/expat/lib
   ${OMIM_ROOT}/3party/freetype/include
@@ -63,8 +53,6 @@ set(
   backend_renderer.hpp
   base_renderer.cpp
   base_renderer.hpp
-  batch_merge_helper.cpp
-  batch_merge_helper.hpp
   batchers_pool.hpp
   circles_pack_shape.cpp
   circles_pack_shape.hpp
@@ -73,6 +61,8 @@ set(
   colored_symbol_shape.cpp
   colored_symbol_shape.hpp
   custom_features_context.hpp
+  debug_rect_renderer.cpp
+  debug_rect_renderer.hpp
   drape_api.cpp
   drape_api.hpp
   drape_api_builder.cpp
@@ -83,10 +73,13 @@ set(
   drape_engine.hpp
   drape_engine_safe_ptr.hpp
   drape_hints.hpp
+  drape_notifier.cpp
+  drape_notifier.hpp
   drape_measurer.cpp
   drape_measurer.hpp
   engine_context.cpp
   engine_context.hpp
+  frame_values.hpp
   frontend_renderer.cpp
   frontend_renderer.hpp
   gps_track_point.hpp
@@ -110,10 +103,13 @@ set(
   gui/ruler.hpp
   gui/ruler_helper.cpp
   gui/ruler_helper.hpp
+  gui/scale_fps_helper.hpp
   gui/shape.cpp
   gui/shape.hpp
   gui/skin.cpp
   gui/skin.hpp
+  gui/watermark.cpp
+  gui/watermark.hpp
   kinetic_scroller.cpp
   kinetic_scroller.hpp
   line_shape.cpp
@@ -159,10 +155,9 @@ set(
   read_mwm_task.hpp
   render_group.cpp
   render_group.hpp
-  render_node.cpp
   render_node.hpp
-  render_state.cpp
-  render_state.hpp
+  render_state_extension.cpp
+  render_state_extension.hpp
   requested_tiles.cpp
   requested_tiles.hpp
   route_builder.cpp
@@ -183,8 +178,6 @@ set(
   screen_quad_renderer.hpp
   selection_shape.cpp
   selection_shape.hpp
-  shader_def.cpp
-  shader_def.hpp
   shape_view_params.hpp
   stylist.cpp
   stylist.hpp
@@ -206,6 +199,10 @@ set(
   traffic_generator.hpp
   traffic_renderer.cpp
   traffic_renderer.hpp
+  transit_scheme_builder.cpp
+  transit_scheme_builder.hpp
+  transit_scheme_renderer.cpp
+  transit_scheme_renderer.hpp
   user_event_stream.cpp
   user_event_stream.hpp
   user_mark_generator.cpp
@@ -218,77 +215,6 @@ set(
   visual_params.hpp
 )
 
-add_library(${PROJECT_NAME} ${SRC})
-
-set(
-  DRAPE_SHADERS_SRC
-  shaders/area.vsh.glsl
-  shaders/area3d.vsh.glsl
-  shaders/area3d_outline.vsh.glsl
-  shaders/arrow3d.fsh.glsl
-  shaders/arrow3d.vsh.glsl
-  shaders/arrow3d_outline.fsh.glsl
-  shaders/arrow3d_shadow.fsh.glsl
-  shaders/arrow3d_shadow.vsh.glsl
-  shaders/circle.fsh.glsl
-  shaders/circle.vsh.glsl
-  shaders/circle_point.fsh.glsl
-  shaders/circle_point.vsh.glsl
-  shaders/colored_symbol.fsh.glsl
-  shaders/colored_symbol.vsh.glsl
-  shaders/colored_symbol_billboard.vsh.glsl
-  shaders/dashed_line.fsh.glsl
-  shaders/dashed_line.vsh.glsl
-  shaders/debug_rect.fsh.glsl
-  shaders/debug_rect.vsh.glsl
-  shaders/discarded_texturing.fsh.glsl
-  shaders/hatching_area.fsh.glsl
-  shaders/hatching_area.vsh.glsl
-  shaders/line.fsh.glsl
-  shaders/line.vsh.glsl
-  shaders/masked_texturing.fsh.glsl
-  shaders/masked_texturing.vsh.glsl
-  shaders/masked_texturing_billboard.vsh.glsl
-  shaders/my_position.vsh.glsl
-  shaders/path_symbol.vsh.glsl
-  shaders/position_accuracy3d.vsh.glsl
-  shaders/route.fsh.glsl
-  shaders/route.vsh.glsl
-  shaders/route_arrow.fsh.glsl
-  shaders/route_arrow.vsh.glsl
-  shaders/route_dash.fsh.glsl
-  shaders/route_marker.fsh.glsl
-  shaders/route_marker.vsh.glsl
-  shaders/ruler.vsh.glsl
-  shaders/screen_quad.vsh.glsl
-  shaders/shader_index.txt
-  shaders/shaders_lib.glsl
-  shaders/smaa_blending_weight.fsh.glsl
-  shaders/smaa_blending_weight.vsh.glsl
-  shaders/smaa_edges.fsh.glsl
-  shaders/smaa_edges.vsh.glsl
-  shaders/smaa_final.fsh.glsl
-  shaders/smaa_final.vsh.glsl
-  shaders/solid_color.fsh.glsl
-  shaders/text.fsh.glsl
-  shaders/text.vsh.glsl
-  shaders/text_billboard.vsh.glsl
-  shaders/text_fixed.fsh.glsl
-  shaders/text_outlined.vsh.glsl
-  shaders/text_outlined_billboard.vsh.glsl
-  shaders/text_outlined_gui.vsh.glsl
-  shaders/texturing.fsh.glsl
-  shaders/texturing.vsh.glsl
-  shaders/texturing3d.fsh.glsl
-  shaders/texturing_billboard.vsh.glsl
-  shaders/texturing_gui.vsh.glsl
-  shaders/traffic.fsh.glsl
-  shaders/traffic.vsh.glsl
-  shaders/traffic_line.fsh.glsl
-  shaders/traffic_line.vsh.glsl
-  shaders/user_mark.vsh.glsl
-  shaders/user_mark_billboard.vsh.glsl
-)
-add_custom_target(shaders SOURCES ${DRAPE_SHADERS_SRC})
+omim_add_library(${PROJECT_NAME} ${SRC})
 
 omim_add_test_subdirectory(drape_frontend_tests)

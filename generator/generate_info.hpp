@@ -31,8 +31,10 @@ struct GenerateInfo
 
   // Directory for .mwm.tmp files.
   std::string m_tmpDir;
+
   // Directory for result .mwm files.
   std::string m_targetDir;
+
   // Directory for all intermediate files.
   std::string m_intermediateDir;
 
@@ -44,9 +46,7 @@ struct GenerateInfo
   std::string m_osmFileName;
 
   std::string m_bookingDatafileName;
-  std::string m_bookingReferenceDir;
   std::string m_opentableDatafileName;
-  std::string m_opentableReferenceDir;
   std::string m_viatorDatafileName;
 
   std::shared_ptr<generator::OsmIdToBoundariesTable> m_boundariesTable;
@@ -62,7 +62,7 @@ struct GenerateInfo
   bool m_genAddresses = false;
   bool m_failOnCoasts = false;
   bool m_preloadCache = false;
-
+  bool m_verbose = false;
 
   GenerateInfo() = default;
 
@@ -88,24 +88,28 @@ struct GenerateInfo
       LOG(LCRITICAL, ("Incorrect node_storage type:", type));
   }
 
-  std::string GetTmpFileName(std::string const & fileName, char const * ext = DATA_FILE_EXTENSION_TMP) const
+  std::string GetTmpFileName(std::string const & fileName,
+                             std::string const & ext = DATA_FILE_EXTENSION_TMP) const
   {
     return my::JoinFoldersToPath(m_tmpDir, fileName + ext);
   }
 
-  std::string GetTargetFileName(std::string const & fileName, char const * ext = DATA_FILE_EXTENSION) const
+  std::string GetTargetFileName(std::string const & fileName,
+                                std::string const & ext = DATA_FILE_EXTENSION) const
   {
     return my::JoinFoldersToPath(m_targetDir, fileName + ext);
   }
 
-  std::string GetIntermediateFileName(std::string const & fileName, char const * ext = DATA_FILE_EXTENSION) const
+  std::string GetIntermediateFileName(std::string const & fileName,
+                                      std::string const & ext = "") const
   {
     return my::JoinFoldersToPath(m_intermediateDir, fileName + ext);
   }
 
   std::string GetAddressesFileName() const
   {
-    return ((m_genAddresses && !m_fileName.empty()) ? GetTargetFileName(m_fileName, ADDR_FILE_EXTENSION) : std::string());
+    return m_genAddresses && !m_fileName.empty() ?
+          GetTargetFileName(m_fileName, ADDR_FILE_EXTENSION) : "";
   }
 };
 }  // namespace feature

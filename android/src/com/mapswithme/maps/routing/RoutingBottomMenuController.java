@@ -5,7 +5,6 @@ import android.app.Activity;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
-import android.location.Location;
 import android.os.Bundle;
 import android.support.annotation.IdRes;
 import android.support.annotation.NonNull;
@@ -23,23 +22,20 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.mapswithme.maps.Framework;
-import com.mapswithme.maps.MwmActivity;
 import com.mapswithme.maps.R;
 import com.mapswithme.maps.bookmarks.data.MapObject;
 import com.mapswithme.maps.location.LocationHelper;
 import com.mapswithme.maps.taxi.TaxiAdapter;
 import com.mapswithme.maps.taxi.TaxiInfo;
-import com.mapswithme.maps.taxi.TaxiLinks;
 import com.mapswithme.maps.taxi.TaxiManager;
 import com.mapswithme.maps.widget.DotPager;
 import com.mapswithme.maps.widget.recycler.DotDividerItemDecoration;
 import com.mapswithme.maps.widget.recycler.MultilineLayoutManager;
 import com.mapswithme.util.Graphics;
+import com.mapswithme.util.SponsoredLinks;
 import com.mapswithme.util.ThemeUtils;
 import com.mapswithme.util.UiUtils;
 import com.mapswithme.util.Utils;
-import com.mapswithme.util.statistics.AlohaHelper;
-import com.mapswithme.util.statistics.Statistics;
 
 import java.util.List;
 import java.util.Locale;
@@ -167,7 +163,8 @@ final class RoutingBottomMenuController implements View.OnClickListener
   void showTaxiInfo(@NonNull TaxiInfo info)
   {
     UiUtils.hide(mError, mAltitudeChartFrame, mActionFrame, mTransitFrame);
-    UiUtils.showTaxiIcon((ImageView) mTaxiFrame.findViewById(R.id.iv__logo), info.getType());
+    ImageView logo = mTaxiFrame.findViewById(R.id.iv__logo);
+    logo.setImageResource(info.getType().getIcon());
     final List<TaxiInfo.Product> products = info.getProducts();
     mTaxiInfo = info;
     mTaxiProduct = products.get(0);
@@ -252,37 +249,18 @@ final class RoutingBottomMenuController implements View.OnClickListener
   {
     if (RoutingController.get().isTaxiRouterType() && mTaxiInfo != null)
     {
-      mStart.setText(Utils.isTaxiAppInstalled(mContext, mTaxiInfo.getType())
+      mStart.setText(Utils.isAppInstalled(mContext, mTaxiInfo.getType().getPackageName())
                      ? R.string.taxi_order : R.string.install_app);
-      mStart.setOnClickListener(new View.OnClickListener()
-      {
-        @Override
-        public void onClick(View v)
-        {
-          handleTaxiClick();
-        }
-      });
+      mStart.setOnClickListener(v -> handleTaxiClick());
     } else
     {
       mStart.setText(mContext.getText(R.string.p2p_start));
-      mStart.setOnClickListener(new View.OnClickListener()
-      {
-        @Override
-        public void onClick(View v)
-        {
-          ((MwmActivity)mContext).closeMenu(Statistics.EventName.ROUTING_START, AlohaHelper.ROUTING_START, new Runnable()
-          {
-            @Override
-            public void run()
-            {
-              RoutingController.get().start();
-            }
-          });
-        }
+      mStart.setOnClickListener(v -> {
+        if (mListener != null)
+          mListener.onRoutingStart();
       });
     }
 
-    UiUtils.updateAccentButton(mStart);
     showStartButton(true);
   }
 
@@ -291,16 +269,12 @@ final class RoutingBottomMenuController implements View.OnClickListener
     if (mTaxiProduct == null || mTaxiInfo == null)
       return;
 
-    boolean isTaxiInstalled = Utils.isTaxiAppInstalled(mContext, mTaxiInfo.getType());
     MapObject startPoint = RoutingController.get().getStartPoint();
     MapObject endPoint = RoutingController.get().getEndPoint();
-    TaxiLinks links = TaxiManager.getTaxiLink(mTaxiProduct.getProductId(), mTaxiInfo.getType(),
-                                              startPoint, endPoint);
+    SponsoredLinks links = TaxiManager.getTaxiLink(mTaxiProduct.getProductId(), mTaxiInfo.getType(),
+                                                   startPoint, endPoint);
     if (links != null)
-    {
-      Utils.launchTaxiApp(mContext, links, mTaxiInfo.getType());
-      trackTaxiStatistics(mTaxiInfo.getType(), isTaxiInstalled);
-    }
+      TaxiManager.launchTaxiApp(mContext, links, mTaxiInfo.getType());
   }
 
   void showError(@StringRes int message)
@@ -397,14 +371,6 @@ final class RoutingBottomMenuController implements View.OnClickListener
       String arrivalTime = RoutingController.formatArrivalTime(rinfo.totalTimeInSeconds);
       numbersArrival.setText(arrivalTime);
     }
-  }
-
-  private static void trackTaxiStatistics(@TaxiManager.TaxiType int type, boolean isTaxiAppInstalled)
-  {
-    MapObject from = RoutingController.get().getStartPoint();
-    MapObject to = RoutingController.get().getEndPoint();
-    Location location = LocationHelper.INSTANCE.getLastKnownLocation();
-    Statistics.INSTANCE.trackTaxiInRoutePlanning(from, to, location, type, isTaxiAppInstalled);
   }
 
   @Override

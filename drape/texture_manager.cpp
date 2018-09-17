@@ -12,23 +12,23 @@
 #include "coding/file_name_utils.hpp"
 #include "coding/reader.hpp"
 
+#include "base/buffer_vector.hpp"
 #include "base/logging.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
-#include "std/vector.hpp"
-#include "std/bind.hpp"
-
 #include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <vector>
 
 namespace dp
 {
-
 uint32_t const kMaxTextureSize = 1024;
 uint32_t const kStippleTextureWidth = 512;
 uint32_t const kMinStippleTextureHeight = 64;
 uint32_t const kMinColorTextureSize = 32;
-size_t const kInvalidGlyphGroup = numeric_limits<size_t>::max();
+size_t const kInvalidGlyphGroup = std::numeric_limits<size_t>::max();
 
 // number of glyphs (since 0) which will be in each texture
 size_t const kDuplicatedGlyphsCount = 128;
@@ -136,9 +136,10 @@ m2::PointU ColorTextureSize(size_t colorsCount, uint32_t maxTextureSize)
 }
 }  // namespace
 
-TextureManager::TextureManager()
+TextureManager::TextureManager(ref_ptr<GlyphGenerator> glyphGenerator)
   : m_maxTextureSize(0)
   , m_maxGlypsCount(0)
+  , m_glyphGenerator(glyphGenerator)
 {
   m_nothingToUpload.test_and_set();
 }
@@ -198,37 +199,37 @@ TextureManager::GlyphRegion::GlyphRegion()
 
 float TextureManager::GlyphRegion::GetOffsetX() const
 {
-  ASSERT(m_info->GetType() == Texture::Glyph, ());
+  ASSERT(m_info->GetType() == Texture::ResourceType::Glyph, ());
   return ref_ptr<GlyphInfo>(m_info)->GetMetrics().m_xOffset;
 }
 
 float TextureManager::GlyphRegion::GetOffsetY() const
 {
-  ASSERT(m_info->GetType() == Texture::Glyph, ());
+  ASSERT(m_info->GetType() == Texture::ResourceType::Glyph, ());
   return ref_ptr<GlyphInfo>(m_info)->GetMetrics().m_yOffset;
 }
 
 float TextureManager::GlyphRegion::GetAdvanceX() const
 {
-  ASSERT(m_info->GetType() == Texture::Glyph, ());
+  ASSERT(m_info->GetType() == Texture::ResourceType::Glyph, ());
   return ref_ptr<GlyphInfo>(m_info)->GetMetrics().m_xAdvance;
 }
 
 float TextureManager::GlyphRegion::GetAdvanceY() const
 {
-  ASSERT(m_info->GetType() == Texture::Glyph, ());
+  ASSERT(m_info->GetType() == Texture::ResourceType::Glyph, ());
   return ref_ptr<GlyphInfo>(m_info)->GetMetrics().m_yAdvance;
 }
 
 uint32_t TextureManager::StippleRegion::GetMaskPixelLength() const
 {
-  ASSERT(m_info->GetType() == Texture::StipplePen, ());
+  ASSERT(m_info->GetType() == Texture::ResourceType::StipplePen, ());
   return ref_ptr<StipplePenResourceInfo>(m_info)->GetMaskPixelLength();
 }
 
 uint32_t TextureManager::StippleRegion::GetPatternPixelLength() const
 {
-  ASSERT(m_info->GetType() == Texture::StipplePen, ());
+  ASSERT(m_info->GetType() == Texture::ResourceType::StipplePen, ());
   return ref_ptr<StipplePenResourceInfo>(m_info)->GetPatternPixelLength();
 }
 
@@ -249,12 +250,21 @@ void TextureManager::Release()
   m_glyphTextures.clear();
 
   m_glyphManager.reset();
+
+  m_glyphGenerator->FinishGeneration();
+  m_nothingToUpload.test_and_set();
 }
 
 bool TextureManager::UpdateDynamicTextures()
 {
+  // For some reasons OpenGL can not update textures immediately.
+  // Here we use some timeout to allow to do it.
+  double const kUploadTimeoutInSeconds = 2.0;
+
   if (!HasAsyncRoutines() && m_nothingToUpload.test_and_set())
-    return false;
+    return m_uploadTimer.ElapsedSeconds() < kUploadTimeoutInSeconds;
+
+  m_uploadTimer.Reset();
 
   m_colorTexture->UpdateState();
   m_stipplePenTexture->UpdateState();
@@ -275,13 +285,7 @@ void TextureManager::UpdateGlyphTextures()
 
 bool TextureManager::HasAsyncRoutines() const
 {
-  std::lock_guard<std::mutex> lock(m_glyphTexturesMutex);
-  for (auto const & texture : m_glyphTextures)
-  {
-    if (texture->HasAsyncRoutines())
-      return true;
-  }
-  return false;
+  return !m_glyphGenerator->IsSuspended();
 }
 
 ref_ptr<Texture> TextureManager::AllocateGlyphTexture()
@@ -289,6 +293,7 @@ ref_ptr<Texture> TextureManager::AllocateGlyphTexture()
   std::lock_guard<std::mutex> lock(m_glyphTexturesMutex);
   m2::PointU size(m_maxTextureSize, m_maxTextureSize);
   m_glyphTextures.push_back(make_unique_dp<FontTexture>(size, make_ref(m_glyphManager),
+                                                        m_glyphGenerator,
                                                         make_ref(m_textureAllocator)));
   return make_ref(m_glyphTextures.back());
 }
@@ -301,6 +306,35 @@ void TextureManager::GetRegionBase(ref_ptr<Texture> tex, TextureManager::BaseReg
   region.SetTexture(tex);
   ASSERT(region.IsValid(), ());
   if (isNew)
+    m_nothingToUpload.clear();
+}
+
+void TextureManager::GetGlyphsRegions(ref_ptr<FontTexture> tex, strings::UniString const & text,
+                                      int fixedHeight, TGlyphsBuffer & regions)
+{
+  ASSERT(tex != nullptr, ());
+
+  std::vector<GlyphKey> keys;
+  keys.reserve(text.size());
+  for (auto const & c : text)
+    keys.emplace_back(GlyphKey(c, fixedHeight));
+
+  bool hasNew = false;
+  auto resourcesInfo = tex->FindResources(keys, hasNew);
+  ASSERT_EQUAL(text.size(), resourcesInfo.size(), ());
+
+  regions.reserve(resourcesInfo.size());
+  for (auto const & info : resourcesInfo)
+  {
+    GlyphRegion reg;
+    reg.SetResourceInfo(info);
+    reg.SetTexture(tex);
+    ASSERT(reg.IsValid(), ());
+
+    regions.push_back(std::move(reg));
+  }
+
+  if (hasNew)
     m_nothingToUpload.clear();
 }
 
@@ -446,16 +480,16 @@ void TextureManager::Init(Params const & params)
 
   // Initialize static textures.
   m_trafficArrowTexture = make_unique_dp<StaticTexture>("traffic-arrow", m_resPostfix,
-                                                        dp::RGBA8, make_ref(m_textureAllocator));
+                                                        dp::TextureFormat::RGBA8, make_ref(m_textureAllocator));
   m_hatchingTexture = make_unique_dp<StaticTexture>("area-hatching", m_resPostfix,
-                                                    dp::RGBA8, make_ref(m_textureAllocator));
+                                                    dp::TextureFormat::RGBA8, make_ref(m_textureAllocator));
 
   if (GLFunctions::CurrentApiVersion == dp::ApiVersion::OpenGLES3)
   {
     m_smaaAreaTexture = make_unique_dp<StaticTexture>("smaa-area", StaticTexture::kDefaultResource,
-                                                      dp::RED_GREEN, make_ref(m_textureAllocator));
+                                                      dp::TextureFormat::RedGreen, make_ref(m_textureAllocator));
     m_smaaSearchTexture = make_unique_dp<StaticTexture>("smaa-search", StaticTexture::kDefaultResource,
-                                                        dp::ALPHA, make_ref(m_textureAllocator));
+                                                        dp::TextureFormat::Alpha, make_ref(m_textureAllocator));
   }
 
   // Initialize patterns.
@@ -516,6 +550,8 @@ void TextureManager::Init(Params const & params)
     else
       m_glyphGroups.push_back(GlyphGroup(start, end));
   });
+
+  m_nothingToUpload.clear();
 }
 
 void TextureManager::OnSwitchMapStyle()
@@ -554,6 +590,18 @@ void TextureManager::GetSymbolRegion(string const & symbolName, SymbolRegion & r
     }
   }
   LOG(LWARNING, ("Detected using of unknown symbol ", symbolName));
+}
+
+bool TextureManager::HasSymbolRegion(std::string const & symbolName) const
+{
+  for (size_t i = 0; i < m_symbolTextures.size(); ++i)
+  {
+    ASSERT(m_symbolTextures[i] != nullptr, ());
+    ref_ptr<SymbolsTexture> symbolsTexture = make_ref(m_symbolTextures[i]);
+    if (symbolsTexture->IsSymbolContained(symbolName))
+      return true;
+  }
+  return false;
 }
 
 void TextureManager::GetStippleRegion(TStipplePattern const & pen, StippleRegion & region)

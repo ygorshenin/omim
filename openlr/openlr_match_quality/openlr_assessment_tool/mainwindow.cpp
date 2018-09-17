@@ -5,7 +5,6 @@
 #include "openlr/openlr_match_quality/openlr_assessment_tool/traffic_drawer_delegate_base.hpp"
 #include "openlr/openlr_match_quality/openlr_assessment_tool/traffic_panel.hpp"
 #include "openlr/openlr_match_quality/openlr_assessment_tool/trafficmodeinitdlg.h"
-#include "openlr/openlr_match_quality/openlr_assessment_tool/web_view.hpp"
 
 #include "map/framework.hpp"
 
@@ -21,6 +20,8 @@
 #include "geometry/mercator.hpp"
 #include "geometry/point2d.hpp"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -95,17 +96,15 @@ public:
 
   void VisualizePoints(std::vector<m2::PointD> const & points) override
   {
-    UserMarkNotificationGuard g(m_bm, UserMark::Type::DEBUG_MARK);
-    g.m_controller.SetIsVisible(true);
-    g.m_controller.SetIsDrawable(true);
+    auto editSession = m_bm.GetEditSession();
+    editSession.SetIsVisible(UserMark::Type::DEBUG_MARK, true);
     for (auto const & p : points)
-      g.m_controller.CreateUserMark(p);
+      editSession.CreateUserMark<DebugMarkPoint>(p);
   }
 
   void ClearAllVisualizedPoints() override
   {
-    UserMarkNotificationGuard g(m_bm, UserMark::Type::DEBUG_MARK);
-    g.m_controller.Clear();
+    m_bm.GetEditSession().ClearGroup(UserMark::Type::DEBUG_MARK);
   }
 
 private:
@@ -125,8 +124,8 @@ class PointsControllerDelegate : public PointsControllerDelegateBase
 public:
   PointsControllerDelegate(Framework & framework)
     : m_framework(framework)
-    , m_index(framework.GetIndex())
-    , m_roadGraph(m_index, routing::IRoadGraph::Mode::ObeyOnewayTag,
+    , m_dataSource(framework.GetDataSource())
+    , m_roadGraph(m_dataSource, routing::IRoadGraph::Mode::ObeyOnewayTag,
                   make_unique<routing::CarModelFactory>(storage::CountryParentGetter{}))
   {
   }
@@ -149,7 +148,7 @@ public:
     auto const pushFeaturePoints = [&pushPoint](FeatureType & ft) {
       if (ft.GetFeatureType() != feature::GEOM_LINE)
         return;
-      auto const roadClass = ftypes::GetHighwayClass(ft);
+      auto const roadClass = ftypes::GetHighwayClass(feature::TypesHolder(ft));
       if (roadClass == ftypes::HighwayClass::Error ||
           roadClass == ftypes::HighwayClass::Pedestrian)
       {
@@ -158,7 +157,7 @@ public:
       ft.ForEachPoint(pushPoint, scales::GetUpperScale());
     };
 
-    m_index.ForEachInRect(pushFeaturePoints, rect, scales::GetUpperScale());
+    m_dataSource.ForEachInRect(pushFeaturePoints, rect, scales::GetUpperScale());
     return points;
   }
 
@@ -169,7 +168,7 @@ public:
 
     std::vector<FeaturePoint> points;
     m2::PointD pointOnFt;
-    indexer::ForEachFeatureAtPoint(m_index, [&points, &p, &pointOnFt](FeatureType & ft) {
+    indexer::ForEachFeatureAtPoint(m_dataSource, [&points, &p, &pointOnFt](FeatureType & ft) {
         if (ft.GetFeatureType() != feature::GEOM_LINE)
           return;
 
@@ -230,25 +229,21 @@ public:
 
 private:
   Framework & m_framework;
-  Index const & m_index;
+  DataSource const & m_dataSource;
   routing::FeaturesRoadGraph m_roadGraph;
 };
 }  // namespace
 
 namespace openlr
 {
-MainWindow::MainWindow(Framework & framework, std::string const & url, std::string const & login,
-                       std::string const & password)
+MainWindow::MainWindow(Framework & framework)
   : m_framework(framework)
 {
   m_mapWidget = new MapWidget(
       m_framework, false /* apiOpenGLES3 */, this /* parent */
   );
 
-  m_webView = new WebView(url, login, password);
-
   m_layout = new QHBoxLayout();
-  m_layout->addWidget(m_webView);
   m_layout->addWidget(m_mapWidget);
 
   auto * window = new QWidget();
@@ -314,7 +309,7 @@ MainWindow::MainWindow(Framework & framework, std::string const & url, std::stri
 void MainWindow::CreateTrafficPanel(string const & dataFilePath)
 {
   m_trafficMode = new TrafficMode(dataFilePath,
-                                  m_framework.GetIndex(),
+                                  m_framework.GetDataSource(),
                                   make_unique<TrafficDrawerDelegate>(m_framework),
                                   make_unique<PointsControllerDelegate>(m_framework));
 
@@ -323,7 +318,7 @@ void MainWindow::CreateTrafficPanel(string const & dataFilePath)
   connect(m_trafficMode, &TrafficMode::EditingStopped,
           this, &MainWindow::OnPathEditingStop);
   connect(m_trafficMode, &TrafficMode::SegmentSelected,
-          m_webView, &WebView::SetCurrentSegment);
+          [](int segmentId) { QApplication::clipboard()->setText(QString::number(segmentId)); });
 
   m_docWidget = new QDockWidget(tr("Routes"), this);
   addDockWidget(Qt::DockWidgetArea::RightDockWidgetArea, m_docWidget);

@@ -2,6 +2,7 @@
 
 #include "drape_frontend/backend_renderer.hpp"
 #include "drape_frontend/color_constants.hpp"
+#include "drape_frontend/custom_features_context.hpp"
 #include "drape_frontend/drape_hints.hpp"
 #include "drape_frontend/frontend_renderer.hpp"
 #include "drape_frontend/route_shape.hpp"
@@ -18,6 +19,8 @@
 
 #include "traffic/traffic_info.hpp"
 
+#include "transit/transit_display_info.hpp"
+
 #include "platform/location.hpp"
 
 #include "geometry/polyline2d.hpp"
@@ -27,12 +30,14 @@
 #include "base/strings_bundle.hpp"
 
 #include <functional>
+#include <map>
 #include <mutex>
 #include <vector>
 
 namespace dp
 {
-class OGLContextFactory;
+class GlyphGenerator;
+class GraphicsContextFactory;
 }  // namespace dp
 
 namespace df
@@ -46,8 +51,7 @@ public:
   struct Params
   {
     Params(dp::ApiVersion apiVersion,
-           ref_ptr<dp::OGLContextFactory> factory,
-           ref_ptr<StringsBundle> stringBundle,
+           ref_ptr<dp::GraphicsContextFactory> factory,
            dp::Viewport const & viewport,
            MapDataProvider const & model,
            Hints const & hints,
@@ -64,10 +68,10 @@ public:
            bool isRoutingActive,
            bool isAutozoomEnabled,
            bool simplifiedTrafficColors,
-           OverlaysShowStatsCallback && overlaysShowStatsCallback)
+           OverlaysShowStatsCallback && overlaysShowStatsCallback,
+           TIsUGCFn && isUGCFn)
       : m_apiVersion(apiVersion)
       , m_factory(factory)
-      , m_stringsBundle(stringBundle)
       , m_viewport(viewport)
       , m_model(model)
       , m_hints(hints)
@@ -85,11 +89,11 @@ public:
       , m_isAutozoomEnabled(isAutozoomEnabled)
       , m_simplifiedTrafficColors(simplifiedTrafficColors)
       , m_overlaysShowStatsCallback(std::move(overlaysShowStatsCallback))
+      , m_isUGCFn(std::move(isUGCFn))
     {}
 
     dp::ApiVersion m_apiVersion;
-    ref_ptr<dp::OGLContextFactory> m_factory;
-    ref_ptr<StringsBundle> m_stringsBundle;
+    ref_ptr<dp::GraphicsContextFactory> m_factory;
     dp::Viewport m_viewport;
     MapDataProvider m_model;
     Hints m_hints;
@@ -107,6 +111,7 @@ public:
     bool m_isAutozoomEnabled;
     bool m_simplifiedTrafficColors;
     OverlaysShowStatsCallback m_overlaysShowStatsCallback;
+    TIsUGCFn m_isUGCFn;
   };
 
   DrapeEngine(Params && params);
@@ -131,12 +136,12 @@ public:
   using TModelViewListenerFn = FrontendRenderer::TModelViewChanged;
   void SetModelViewListener(TModelViewListenerFn && fn);
 
-  void ClearUserMarksGroup(size_t layerId);
-  void ChangeVisibilityUserMarksGroup(MarkGroupID groupId, bool isVisible);
-  void UpdateUserMarksGroup(MarkGroupID groupId, UserMarksProvider * provider);
+  void ClearUserMarksGroup(kml::MarkGroupId groupId);
+  void ChangeVisibilityUserMarksGroup(kml::MarkGroupId groupId, bool isVisible);
+  void UpdateUserMarks(UserMarksProvider * provider, bool firstTime);
   void InvalidateUserMarks();
 
-  void SetRenderingEnabled(ref_ptr<dp::OGLContextFactory> contextFactory = nullptr);
+  void SetRenderingEnabled(ref_ptr<dp::GraphicsContextFactory> contextFactory = nullptr);
   void SetRenderingDisabled(bool const destroyContext);
   void InvalidateRect(m2::RectD const & rect);
   void UpdateMapStyle();
@@ -187,9 +192,9 @@ public:
 
   void SetDisplacementMode(int mode);
 
-  using TRequestSymbolsSizeCallback = std::function<void(std::vector<m2::PointF> const &)>;
+  using TRequestSymbolsSizeCallback = std::function<void(std::map<std::string, m2::PointF> &&)>;
 
-  void RequestSymbolsSize(std::vector<string> const & symbols,
+  void RequestSymbolsSize(std::vector<std::string> const & symbols,
                           TRequestSymbolsSizeCallback const & callback);
 
   void EnableTraffic(bool trafficEnabled);
@@ -197,21 +202,31 @@ public:
   void ClearTrafficCache(MwmSet::MwmId const & mwmId);
   void SetSimplifiedTrafficColors(bool simplified);
 
+  void EnableTransitScheme(bool enable);
+  void UpdateTransitScheme(TransitDisplayInfos && transitDisplayInfos);
+  void ClearTransitSchemeCache(MwmSet::MwmId const & mwmId);
+  void ClearAllTransitSchemeCache();
+
   void SetFontScaleFactor(double scaleFactor);
 
   void RunScenario(ScenarioManager::ScenarioData && scenarioData,
                    ScenarioManager::ScenarioCallback const & onStartFn,
                    ScenarioManager::ScenarioCallback const & onFinishFn);
 
-  // Custom features are features which we do not render usual way.
-  // All these features will be skipped in process of geometry generation.
-  void SetCustomFeatures(std::set<FeatureID> && ids);
+  // Custom features are features which we render different way.
+  // Value in the map shows if the feature is skipped in process of geometry generation.
+  // For all custom features (if they are overlays) statistics will be gathered.
+  void SetCustomFeatures(df::CustomFeatures && ids);
   void RemoveCustomFeatures(MwmSet::MwmId const & mwmId);
   void RemoveAllCustomFeatures();
 
   void SetPosteffectEnabled(PostprocessRenderer::Effect effect, bool enabled);
+  void EnableUGCRendering(bool enabled);
+  void EnableDebugRectRendering(bool enabled);
 
   void RunFirstLaunchAnimation();
+
+  void ShowDebugInfo(bool shown);
 
 private:
   void AddUserEvent(drape_ptr<UserEvent> && e);
@@ -228,9 +243,13 @@ private:
 
   dp::DrapeID GenerateDrapeID();
 
+  static drape_ptr<UserMarkRenderParams> GenerateMarkRenderInfo(UserPointMark const * mark);
+  static drape_ptr<UserLineRenderParams> GenerateLineRenderInfo(UserLineMark const * mark);
+
   drape_ptr<FrontendRenderer> m_frontend;
   drape_ptr<BackendRenderer> m_backend;
   drape_ptr<ThreadsCommutator> m_threadCommutator;
+  drape_ptr<dp::GlyphGenerator> m_glyphGenerator;
   drape_ptr<dp::TextureManager> m_textureManager;
   drape_ptr<RequestedTiles> m_requestedTiles;
   location::TMyPositionModeChanged m_myPositionModeChanged;

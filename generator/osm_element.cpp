@@ -28,6 +28,7 @@ std::string DebugPrint(OsmElement::EntityType e)
     case OsmElement::EntityType::Member:
       return "member";
   }
+  CHECK_SWITCH();
 }
 
 
@@ -49,7 +50,7 @@ void OsmElement::AddTag(std::string const & k, std::string const & v)
   // Skip tags for speedup, now we don't use it
   SKIP_KEY("not:");
   SKIP_KEY("artist_name");
-  SKIP_KEY("whitewater"); // http://wiki.openstreetmap.org/wiki/Whitewater_sports
+  SKIP_KEY("whitewater"); // https://wiki.openstreetmap.org/wiki/Whitewater_sports
 
 
   // In future we can use this tags for improve our search
@@ -67,6 +68,13 @@ void OsmElement::AddTag(std::string const & k, std::string const & v)
   std::string value = v;
   strings::Trim(value);
   m_tags.emplace_back(k, value);
+}
+
+bool OsmElement::HasTagValue(std::string const & k, std::string const & v) const
+{
+  return std::any_of(m_tags.begin(), m_tags.end(), [&](auto const & t) {
+    return t.key == k && t.value == v;
+  });
 }
 
 std::string OsmElement::ToString(std::string const & shift) const

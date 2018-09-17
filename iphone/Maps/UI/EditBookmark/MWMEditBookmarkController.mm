@@ -28,22 +28,21 @@ enum RowInMetaInfo
   Category,
   RowsInMetaInfoCount
 };
-
-static int const kInvalidCategoryIndex = -1;
 }  // namespace
 
 @interface MWMEditBookmarkController () <MWMButtonCellDelegate, MWMNoteCelLDelegate, MWMBookmarkColorDelegate,
                                          MWMSelectSetDelegate, MWMBookmarkTitleDelegate>
 {
-  BookmarkAndCategory m_cachedBookmarkAndCategory;
+  kml::MarkId m_cachedBookmarkId;
+  kml::MarkGroupId m_cachedBookmarkCatId;
 }
 
 @property (nonatomic) MWMNoteCell * cachedNote;
 @property (copy, nonatomic) NSString * cachedDescription;
 @property (copy, nonatomic) NSString * cachedTitle;
-@property (copy, nonatomic) NSString * cachedColor;
+@property (nonatomic) kml::PredefinedColor cachedColor;
 @property (copy, nonatomic) NSString * cachedCategory;
-@property(nonatomic) int64_t cachedCategoryIndex;
+@property(nonatomic) kml::MarkGroupId cachedNewBookmarkCatId;
 
 @end
 
@@ -52,14 +51,15 @@ static int const kInvalidCategoryIndex = -1;
 - (void)viewDidLoad
 {
   [super viewDidLoad];
-  self.cachedCategoryIndex = kInvalidCategoryIndex;
+  self.cachedNewBookmarkCatId = kml::kInvalidMarkGroupId;
   auto data = self.data;
   NSAssert(data, @"Data can't be nil!");
   self.cachedDescription = data.bookmarkDescription;
   self.cachedTitle = data.title;
   self.cachedCategory = data.bookmarkCategory;
   self.cachedColor = data.bookmarkColor;
-  m_cachedBookmarkAndCategory = data.bookmarkAndCategory;
+  m_cachedBookmarkId = data.bookmarkId;
+  m_cachedBookmarkCatId = data.bookmarkCategoryId;
   [self configNavBar];
   [self registerCells];
 }
@@ -72,7 +72,6 @@ static int const kInvalidCategoryIndex = -1;
 
 - (void)configNavBar
 {
-  [self showBackButton];
   self.title = L(@"bookmark").capitalizedString;
   self.navigationItem.rightBarButtonItem =
   [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemSave
@@ -92,34 +91,28 @@ static int const kInvalidCategoryIndex = -1;
 {
   [self.view endEditing:YES];
   auto & f = GetFramework();
-  if (self.cachedCategoryIndex != kInvalidCategoryIndex)
+  BookmarkManager & bmManager = f.GetBookmarkManager();
+  auto editSession = bmManager.GetEditSession();
+  if (self.cachedNewBookmarkCatId != kml::kInvalidMarkGroupId)
   {
-    auto const index = static_cast<size_t>(
-                                 f.MoveBookmark(m_cachedBookmarkAndCategory.m_bookmarkIndex,
-                                                m_cachedBookmarkAndCategory.m_categoryIndex,
-                                                self.cachedCategoryIndex));
-    m_cachedBookmarkAndCategory.m_bookmarkIndex = index;
-    m_cachedBookmarkAndCategory.m_categoryIndex = self.cachedCategoryIndex;
+    editSession.MoveBookmark(m_cachedBookmarkId, m_cachedBookmarkCatId, self.cachedNewBookmarkCatId);
+    m_cachedBookmarkCatId = self.cachedNewBookmarkCatId;
   }
 
-  BookmarkCategory * category = f.GetBmCategory(m_cachedBookmarkAndCategory.m_categoryIndex);
-  if (!category)
-    return;
-
-  auto bookmark = static_cast<Bookmark *>(
-                        category->GetUserMarkForEdit(m_cachedBookmarkAndCategory.m_bookmarkIndex));
+  auto bookmark = editSession.GetBookmarkForEdit(m_cachedBookmarkId);
   if (!bookmark)
     return;
 
-  bookmark->SetType(self.cachedColor.UTF8String);
+  if (self.cachedColor != bookmark->GetColor())
+    bmManager.SetLastEditedBmColor(self.cachedColor);
+  
+  bookmark->SetColor(self.cachedColor);
   bookmark->SetDescription(self.cachedDescription.UTF8String);
-  bookmark->SetName(self.cachedTitle.UTF8String);
-
-  category->SaveToKMLFile();
-  category->NotifyChanges();
+  if (self.cachedTitle.UTF8String != bookmark->GetPreferredName())
+    bookmark->SetCustomName(self.cachedTitle.UTF8String);
   
   f.UpdatePlacePageInfoForCurrentSelection();
-  [self backTap];
+  [self goBack];
 }
 
 #pragma mark - UITableView
@@ -239,8 +232,11 @@ static int const kInvalidCategoryIndex = -1;
   }
   case Category:
   {
+    kml::MarkGroupId categoryId = self.cachedNewBookmarkCatId;
+    if (categoryId == kml::kInvalidMarkGroupId)
+      categoryId = m_cachedBookmarkCatId;
     SelectSetVC * svc = [[SelectSetVC alloc] initWithCategory:self.cachedCategory
-                                                categoryIndex:m_cachedBookmarkAndCategory.m_categoryIndex
+                                                   categoryId:categoryId
                                                      delegate:self];
     [self.navigationController pushViewController:svc animated:YES];
     break;
@@ -256,7 +252,7 @@ static int const kInvalidCategoryIndex = -1;
 {
   [self.data updateBookmarkStatus:NO];
   GetFramework().UpdatePlacePageInfoForCurrentSelection();
-  [self backTap];
+  [self goBack];
 }
 
 #pragma mark - MWMNoteCellDelegate
@@ -278,7 +274,7 @@ static int const kInvalidCategoryIndex = -1;
 
 #pragma mark - MWMBookmarkColorDelegate
 
-- (void)didSelectColor:(NSString *)color
+- (void)didSelectColor:(kml::PredefinedColor)color
 {
   self.cachedColor = color;
   [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:Color inSection:MetaInfo]] withRowAnimation:UITableViewRowAnimationAutomatic];
@@ -286,10 +282,10 @@ static int const kInvalidCategoryIndex = -1;
 
 #pragma mark - MWMSelectSetDelegate
 
-- (void)didSelectCategory:(NSString *)category withCategoryIndex:(size_t)categoryIndex
+- (void)didSelectCategory:(NSString *)category withCategoryId:(kml::MarkGroupId)categoryId
 {
   self.cachedCategory = category;
-  self.cachedCategoryIndex = categoryIndex;
+  self.cachedNewBookmarkCatId = categoryId;
   [self.tableView reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:Category inSection:MetaInfo]] withRowAnimation:UITableViewRowAnimationAutomatic];
 }
 

@@ -1,10 +1,5 @@
 project(mwm_tests)
 
-add_compile_options(
-  "-Wall"
-  "-std=c++11"
-)
-
 set(
   SRC
   multithread_mwm_test.cpp
@@ -18,8 +13,10 @@ omim_link_libraries(
   map
   search
   storage
-  indexer
+  kml
   editor
+  indexer
+  metrics
   platform
   geometry
   coding

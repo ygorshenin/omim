@@ -2,6 +2,22 @@
 
 #include "base/assert.hpp"
 
+using namespace std;
+
+namespace
+{
+void UpdateNumEdits(Edits::Entry const & entry, Edits::Relevance const & r, size_t & numEdits)
+{
+  if (entry.m_curr != entry.m_orig && r == entry.m_orig)
+  {
+    CHECK_GREATER(numEdits, 0, ());
+    --numEdits;
+  }
+  if (entry.m_curr == entry.m_orig && r != entry.m_orig)
+    ++numEdits;
+}
+}  // namespace
+
 // Edits::Editor -----------------------------------------------------------------------------------
 Edits::Editor::Editor(Edits & parent, size_t index)
   : m_parent(parent), m_index(index)
@@ -13,7 +29,7 @@ bool Edits::Editor::Set(Relevance relevance)
   return m_parent.SetRelevance(m_index, relevance);
 }
 
-Edits::MaybeRelevance Edits::Editor::Get() const
+boost::optional<Edits::Relevance> const & Edits::Editor::Get() const
 {
   return m_parent.Get(m_index).m_curr;
 }
@@ -38,7 +54,7 @@ void Edits::Apply()
   });
 }
 
-void Edits::Reset(std::vector<MaybeRelevance> const & relevances)
+void Edits::Reset(vector<boost::optional<Edits::Relevance>> const & relevances)
 {
   WithObserver(Update::MakeAll(), [this, &relevances]() {
     m_entries.resize(relevances.size());
@@ -61,15 +77,21 @@ bool Edits::SetRelevance(size_t index, Relevance relevance)
 
     auto & entry = m_entries[index];
 
-    MaybeRelevance const r(relevance);
+    UpdateNumEdits(entry, relevance, m_numEdits);
 
-    if (entry.m_curr != entry.m_orig && r == entry.m_orig)
-      --m_numEdits;
-    else if (entry.m_curr == entry.m_orig && r != entry.m_orig)
-      ++m_numEdits;
-
-    entry.m_curr = r;
+    entry.m_curr = relevance;
     return entry.m_curr != entry.m_orig;
+  });
+}
+
+void Edits::SetAllRelevances(Relevance relevance)
+{
+  WithObserver(Update::MakeAll(), [this, relevance]() {
+    for (auto & entry : m_entries)
+    {
+      UpdateNumEdits(entry, relevance, m_numEdits);
+      entry.m_curr = relevance;
+    }
   });
 }
 
@@ -127,9 +149,9 @@ Edits::Entry const & Edits::GetEntry(size_t index) const
   return m_entries[index];
 }
 
-std::vector<Edits::MaybeRelevance> Edits::GetRelevances() const
+vector<boost::optional<Edits::Relevance>> Edits::GetRelevances() const
 {
-  std::vector<MaybeRelevance> relevances(m_entries.size());
+  vector<boost::optional<Edits::Relevance>> relevances(m_entries.size());
   for (size_t i = 0; i < m_entries.size(); ++i)
     relevances[i] = m_entries[i].m_curr;
   return relevances;

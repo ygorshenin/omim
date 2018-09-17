@@ -5,6 +5,7 @@
 #include "com/mapswithme/maps/SearchEngine.hpp"
 
 #include "map/discovery/discovery_manager.hpp"
+#include "map/search_product_info.hpp"
 
 #include "geometry/mercator.hpp"
 
@@ -58,6 +59,7 @@ void PrepareClassRefs(JNIEnv * env)
 struct DiscoveryCallback
 {
   void operator()(uint32_t const requestId, search::Results const & results,
+                  std::vector<search::ProductInfo> const & productInfo,
                   discovery::ItemType const type, m2::PointD const & viewportCenter) const
   {
     if (g_lastRequestId != requestId)
@@ -68,10 +70,8 @@ struct DiscoveryCallback
 
     auto const lat = MercatorBounds::YToLat(viewportCenter.y);
     auto const lon = MercatorBounds::XToLon(viewportCenter.x);
-    std::vector<bool> customers(results.GetCount(), false);
-    jni::TScopedLocalObjectArrayRef jResults(env, BuildSearchResults(results, customers,
-                                                                     true /* hasPosition */,
-                                                                     lat, lon));
+    jni::TScopedLocalObjectArrayRef jResults(
+        env, BuildSearchResults(results, productInfo, true /* hasPosition */, lat, lon));
     jobject discoveryManagerInstance = env->GetStaticObjectField(g_discoveryManagerClass,
                                                                  g_discoveryManagerInstanceField);
     env->CallVoidMethod(discoveryManagerInstance, g_onResultReceivedMethod,

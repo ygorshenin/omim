@@ -1,6 +1,7 @@
 #import "MWMBookmarkCell.h"
 #import "MWMPlacePageCellUpdateProtocol.h"
 #import "MWMPlacePageProtocol.h"
+#import "SwiftBridge.h"
 
 namespace
 {
@@ -36,6 +37,7 @@ NSString * const kTextViewContentSizeKeyPath = @"contentSize";
 {
   [super awakeFromNib];
   [self registerObserver];
+  self.textView.textContainer.lineFragmentPadding = 0;
 }
 
 - (void)dealloc { [self unregisterObserver]; }
@@ -80,6 +82,7 @@ NSString * const kTextViewContentSizeKeyPath = @"contentSize";
        updateCellDelegate:(id<MWMPlacePageCellUpdateProtocol>)updateCellDelegate
      editBookmarkDelegate:(id<MWMPlacePageButtonsProtocol>)editBookmarkDelegate
                    isHTML:(BOOL)isHTML
+               isEditable:(BOOL)isEditable
 {
   self.attributedHTML = nil;
   self.isOpen = NO;
@@ -87,6 +90,7 @@ NSString * const kTextViewContentSizeKeyPath = @"contentSize";
   self.textViewZeroHeight.active = NO;
   self.updateCellDelegate = updateCellDelegate;
   self.editBookmarkDelegate = editBookmarkDelegate;
+  self.editButton.enabled = isEditable;
 
   if (!text.length)
     [self configWithEmptyDescription];
@@ -124,29 +128,22 @@ NSString * const kTextViewContentSizeKeyPath = @"contentSize";
     [self stateOpen:YES];
 
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-      NSDictionary<NSString *, id> * attr = @{
-        NSForegroundColorAttributeName : [UIColor blackPrimaryText],
-        NSFontAttributeName : [UIFont regular16]
-      };
-      NSError * error = nil;
-      NSData * data = [text dataUsingEncoding:NSUnicodeStringEncoding];
-      NSMutableAttributedString * str = [[NSMutableAttributedString alloc]
-                initWithData:data
-                     options:@{
-                       NSDocumentTypeDocumentAttribute : NSHTMLTextDocumentType
-                     }
-          documentAttributes:nil
-                       error:&error];
-      if (error)
+      auto font = [UIFont regular16];
+      auto color = [UIColor blackPrimaryText];
+      auto str = [[NSMutableAttributedString alloc] initWithHtmlString:text baseFont:font];
+      if (str)
       {
-        // If we failed while attempting to render html than just show plain text in bookmark.
-        // Usually there is a problem only in iOS7.
-        self.attributedHTML = [[NSAttributedString alloc] initWithString:text attributes:attr];
+        [str addAttribute:NSForegroundColorAttributeName value:color range:NSMakeRange(0, str.length)];
+        self.attributedHTML = str;
       }
       else
       {
-        [str addAttributes:attr range:{0, str.length}];
-        self.attributedHTML = str;
+        self.attributedHTML =
+        [[NSAttributedString alloc] initWithString:text
+                                        attributes:@{
+                                                     NSFontAttributeName : font,
+                                                     NSForegroundColorAttributeName : color
+                                                     }];
       }
 
       dispatch_async(dispatch_get_main_queue(), ^{

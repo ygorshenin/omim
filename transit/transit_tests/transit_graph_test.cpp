@@ -5,8 +5,6 @@
 #include "transit/transit_graph_data.hpp"
 #include "transit/transit_types.hpp"
 
-#include "base/stl_add.hpp"
-
 #include <memory>
 #include <string>
 #include <utility>
@@ -266,16 +264,16 @@ unique_ptr<GraphData> CreateGraphFromJson()
     }
   ]})";
 
-  auto graph = my::make_unique<GraphData>();
+  auto graph = make_unique<GraphData>();
 
   OsmIdToFeatureIdsMap mapping;
-  mapping[osm::Id(100)] = vector<FeatureId>({10});
-  mapping[osm::Id(101)] = vector<FeatureId>({11});
-  mapping[osm::Id(102)] = vector<FeatureId>({12});
-  mapping[osm::Id(103)] = vector<FeatureId>({13});
-  mapping[osm::Id(104)] = vector<FeatureId>({14});
-  mapping[osm::Id(105)] = vector<FeatureId>({15});
-  mapping[osm::Id(106)] = vector<FeatureId>({16});
+  mapping[base::GeoObjectId(100)] = vector<FeatureId>({10});
+  mapping[base::GeoObjectId(101)] = vector<FeatureId>({11});
+  mapping[base::GeoObjectId(102)] = vector<FeatureId>({12});
+  mapping[base::GeoObjectId(103)] = vector<FeatureId>({13});
+  mapping[base::GeoObjectId(104)] = vector<FeatureId>({14});
+  mapping[base::GeoObjectId(105)] = vector<FeatureId>({15});
+  mapping[base::GeoObjectId(106)] = vector<FeatureId>({16});
 
   my::Json root(jsonBuffer.c_str());
   CHECK(root.get() != nullptr, ("Cannot parse the json."));
@@ -285,7 +283,7 @@ unique_ptr<GraphData> CreateGraphFromJson()
 
 unique_ptr<Graph> MakeFullGraph()
 {
-  auto graph = my::make_unique<Graph>();
+  auto graph = make_unique<Graph>();
   graph->m_stops = {{0 /* stop id */, 100 /* osm id */, 10 /* feature id */,
                      kInvalidTransferId, {1} /* line ids */,
                      m2::PointD(-2.0, 1.0), {}},
@@ -368,7 +366,7 @@ unique_ptr<Graph> MakeFullGraph()
 
 unique_ptr<Graph> MakeOneLineGraph()
 {
-  auto graph = my::make_unique<Graph>();
+  auto graph = make_unique<Graph>();
 
   graph->m_stops = {
       {0 /* stop id */, 100 /* osm id */, 10 /* feature id */, kInvalidTransferId,
@@ -429,7 +427,7 @@ unique_ptr<Graph> MakeOneLineGraph()
 
 unique_ptr<Graph> MakeTwoLinesGraph()
 {
-  auto graph = my::make_unique<Graph>();
+  auto graph = make_unique<Graph>();
 
   graph->m_stops = {
       {1 /* stop id */, 101 /* osm id */, 11 /* feature id */, kInvalidTransferId,
@@ -515,7 +513,7 @@ void SerializeAndDeserializeGraph(GraphData & src, GraphData & dst)
 
   MemReader reader(buffer.data(), buffer.size());
   dst.DeserializeAll(reader);
-  TEST(dst.IsValid(), ());
+  dst.CheckValidSortedUnique();
 }
 
 //                       ^

@@ -1,10 +1,12 @@
 #include "drape_frontend/circles_pack_shape.hpp"
-#include "drape_frontend/shader_def.hpp"
+
+#include "shaders/programs.hpp"
 
 #include "drape/attribute_provider.hpp"
 #include "drape/batcher.hpp"
 #include "drape/glsl_func.hpp"
 #include "drape/glsl_types.hpp"
+#include "drape/graphics_context.hpp"
 #include "drape/texture_manager.hpp"
 
 namespace df
@@ -18,15 +20,16 @@ struct CirclesPackStaticVertex
   using TNormal = glsl::vec3;
 
   CirclesPackStaticVertex() = default;
-  CirclesPackStaticVertex(TNormal const & normal) : m_normal(normal) {}
+  explicit CirclesPackStaticVertex(TNormal const & normal) : m_normal(normal) {}
 
   TNormal m_normal;
 };
 
-dp::GLState GetCirclesPackState(ref_ptr<dp::TextureManager> texMng)
+dp::RenderState GetCirclesPackState(ref_ptr<dp::TextureManager> texMng)
 {
-  auto state = CreateGLState(gpu::CIRCLE_POINT_PROGRAM, RenderState::OverlayLayer);
+  auto state = CreateRenderState(gpu::Program::CirclePoint, DepthLayer::OverlayLayer);
   state.SetColorTexture(texMng->GetSymbolsTexture());
+  state.SetDepthTestEnabled(false);
   return state;
 }
 
@@ -57,7 +60,7 @@ dp::BindingInfo const & GetCirclesPackDynamicBindingInfo()
 }  // namespace
 
 CirclesPackHandle::CirclesPackHandle(size_t pointsCount)
-  : OverlayHandle(FeatureID(), dp::Anchor::Center, 0, false)
+  : OverlayHandle(FeatureID(), dp::Anchor::Center, 0 /* priority */, 1 /* minVisibleScale */, false)
   , m_needUpdate(false)
 {
   m_buffer.resize(pointsCount * dp::Batcher::VertexPerQuad);
@@ -133,7 +136,8 @@ size_t CirclesPackHandle::GetPointsCount() const
   return m_buffer.size() / dp::Batcher::VertexPerQuad;
 }
 
-void CirclesPackShape::Draw(ref_ptr<dp::TextureManager> texMng, CirclesPackRenderData & data)
+void CirclesPackShape::Draw(ref_ptr<dp::GraphicsContext> context, ref_ptr<dp::TextureManager> texMng,
+                            CirclesPackRenderData & data)
 {
   ASSERT_NOT_EQUAL(data.m_pointsCount, 0, ());
 
@@ -153,7 +157,7 @@ void CirclesPackShape::Draw(ref_ptr<dp::TextureManager> texMng, CirclesPackRende
   dynamicVertexData.resize(data.m_pointsCount * kVerticesInPoint);
 
   dp::Batcher batcher(data.m_pointsCount * kIndicesInPoint, data.m_pointsCount * kVerticesInPoint);
-  dp::SessionGuard guard(batcher, [&data](dp::GLState const & state, drape_ptr<dp::RenderBucket> && b)
+  dp::SessionGuard guard(batcher, [&data](dp::RenderState const & state, drape_ptr<dp::RenderBucket> && b)
   {
     data.m_bucket = std::move(b);
     data.m_state = state;
@@ -170,6 +174,6 @@ void CirclesPackShape::Draw(ref_ptr<dp::TextureManager> texMng, CirclesPackRende
   batcher.InsertListOfStrip(GetCirclesPackState(texMng), make_ref(&provider), std::move(handle),
                             kVerticesInPoint);
 
-  GLFunctions::glFlush();
+  context->Flush();
 }
 }  // namespace df

@@ -1,34 +1,28 @@
 #pragma once
+
+#include "generator/intermediate_data.hpp"
 #include "generator/intermediate_elements.hpp"
 
 #include "geometry/point2d.hpp"
 
+#include <cstdint>
 #include <map>
 #include <memory>
+#include <utility>
 #include <vector>
 
-template <class THolder>
+namespace generator
+{
 class AreaWayMerger
 {
-  using TPointSeq = std::vector<m2::PointD>;
-  using TWayMap = std::multimap<uint64_t, std::shared_ptr<WayElement>>;
-  using TWayMapIterator = TWayMap::iterator;
-
-  THolder & m_holder;
-  TWayMap m_map;
+  using PointSeq = std::vector<m2::PointD>;
+  using WayMap = std::multimap<uint64_t, std::shared_ptr<WayElement>>;
+  using WayMapIterator = WayMap::iterator;
 
 public:
-  AreaWayMerger(THolder & holder) : m_holder(holder) {}
+  explicit AreaWayMerger(cache::IntermediateDataReader & holder);
 
-  void AddWay(uint64_t id)
-  {
-    std::shared_ptr<WayElement> e(new WayElement(id));
-    if (m_holder.GetWay(id, *e) && e->IsValid())
-    {
-      m_map.insert(make_pair(e->nodes.front(), e));
-      m_map.insert(make_pair(e->nodes.back(), e));
-    }
-  }
+  void AddWay(uint64_t id);
 
   template <class ToDo>
   void ForEachArea(bool collectID, ToDo toDo)
@@ -36,11 +30,11 @@ public:
     while (!m_map.empty())
     {
       // start
-      TWayMapIterator i = m_map.begin();
+      WayMapIterator i = m_map.begin();
       uint64_t id = i->first;
 
       std::vector<uint64_t> ids;
-      TPointSeq points;
+      PointSeq points;
 
       do
       {
@@ -60,7 +54,7 @@ public:
 
         // next 'id' to process
         id = e->GetOtherEndPoint(id);
-        pair<TWayMapIterator, TWayMapIterator> r = m_map.equal_range(id);
+        std::pair<WayMapIterator, WayMapIterator> r = m_map.equal_range(id);
 
         // finally erase element 'e' and find next way in chain
         i = r.second;
@@ -80,4 +74,9 @@ public:
         toDo(points, ids);
     }
   }
+
+private:
+  cache::IntermediateDataReader & m_holder;
+  WayMap m_map;
 };
+}  // namespace generator

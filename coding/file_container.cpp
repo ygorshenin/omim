@@ -1,10 +1,12 @@
 #include "coding/file_container.hpp"
-#include "coding/read_write_utils.hpp"
-#include "coding/write_to_sink.hpp"
-#include "coding/internal/file_data.hpp"
 
-#include "std/cstring.hpp"
-#include "std/sstream.hpp"
+#include "coding/internal/file_data.hpp"
+#include "coding/read_write_utils.hpp"
+#include "coding/varint.hpp"
+#include "coding/write_to_sink.hpp"
+
+#include <cstring>
+#include <sstream>
 
 #ifndef OMIM_OS_WINDOWS
   #include <stdio.h>
@@ -22,7 +24,10 @@
 
 #include <errno.h>
 
-template <class TSource, class InfoT> void Read(TSource & src, InfoT & i)
+using namespace std;
+
+template <typename Source, typename Info>
+void Read(Source & src, Info & i)
 {
   rw::Read(src, i.m_tag);
 
@@ -30,7 +35,8 @@ template <class TSource, class InfoT> void Read(TSource & src, InfoT & i)
   i.m_size = ReadVarUint<uint64_t>(src);
 }
 
-template <class TSink, class InfoT> void Write(TSink & sink, InfoT const & i)
+template <typename Sink, typename Info>
+void Write(Sink & sink, Info const & i)
 {
   rw::Write(sink, i.m_tag);
 
@@ -49,12 +55,12 @@ string DebugPrint(FilesContainerBase::Info const & info)
 // FilesContainerBase
 /////////////////////////////////////////////////////////////////////////////
 
-template <class ReaderT>
-void FilesContainerBase::ReadInfo(ReaderT & reader)
+template <typename Reader>
+void FilesContainerBase::ReadInfo(Reader & reader)
 {
   uint64_t offset = ReadPrimitiveFromPos<uint64_t>(reader, 0);
 
-  ReaderSource<ReaderT> src(reader);
+  ReaderSource<Reader> src(reader);
   src.Skip(offset);
 
   rw::Read(src, m_info);
@@ -290,14 +296,14 @@ void FilesMappingContainer::Handle::Reset()
 /////////////////////////////////////////////////////////////////////////////
 
 FilesContainerW::FilesContainerW(string const & fName, FileWriter::Op op)
-: m_name(fName), m_bFinished(false)
+  : m_name(fName), m_finished(false)
 {
   Open(op);
 }
 
 void FilesContainerW::Open(FileWriter::Op op)
 {
-  m_bNeedRewrite = true;
+  m_needRewrite = true;
 
   switch (op)
   {
@@ -338,18 +344,18 @@ void FilesContainerW::StartNew()
   FileWriter writer(m_name);
   uint64_t skip = 0;
   writer.Write(&skip, sizeof(skip));
-  m_bNeedRewrite = false;
+  m_needRewrite = false;
 }
 
 FilesContainerW::~FilesContainerW()
 {
-  if (!m_bFinished)
+  if (!m_finished)
     Finish();
 }
 
 uint64_t FilesContainerW::SaveCurrentSize()
 {
-  ASSERT(!m_bFinished, ());
+  ASSERT(!m_finished, ());
   uint64_t const curr = FileReader(m_name).Size();
   if (!m_info.empty())
     m_info.back().m_size = curr - m_info.back().m_offset;
@@ -380,7 +386,7 @@ void FilesContainerW::DeleteSection(Tag const & tag)
 
 FileWriter FilesContainerW::GetWriter(Tag const & tag)
 {
-  ASSERT(!m_bFinished, ());
+  ASSERT(!m_finished, ());
 
   InfoContainer::const_iterator it = find_if(m_info.begin(), m_info.end(), EqualTag(tag));
   if (it != m_info.end())
@@ -392,7 +398,7 @@ FileWriter FilesContainerW::GetWriter(Tag const & tag)
       if (m_info.empty())
         StartNew();
       else
-        m_bNeedRewrite = true;
+        m_needRewrite = true;
     }
     else
     {
@@ -400,26 +406,30 @@ FileWriter FilesContainerW::GetWriter(Tag const & tag)
     }
   }
 
-  if (m_bNeedRewrite)
+  if (m_needRewrite)
   {
-    m_bNeedRewrite = false;
+    m_needRewrite = false;
+
     ASSERT(!m_info.empty(), ());
 
     uint64_t const curr = m_info.back().m_offset + m_info.back().m_size;
     FileWriter writer(m_name, FileWriter::OP_WRITE_EXISTING, true);
     writer.Seek(curr);
     writer.WritePaddingByPos(kSectionAlignment);
-    m_info.push_back(Info(tag, writer.Pos()));
-    ASSERT(m_info.back().m_offset % kSectionAlignment == 0, ());
+
+    m_info.emplace_back(tag, writer.Pos());
+    ASSERT_EQUAL(m_info.back().m_offset % kSectionAlignment, 0, ());
     return writer;
   }
   else
   {
     SaveCurrentSize();
+
     FileWriter writer(m_name, FileWriter::OP_APPEND);
     writer.WritePaddingByPos(kSectionAlignment);
-    m_info.push_back(Info(tag, writer.Pos()));
-    ASSERT(m_info.back().m_offset % kSectionAlignment == 0, ());
+
+    m_info.emplace_back(tag, writer.Pos());
+    ASSERT_EQUAL(m_info.back().m_offset % kSectionAlignment, 0, ());
     return writer;
   }
 }
@@ -451,7 +461,7 @@ void FilesContainerW::Write(vector<uint8_t> const & buffer, Tag const & tag)
 
 void FilesContainerW::Finish()
 {
-  ASSERT(!m_bFinished, ());
+  ASSERT(!m_finished, ());
 
   uint64_t const curr = SaveCurrentSize();
 
@@ -464,5 +474,5 @@ void FilesContainerW::Finish()
 
   rw::Write(writer, m_info);
 
-  m_bFinished = true;
+  m_finished = true;
 }

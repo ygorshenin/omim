@@ -3,6 +3,7 @@
 #include "search/cancel_exception.hpp"
 #include "search/categories_cache.hpp"
 #include "search/cbv.hpp"
+#include "search/cities_boundaries_table.hpp"
 #include "search/feature_offset_match.hpp"
 #include "search/features_layer.hpp"
 #include "search/features_layer_path_finder.hpp"
@@ -26,6 +27,7 @@
 
 #include "coding/compressed_bit_vector.hpp"
 
+#include "geometry/point2d.hpp"
 #include "geometry/rect2d.hpp"
 
 #include "base/cancellable.hpp"
@@ -35,7 +37,6 @@
 #include "base/string_utils.hpp"
 
 #include "std/limits.hpp"
-#include "std/set.hpp"
 #include "std/shared_ptr.hpp"
 #include "std/string.hpp"
 #include "std/unique_ptr.hpp"
@@ -43,7 +44,7 @@
 #include "std/vector.hpp"
 
 class CategoriesHolder;
-class Index;
+class DataSource;
 class MwmValue;
 
 namespace storage
@@ -81,16 +82,17 @@ public:
   {
     Mode m_mode = Mode::Everywhere;
     m2::RectD m_pivot;
+    m2::PointD m_position;
     Locales m_categoryLocales;
     shared_ptr<hotels_filter::Rule> m_hotelsFilter;
-    bool m_cianMode = false;
-    set<uint32_t> m_preferredTypes;
+    vector<uint32_t> m_preferredTypes;
     shared_ptr<Tracer> m_tracer;
   };
 
-  Geocoder(Index const & index, storage::CountryInfoGetter const & infoGetter,
-           CategoriesHolder const & categories, PreRanker & preRanker,
-           VillagesCache & villagesCache, my::Cancellable const & cancellable);
+  Geocoder(DataSource const & dataSource, storage::CountryInfoGetter const & infoGetter,
+           CategoriesHolder const & categories, CitiesBoundariesTable const & citiesBoundaries,
+           PreRanker & preRanker, VillagesCache & villagesCache,
+           base::Cancellable const & cancellable);
   ~Geocoder();
 
   // Sets search query params.
@@ -240,7 +242,7 @@ private:
   WARN_UNUSED_RESULT bool GetTypeInGeocoding(BaseContext const & ctx, uint32_t featureId,
                                              Model::Type & type);
 
-  Index const & m_index;
+  DataSource const & m_dataSource;
   storage::CountryInfoGetter const & m_infoGetter;
   CategoriesHolder const & m_categories;
 
@@ -249,7 +251,7 @@ private:
   HotelsCache m_hotelsCache;
   hotels_filter::HotelsFilter m_hotelsFilter;
 
-  my::Cancellable const & m_cancellable;
+  base::Cancellable const & m_cancellable;
 
   // Geocoder params.
   Params m_params;
@@ -270,6 +272,7 @@ private:
   // and small villages and hamlets that are not.
   LocalitiesCache<City> m_cities;
   LocalitiesCache<Region> m_regions[Region::TYPE_COUNT];
+  CitiesBoundariesTable const & m_citiesBoundaries;
 
   // Caches of features in rects. These caches are separated from
   // TLocalitiesCache because the latter are quite lightweight and not

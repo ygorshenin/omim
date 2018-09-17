@@ -10,7 +10,6 @@ import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import com.mapswithme.maps.Framework;
 import com.mapswithme.maps.MwmApplication;
-import com.mapswithme.maps.ads.Banner;
 import com.mapswithme.maps.bookmarks.data.FeatureId;
 import com.mapswithme.maps.bookmarks.data.MapObject;
 import com.mapswithme.maps.routing.RoutingController;
@@ -21,7 +20,6 @@ import com.mapswithme.util.PermissionsUtils;
 import com.mapswithme.util.Utils;
 import com.mapswithme.util.log.Logger;
 import com.mapswithme.util.log.LoggerFactory;
-import com.mapswithme.util.permissions.PermissionsResult;
 
 public enum LocationHelper
 {
@@ -125,6 +123,7 @@ public enum LocationHelper
   private long mInterval;
   private CompassData mCompassData;
   private boolean mInFirstRun;
+  private boolean mLocationUpdateStoppedByUser;
 
   @SuppressWarnings("FieldCanBeLocal")
   private final LocationState.ModeChangeListener mMyPositionModeListener =
@@ -246,6 +245,17 @@ public enum LocationHelper
     return mLocationProvider != null && mLocationProvider.isActive();
   }
 
+  public void setStopLocationUpdateByUser(boolean isStopped)
+  {
+    mLogger.d(TAG, "Set stop location update by user: " + isStopped);
+    mLocationUpdateStoppedByUser = isStopped;
+  }
+
+  private boolean isLocationUpdateStoppedByUser()
+  {
+    return mLocationUpdateStoppedByUser;
+  }
+
   void notifyCompassUpdated(long time, double magneticNorth, double trueNorth, double accuracy)
   {
     for (LocationListener listener : mListeners)
@@ -273,6 +283,8 @@ public enum LocationHelper
     {
       mLogger.d(TAG, "End point is reached");
       restart();
+      if (mUiCallback != null)
+        mUiCallback.onRoutingFinish();
       RoutingController.get().cancel();
     }
   }
@@ -435,10 +447,18 @@ public enum LocationHelper
    */
   public void start()
   {
+    if (isLocationUpdateStoppedByUser())
+    {
+      mLogger.d(TAG, "Location updates are stopped by the user manually, so skip provider start"
+                     + " until the user starts it manually.");
+      return;
+    }
+
     checkProviderInitialization();
     //noinspection ConstantConditions
     if (mLocationProvider.isActive())
-      throw new AssertionError("Location provider '" + mLocationProvider + "' must be stopped first");
+      throw new AssertionError("Location provider '" + mLocationProvider
+                               + "' must be stopped first");
 
     addListener(mCoreLocationListener, true);
 
@@ -623,18 +643,12 @@ public enum LocationHelper
    * @return {@code null} on failure.
    */
   @Nullable
-  public Location getLastKnownLocation(long expirationMillis)
+  public Location getLastKnownLocation()
   {
     if (mSavedLocation != null)
       return mSavedLocation;
 
-    return AndroidNativeProvider.findBestNotExpiredLocation(expirationMillis);
-  }
-
-  @Nullable
-  public Location getLastKnownLocation()
-  {
-    return getLastKnownLocation(LocationUtils.LOCATION_EXPIRATION_TIME_MILLIS_LONG);
+    return AndroidNativeProvider.findBestLocation();
   }
 
   @Nullable
@@ -662,5 +676,6 @@ public enum LocationHelper
     void onCompassUpdated(@NonNull CompassData compass);
     void onLocationError();
     void onLocationNotFound();
+    void onRoutingFinish();
   }
 }

@@ -3,10 +3,11 @@ final class BaseRoutePreviewStatus: SolidTouchView {
   @IBOutlet private weak var errorBox: UIView!
   @IBOutlet private weak var resultsBox: UIView!
   @IBOutlet private weak var heightBox: UIView!
-  @IBOutlet private weak var manageRouteBox: UIView! {
+  @IBOutlet private weak var manageRouteBox: UIView!
+  @IBOutlet weak var manageRouteBoxBackground: UIView! {
     didSet {
       iPhoneSpecific {
-        manageRouteBox.backgroundColor = UIColor.blackOpaque()
+        manageRouteBoxBackground.backgroundColor = UIColor.blackOpaque()
       }
     }
   }
@@ -58,14 +59,12 @@ final class BaseRoutePreviewStatus: SolidTouchView {
         }
         DispatchQueue.main.async {
           guard let sv = self.superview else { return }
-          sv.setNeedsLayout()
-          self.hiddenConstraint.isActive = !self.isVisible
-          UIView.animate(withDuration: kDefaultAnimationDuration,
-                         animations: { sv.layoutIfNeeded() },
-                         completion: { _ in
-                           if !self.isVisible {
-                             self.removeFromSuperview()
-                           }
+          sv.animateConstraints(animations: {
+            self.hiddenConstraint.isActive = !self.isVisible
+          }, completion: {
+            if !self.isVisible {
+              self.removeFromSuperview()
+            }
           })
         }
       },
@@ -77,28 +76,43 @@ final class BaseRoutePreviewStatus: SolidTouchView {
     guard superview != ownerView else { return }
     ownerView.addSubview(self)
 
-    NSLayoutConstraint(item: self, attribute: .left, relatedBy: .equal, toItem: ownerView, attribute: .left, multiplier: 1, constant: 0).isActive = true
-    NSLayoutConstraint(item: self, attribute: .right, relatedBy: .equal, toItem: ownerView, attribute: .right, multiplier: 1, constant: 0).isActive = true
+    addConstraints()
+  }
 
-    hiddenConstraint = NSLayoutConstraint(item: self, attribute: .top, relatedBy: .equal, toItem: ownerView, attribute: .bottom, multiplier: 1, constant: 0)
+  private func addConstraints() {
+    var lAnchor = ownerView.leadingAnchor
+    var tAnchor = ownerView.trailingAnchor
+    var bAnchor = ownerView.bottomAnchor
+    if #available(iOS 11.0, *) {
+      let layoutGuide = ownerView.safeAreaLayoutGuide
+      lAnchor = layoutGuide.leadingAnchor
+      tAnchor = layoutGuide.trailingAnchor
+      bAnchor = layoutGuide.bottomAnchor
+    }
+
+    leadingAnchor.constraint(equalTo: lAnchor).isActive = true
+    trailingAnchor.constraint(equalTo: tAnchor).isActive = true
+    hiddenConstraint = topAnchor.constraint(equalTo: bAnchor)
     hiddenConstraint.priority = UILayoutPriority.defaultHigh
     hiddenConstraint.isActive = true
 
-    let visibleConstraint = NSLayoutConstraint(item: self, attribute: .bottom, relatedBy: .equal, toItem: ownerView, attribute: .bottom, multiplier: 1, constant: 0)
+    let visibleConstraint = bottomAnchor.constraint(equalTo: bAnchor)
     visibleConstraint.priority = UILayoutPriority.defaultLow
     visibleConstraint.isActive = true
+
+    ownerView.layoutIfNeeded()
   }
 
   private func updateHeight() {
     DispatchQueue.main.async {
-      self.setNeedsLayout()
-      self.errorBoxBottom.isActive = !self.errorBox.isHidden
-      self.resultsBoxBottom.isActive = !self.resultsBox.isHidden
-      self.heightBoxBottom.isActive = !self.heightBox.isHidden
-      self.heightBoxBottomManageRouteBoxTop.isActive = !self.heightBox.isHidden
-      self.taxiBoxBottom.isActive = !self.taxiBox.isHidden
-      self.manageRouteBoxBottom.isActive = !self.manageRouteBox.isHidden
-      UIView.animate(withDuration: kDefaultAnimationDuration) { self.layoutIfNeeded() }
+      self.animateConstraints(animations: {
+        self.errorBoxBottom.isActive = !self.errorBox.isHidden
+        self.resultsBoxBottom.isActive = !self.resultsBox.isHidden
+        self.heightBoxBottom.isActive = !self.heightBox.isHidden
+        self.heightBoxBottomManageRouteBoxTop.isActive = !self.heightBox.isHidden
+        self.taxiBoxBottom.isActive = !self.taxiBox.isHidden
+        self.manageRouteBoxBottom.isActive = !self.manageRouteBox.isHidden
+      })
     }
   }
 
@@ -154,14 +168,13 @@ final class BaseRoutePreviewStatus: SolidTouchView {
         MWMRouter.routeAltitudeImage(for: heightProfileImage.frame.size,
                                      completion: { image, elevation in
                                        self.heightProfileImage.image = image
-                                       if let elevation = elevation {
-                                         let attributes: [NSAttributedStringKey: Any] =
-                                           [
-                                             NSAttributedStringKey.foregroundColor: UIColor.linkBlue(),
-                                             NSAttributedStringKey.font: UIFont.medium14(),
-                                           ]
-                                         self.elevation = NSAttributedString(string: "▲▼ \(elevation)", attributes: attributes)
-                                       }
+                                       guard let elevation = elevation else { return }
+                                       let attributes: [NSAttributedStringKey: Any] =
+                                         [
+                                           .foregroundColor: UIColor.linkBlue(),
+                                           .font: UIFont.medium14(),
+                                         ]
+                                       self.elevation = NSAttributedString(string: "▲▼ \(elevation)", attributes: attributes)
         })
       } else {
         heightBox.isHidden = true

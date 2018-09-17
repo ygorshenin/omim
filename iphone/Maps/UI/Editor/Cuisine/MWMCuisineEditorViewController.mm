@@ -2,7 +2,6 @@
 #import "MWMCommon.h"
 #import "MWMKeyboard.h"
 #import "MWMTableViewCell.h"
-#import "MWMToast.h"
 #import "SwiftBridge.h"
 
 #include "indexer/cuisines.hpp"
@@ -25,7 +24,7 @@ vector<string> SliceKeys(vector<pair<string, string>> const & v)
 
 @interface MWMCuisineEditorViewController ()<UISearchBarDelegate, MWMKeyboardObserver>
 {
-  osm::TAllCuisines m_allCuisines;
+  osm::AllCuisines m_allCuisines;
   vector<string> m_selectedCuisines;
   vector<string> m_displayedKeys;
   vector<string> m_untranslatedKeys;
@@ -51,8 +50,6 @@ vector<string> SliceKeys(vector<pair<string, string>> const & v)
 
 - (UIStatusBarStyle)preferredStatusBarStyle
 {
-  if ([MWMToast affectsStatusBar])
-    return [MWMToast preferredStatusBarStyle];
   setStatusBarBackgroundColor(UIColor.clearColor);
   return UIStatusBarStyleLightContent;
 }

@@ -3,6 +3,8 @@
 #include "routing/restrictions_serialization.hpp"
 #include "routing/road_index.hpp"
 
+#include "indexer/mwm_set.hpp"
+
 #include "base/stl_helpers.hpp"
 
 namespace
@@ -89,6 +91,6 @@ void ConvertRestrictionsOnlyToNoAndSort(IndexGraph const & graph,
       }
     });
   }
-  my::SortUnique(restrictionsNo);
+  base::SortUnique(restrictionsNo);
 }
 }  // namespace routing

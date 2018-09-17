@@ -2,8 +2,23 @@
 #import "CLLocation+Mercator.h"
 #import "MWMLocationManager.h"
 
+#include "map/place_page_info.hpp"
+
+#include "search/result.hpp"
+
 #include "geometry/mercator.hpp"
+
 #include "platform/measurement_utils.hpp"
+
+#include "defines.hpp"
+
+namespace
+{
+bool PopularityHasHigherPriority(bool hasPosition, double distanceInMeters)
+{
+  return !hasPosition || distanceInMeters > search::Result::kPopularityHighPriorityMinDistance;
+}
+}  // namespace
 
 @interface MWMSearchCommonCell ()
 
@@ -20,21 +35,36 @@
 @property(weak, nonatomic) IBOutlet UIView * availableView;
 @property(weak, nonatomic) IBOutlet NSLayoutConstraint * availableTypeOffset;
 @property(weak, nonatomic) IBOutlet UIView * sideAvailableMarker;
+@property(weak, nonatomic) IBOutlet UIImageView * hotOfferImageView;
+@property(weak, nonatomic) IBOutlet NSLayoutConstraint * priceOffset;
+@property(weak, nonatomic) IBOutlet UIView * popularView;
 
 @end
 
 @implementation MWMSearchCommonCell
 
 - (void)config:(search::Result const &)result
-     isLocalAds:(BOOL)isLocalAds
     isAvailable:(BOOL)isAvailable
+    isHotOffer:(BOOL)isHotOffer
+    productInfo:(search::ProductInfo const &)productInfo
 {
   [super config:result];
-  self.typeLabel.text = @(result.GetFeatureType().c_str()).capitalizedString;
-  auto const & ratingStr = result.GetHotelRating();
-  self.ratingLabel.text =
-      ratingStr.empty() ? @"" : [NSString stringWithFormat:L(@"place_page_booking_rating"),
-                                                            ratingStr.c_str()];
+  self.typeLabel.text = @(result.GetFeatureTypeName().c_str());
+
+
+  auto const hotelRating = result.GetHotelRating();
+  auto const ugcRating = productInfo.m_ugcRating;
+  auto const rating = hotelRating != kInvalidRatingValue ? hotelRating : ugcRating;
+  if (rating != kInvalidRatingValue)
+  {
+    auto const str = place_page::rating::GetRatingFormatted(rating);
+    self.ratingLabel.text = [NSString stringWithFormat:L(@"place_page_booking_rating"), str.c_str()];
+  }
+  else
+  {
+    self.ratingLabel.text = @"";
+  }
+
   self.priceLabel.text = @(result.GetHotelApproximatePricing().c_str());
   self.locationLabel.text = @(result.GetAddress().c_str());
   [self.locationLabel sizeToFit];
@@ -42,6 +72,8 @@
   self.availableTypeOffset.priority = UILayoutPriorityDefaultHigh;
   self.availableView.hidden = !isAvailable;
   self.sideAvailableMarker.hidden = !isAvailable;
+  self.hotOfferImageView.hidden = !isHotOffer;
+  self.priceOffset.priority = isHotOffer ? UILayoutPriorityDefaultLow : UILayoutPriorityDefaultHigh;
 
   NSUInteger const starsCount = result.GetStarsCount();
   NSString * cuisine = @(result.GetCuisine().c_str());
@@ -52,21 +84,37 @@
   else
     [self clearInfo];
 
-  self.closedView.hidden = (result.IsOpenNow() != osm::No);
-  if (result.HasPoint())
+  CLLocation * lastLocation = [MWMLocationManager lastLocation];
+  double distanceInMeters = 0.0;
+  if (lastLocation)
   {
-    string distanceStr;
-    CLLocation * lastLocation = [MWMLocationManager lastLocation];
-    if (lastLocation)
+    if (result.HasPoint())
     {
-      double const dist =
+      distanceInMeters =
           MercatorBounds::DistanceOnEarth(lastLocation.mercator, result.GetFeatureCenter());
-      measurement_utils::FormatDistance(dist, distanceStr);
+      string distanceStr;
+      measurement_utils::FormatDistance(distanceInMeters, distanceStr);
+
+      self.distanceLabel.text = @(distanceStr.c_str());
     }
-    self.distanceLabel.text = @(distanceStr.c_str());
   }
 
-  if (isLocalAds)
+  bool popularityHasHigherPriority = PopularityHasHigherPriority(lastLocation, distanceInMeters);
+  bool showClosed = result.IsOpenNow() == osm::No;
+  bool showPopular = result.GetRankingInfo().m_popularity > 0;
+
+  if (showClosed && showPopular)
+  {
+    self.closedView.hidden = popularityHasHigherPriority;
+    self.popularView.hidden = !popularityHasHigherPriority;
+  }
+  else
+  {
+    self.closedView.hidden = !showClosed;
+    self.popularView.hidden = !showPopular;
+  }
+
+  if (productInfo.m_isLocalAdsCustomer)
     self.backgroundColor = [UIColor bannerBackground];
   else if (isAvailable)
     self.backgroundColor = [UIColor transparentGreen];

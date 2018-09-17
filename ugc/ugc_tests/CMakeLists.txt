@@ -2,14 +2,26 @@ project(ugc_tests)
 
 include_directories(${OMIM_ROOT}/3party/jansson/src)
 
+option(UGC_MIGRATION "Build migration file for ugc" OFF)
+
 set(
   SRC
-  serdes_tests.cpp
   serdes_binary_tests.cpp
+  serdes_tests.cpp
   storage_tests.cpp
   utils.cpp
   utils.hpp
 )
+
+if (UGC_MIGRATION)
+  set(
+    SRC
+    ${SRC}
+    migration/generate_migration_files.cpp
+  )
+
+  message("Generating files for UGC index migration")
+endif()
 
 omim_add_test(${PROJECT_NAME} ${SRC})
 
@@ -21,10 +33,11 @@ omim_link_libraries(
   routing
   routing_common
   ugc
+  editor
   indexer
   storage
-  editor
   platform
+  platform_tests_support
   coding
   geometry
   base

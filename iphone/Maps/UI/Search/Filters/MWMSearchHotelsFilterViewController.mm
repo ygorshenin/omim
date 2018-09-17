@@ -7,6 +7,10 @@
 
 #include "search/hotels_filter.hpp"
 
+#include "base/stl_helpers.hpp"
+
+#include <unordered_set>
+
 namespace
 {
 static NSTimeInterval kDayInterval = 24 * 60 * 60;
@@ -16,18 +20,13 @@ static uint8_t kAdultsCount = 2;
 static int8_t kAgeOfChild = 5;
 static NSString * const kHotelTypePattern = @"search_hotel_filter_%@";
 
-std::array<ftypes::IsHotelChecker::Type, static_cast<size_t>(ftypes::IsHotelChecker::Type::Count)> const kTypes = {{
-  ftypes::IsHotelChecker::Type::Hotel,
-  ftypes::IsHotelChecker::Type::Apartment,
-  ftypes::IsHotelChecker::Type::CampSite,
-  ftypes::IsHotelChecker::Type::Chalet,
-  ftypes::IsHotelChecker::Type::GuestHouse,
-  ftypes::IsHotelChecker::Type::Hostel,
-  ftypes::IsHotelChecker::Type::Motel,
-  ftypes::IsHotelChecker::Type::Resort
-}};
+std::array<ftypes::IsHotelChecker::Type, base::Key(ftypes::IsHotelChecker::Type::Count)> const
+    kTypes = {{ftypes::IsHotelChecker::Type::Hotel, ftypes::IsHotelChecker::Type::Apartment,
+               ftypes::IsHotelChecker::Type::CampSite, ftypes::IsHotelChecker::Type::Chalet,
+               ftypes::IsHotelChecker::Type::GuestHouse, ftypes::IsHotelChecker::Type::Hostel,
+               ftypes::IsHotelChecker::Type::Motel, ftypes::IsHotelChecker::Type::Resort}};
 
-unsigned makeMask(std::vector<ftypes::IsHotelChecker::Type> const & items)
+unsigned makeMask(std::unordered_set<ftypes::IsHotelChecker::Type> const & items)
 {
   unsigned mask = 0;
   for (auto const i : items)
@@ -101,10 +100,11 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
 }
 }  // namespace
 
-@interface MWMSearchHotelsFilterViewController ()<
-    UICollectionViewDelegate, UICollectionViewDataSource, MWMFilterCheckCellDelegate>
+@interface MWMSearchHotelsFilterViewController ()<UICollectionViewDelegate,
+                                                  UICollectionViewDataSource,
+                                                  MWMFilterCheckCellDelegate, UITableViewDataSource>
 {
-  std::vector<ftypes::IsHotelChecker::Type> m_selectedTypes;
+  std::unordered_set<ftypes::IsHotelChecker::Type> m_selectedTypes;
 }
 
 @property(nonatomic) MWMFilterCheckCell * check;
@@ -117,6 +117,8 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
 @property(nonatomic) NSDate * checkInDate;
 @property(nonatomic) NSDate * checkOutDate;
 
+@property(nonatomic, copy) MWMVoidBlock onFinishCallback;
+
 @end
 
 @implementation MWMSearchHotelsFilterViewController
@@ -126,6 +128,60 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
   NSString * identifier = [self className];
   return static_cast<MWMSearchHotelsFilterViewController *>(
       [self controllerWithIdentifier:identifier]);
+}
+
+- (void)applyParams:(search_filter::HotelParams &&)params onFinishCallback:(MWMVoidBlock)callback
+{
+  using namespace search_filter;
+  using namespace place_page::rating;
+
+  self.onFinishCallback = callback;
+
+  if (params.m_type != ftypes::IsHotelChecker::Type::Count)
+  {
+    m_selectedTypes.emplace(params.m_type);
+    [self.type.collectionView
+                       selectItemAtIndexPath:[NSIndexPath indexPathForItem:base::Key(params.m_type)
+                                   inSection:0]
+                                    animated:NO
+                              scrollPosition:UICollectionViewScrollPositionNone];
+  }
+
+  auto ratingCell = self.rating;
+
+  ratingCell.any.selected = NO;
+
+  switch (params.m_rating)
+  {
+  case FilterRating::Any:
+    ratingCell.any.selected = YES;
+    break;
+  case FilterRating::Good:
+    ratingCell.good.selected = YES;
+    break;
+  case FilterRating::VeryGood:
+    ratingCell.veryGood.selected = YES;
+    break;
+  case FilterRating::Excellent:
+    ratingCell.excellent.selected = YES;
+    break;
+  }
+
+  auto priceCell = self.price;
+  switch (params.m_price)
+  {
+  case Price::Any:
+    break;
+  case Price::One:
+    priceCell.one.selected = YES;
+    break;
+  case Price::Two:
+    priceCell.two.selected = YES;
+    break;
+  case Price::Three:
+    priceCell.three.selected = YES;
+    break;
+  }
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -151,21 +207,26 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
   self.navigationController.navigationBar.barStyle = UIBarStyleBlack;
 }
 
-- (void)refreshTableViewAppearance { self.tableView.backgroundColor = [UIColor pressBackground]; }
+- (void)refreshViewAppearance
+{
+  self.view.backgroundColor = [UIColor pressBackground];
+  self.tableView.backgroundColor = [UIColor clearColor];
+  self.tableView.contentInset = {-20, 0, 80, 0};
+}
 
 - (void)refreshDoneButtonAppearance
 {
   UIButton * doneButton = self.doneButton;
   doneButton.backgroundColor = [UIColor linkBlue];
   doneButton.titleLabel.font = [UIFont bold16];
-  [doneButton setTitle:L(@"done") forState:UIControlStateNormal];
+  [doneButton setTitle:L(@"search") forState:UIControlStateNormal];
   [doneButton setTitleColor:[UIColor white] forState:UIControlStateNormal];
 }
 
 - (void)refreshAppearance
 {
   [self refreshStatusBarAppearance];
-  [self refreshTableViewAppearance];
+  [self refreshViewAppearance];
   [self refreshDoneButtonAppearance];
 }
 
@@ -173,13 +234,12 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
 {
   [Statistics logEvent:kStatSearchFilterApply withParameters:@{kStatCategory: kStatHotel}];
   [MWMSearch update];
-  [self dismissViewControllerAnimated:YES completion:nil];
+  [self dismissViewControllerAnimated:YES completion:self.onFinishCallback];
 }
 
 - (void)initialCheckConfig
 {
   MWMFilterCheckCell * check = self.check;
-  [check refreshLabelsAppearance];
   [check refreshButtonsAppearance];
   check.isOffline = !Platform::IsConnected();
   check.delegate = self;
@@ -233,7 +293,6 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
 - (void)resetTypes
 {
   m_selectedTypes.clear();
-  [self.type.collectionView reloadData];
 }
 
 - (shared_ptr<search::hotels_filter::Rule>)rules
@@ -267,14 +326,17 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
   return And(And(ratingRule, priceRule), typeRule);
 }
 
-- (booking::filter::availability::Params)availabilityParams
+- (booking::filter::Params)availabilityParams
 {
   using Clock = booking::AvailabilityParams::Clock;
-  booking::filter::availability::Params params;
-  params.m_params.m_rooms = {{kAdultsCount, kAgeOfChild}};
-  params.m_params.m_checkin = Clock::from_time_t(self.checkInDate.timeIntervalSince1970);
-  params.m_params.m_checkout = Clock::from_time_t(self.checkOutDate.timeIntervalSince1970);
-  return params;
+  booking::AvailabilityParams params;
+  params.m_rooms = {{kAdultsCount, kAgeOfChild}};
+  if (Platform::IsConnected())
+  {
+    params.m_checkin = Clock::from_time_t(self.checkInDate.timeIntervalSince1970);
+    params.m_checkout = Clock::from_time_t(self.checkOutDate.timeIntervalSince1970);
+  }
+  return { make_shared<booking::AvailabilityParams>(params), {} };
 }
 
 #pragma mark - MWMFilterCheckCellDelegate
@@ -336,7 +398,7 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView
 {
-  return my::Key(Section::Count);
+  return base::Key(Section::Count);
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section
@@ -361,7 +423,7 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
     break;
   case Section::Rating:
     cell = [tableView dequeueReusableCellWithIdentifier:[MWMFilterRatingCell className] forIndexPath:indexPath];
-    if (!self.rating)
+    if (self.rating != cell)
     {
       self.rating = static_cast<MWMFilterRatingCell *>(cell);
       [self resetRating];
@@ -370,7 +432,7 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
     break;
   case Section::PriceCategory:
     cell = [tableView dequeueReusableCellWithIdentifier:[MWMFilterPriceCategoryCell className] forIndexPath:indexPath];
-    if (!self.price)
+    if (self.price != cell)
     {
       self.price = static_cast<MWMFilterPriceCategoryCell *>(cell);
       [self resetPriceCategory];
@@ -379,7 +441,7 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
     break;
   case Section::Type:
     cell = [tableView dequeueReusableCellWithIdentifier:[MWMFilterCollectionHolderCell className] forIndexPath:indexPath];
-    if (!self.type)
+    if (self.type != cell)
     {
       self.type = static_cast<MWMFilterCollectionHolderCell *>(cell);
       [self resetTypes];
@@ -413,7 +475,15 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
   auto const type = kTypes[indexPath.row];
   auto str = [NSString stringWithFormat:kHotelTypePattern, @(ftypes::IsHotelChecker::GetHotelTypeTag(type))];
   cell.tagName.text = L(str);
-  cell.selected = find(m_selectedTypes.begin(), m_selectedTypes.end(), type) != m_selectedTypes.end();
+  auto const selected = m_selectedTypes.find(type) != m_selectedTypes.end();
+  cell.selected = selected;
+  if (selected)
+  {
+    [collectionView selectItemAtIndexPath:indexPath
+                                 animated:NO
+                           scrollPosition:UICollectionViewScrollPositionNone];
+  }
+
   return cell;
 }
 
@@ -441,13 +511,13 @@ void configButton(UIButton * button, NSString * primaryText, NSString * secondar
   }
   [Statistics logEvent:kStatSearchFilterClick
         withParameters:@{kStatCategory: kStatHotel, kStatType: typeString}];
-  m_selectedTypes.emplace_back(type);
+  m_selectedTypes.emplace(type);
 }
 
 - (void)collectionView:(UICollectionView *)collectionView didDeselectItemAtIndexPath:(NSIndexPath *)indexPath
 {
   auto const type = kTypes[indexPath.row];
-  m_selectedTypes.erase(remove(m_selectedTypes.begin(), m_selectedTypes.end(), type));
+  m_selectedTypes.erase(type);
 }
 
 #pragma mark - Properties

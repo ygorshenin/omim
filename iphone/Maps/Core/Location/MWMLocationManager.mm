@@ -39,7 +39,7 @@ location::GpsInfo gpsInfoFromLocation(CLLocation * l, location::TLocationSource 
     info.m_bearing = l.course;
 
   if (l.speed >= 0.0)
-    info.m_speed = l.speed;
+    info.m_speedMpS = l.speed;
   return info;
 }
 
@@ -447,7 +447,6 @@ void setPermissionRequested()
   self.lastLocationStatus = location::TLocationError::ENoError;
   self.locationSource = location::EAppleNative;
   [self processLocationUpdate:location];
-  [[Statistics instance] logLocation:location];
 }
 
 - (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error

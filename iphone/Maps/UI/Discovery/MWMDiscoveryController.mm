@@ -1,15 +1,20 @@
 #import "MWMDiscoveryController.h"
+
 #import "Framework.h"
 #import "MWMDiscoveryTableManager.h"
 #import "MWMDiscoveryTapDelegate.h"
+#import "MWMMapViewControlsManager.h"
 #import "MWMRoutePoint+CPP.h"
 #import "MWMRouter.h"
+#import "MWMSearch.h"
+#import "MWMSearchHotelsFilterViewController.h"
 #import "Statistics.h"
 #import "UIKitCategories.h"
 
 #include "DiscoveryControllerViewModel.hpp"
 
 #include "map/discovery/discovery_client_params.hpp"
+#include "map/search_product_info.hpp"
 
 #include "partners_api/locals_api.hpp"
 #include "partners_api/viator_api.hpp"
@@ -34,12 +39,13 @@ namespace
 {
 struct Callback
 {
-  void operator()(uint32_t const requestId, search::Results const & results, ItemType const type,
+  void operator()(uint32_t const requestId, search::Results const & results,
+                  vector<search::ProductInfo> const & productInfo, ItemType const type,
                   m2::PointD const & viewportCenter) const
   {
     CHECK(m_setSearchResults, ());
     CHECK(m_refreshSection, ());
-    m_setSearchResults(results, viewportCenter, type);
+    m_setSearchResults(results, productInfo, viewportCenter, type);
     m_refreshSection(type);
   }
 
@@ -59,8 +65,9 @@ struct Callback
     m_refreshSection(ItemType::LocalExperts);
   }
 
-  using SetSearchResults = function<void(search::Results const & res,
-                                         m2::PointD const & viewportCenter, ItemType const type)>;
+  using SetSearchResults =
+      function<void(search::Results const & res, vector<search::ProductInfo> const & productInfo,
+                    m2::PointD const & viewportCenter, ItemType const type)>;
   using SetViatorProducts = function<void(vector<viator::Product> const & viator)>;
   using SetLocalExperts = function<void(vector<locals::LocalExpert> const & experts)>;
   using RefreshSection = function<void(ItemType const type)>;
@@ -80,16 +87,17 @@ struct Callback
 
 @property(weak, nonatomic) IBOutlet UITableView * tableView;
 @property(nonatomic) MWMDiscoveryTableManager * tableManager;
-@property(nonatomic) MWMDiscoveryMode mode;
+@property(nonatomic) BOOL canUseNetwork;
 
 @end
 
 @implementation MWMDiscoveryController
 
-+ (instancetype)instance
++ (instancetype)instanceWithConnection:(BOOL)canUseNetwork
 {
   auto instance = [[MWMDiscoveryController alloc] initWithNibName:self.className bundle:nil];
   instance.title = L(@"discovery_button_title");
+  instance.canUseNetwork = canUseNetwork;
   return instance;
 }
 
@@ -101,7 +109,7 @@ struct Callback
     auto & cb = m_callback;
     cb.m_setLocalExperts = bind(&DiscoveryControllerViewModel::SetExperts, &m_model, _1);
     cb.m_setSearchResults =
-        bind(&DiscoveryControllerViewModel::SetSearchResults, &m_model, _1, _2, _3);
+        bind(&DiscoveryControllerViewModel::SetSearchResults, &m_model, _1, _2, _3, _4);
     cb.m_setViatorProducts = bind(&DiscoveryControllerViewModel::SetViator, &m_model, _1);
     cb.m_refreshSection = [self](ItemType const type) { [self.tableManager reloadItem:type]; };
   }
@@ -116,13 +124,13 @@ struct Callback
                                                                  delegate:self
                                                                     model:move(callback)];
 
-  auto getTypes = [](MWMDiscoveryMode m) -> vector<ItemType> {
-    if (m == MWMDiscoveryModeOnline)
-      return {ItemType::Viator, ItemType::Attractions, ItemType::Cafes, ItemType::LocalExperts};
-    return {ItemType::Attractions, ItemType::Cafes};
+  auto getTypes = [](BOOL canUseNetwork) -> vector<ItemType> {
+    if (canUseNetwork)
+      return {ItemType::Hotels, ItemType::Attractions, ItemType::Cafes, ItemType::LocalExperts};
+    return {ItemType::Hotels, ItemType::Attractions, ItemType::Cafes};
   };
 
-  vector<ItemType> types = getTypes(self.mode);
+  vector<ItemType> types = getTypes(self.canUseNetwork);
   [self.tableManager loadItems:types];
   ClientParams p;
   p.m_itemTypes = move(types);
@@ -134,39 +142,67 @@ struct Callback
 
 #pragma mark - MWMDiscoveryTapDelegate
 
+- (void)showSearchResult:(const search::Result &)item
+{
+  GetFramework().ShowSearchResult(item);
+  [self.navigationController popViewControllerAnimated:YES];
+}
+
 - (void)tapOnItem:(ItemType const)type atIndex:(size_t const)index
 {
   NSString * dest = @"";
+  NSString * event = kStatPlacepageSponsoredItemSelected;
   switch (type)
   {
   case ItemType::Viator:
-  case ItemType::LocalExperts:
-  {
-    auto const & url = type == ItemType::Viator ? m_model.GetViatorAt(index).m_pageUrl
-                                                : m_model.GetExpertAt(index).m_pageUrl;
-    [self openUrl:[NSURL URLWithString:@(url.c_str())]];
+    [self openUrl:[NSURL URLWithString:@(m_model.GetViatorAt(index).m_pageUrl.c_str())]];
     dest = kStatExternal;
     break;
-  }
+  case ItemType::LocalExperts:
+    if (index == m_model.GetItemsCount(type))
+    {
+      [self openURLForItem:type];
+      event = kStatPlacepageSponsoredMoreSelected;
+    }
+    else
+    {
+      [self openUrl:[NSURL URLWithString:@(m_model.GetExpertAt(index).m_pageUrl.c_str())]];
+    }
+    dest = kStatExternal;
+    break;
   case ItemType::Attractions:
-  case ItemType::Cafes:
-  {
-    auto const & item =
-        type == ItemType::Attractions ? m_model.GetAttractionAt(index) : m_model.GetCafeAt(index);
-    GetFramework().ShowSearchResult(item);
-    [self.navigationController popViewControllerAnimated:YES];
+    if (index == m_model.GetItemsCount(type))
+      [self searchTourism];
+    else
+      [self showSearchResult:m_model.GetAttractionAt(index)];
+
     dest = kStatPlacePage;
     break;
-  }
-  case ItemType::Hotels:
-  {
-    NSAssert(false, @"Discovering hotels hasn't implemented yet.");
+  case ItemType::Cafes:
+    if (index == m_model.GetItemsCount(type))
+      [self searchFood];
+    else
+      [self showSearchResult:m_model.GetCafeAt(index)];
+      
+    dest = kStatPlacePage;
     break;
-  }
+  case ItemType::Hotels:
+    if (index == m_model.GetItemsCount(type))
+    {
+      [self openFilters];
+      event = kStatPlacepageSponsoredMoreSelected;
+      dest = kStatSearchFilterOpen;
+    }
+    else
+    {
+      [self showSearchResult:m_model.GetHotelAt(index)];
+      dest = kStatPlacePage;
+    }
+    break;
   }
 
   NSAssert(dest.length > 0, @"");
-  [Statistics logEvent:kStatDiscoveryButtonItemClick
+  [Statistics logEvent:kStatPlacepageSponsoredItemSelected
         withParameters:@{
           kStatProvider: StatProvider(type),
           kStatPlacement: kStatDiscovery,
@@ -175,22 +211,64 @@ struct Callback
         }];
 }
 
+- (void)openFilters
+{
+  [self.navigationController popViewControllerAnimated:YES];
+  [MWMSearch showHotelFilterWithParams:{}
+                      onFinishCallback:^{
+                        [MWMMapViewControlsManager.manager
+                         searchTextOnMap:[L(@"booking_hotel") stringByAppendingString:@" "]
+                         forInputLocale:[NSLocale currentLocale].localeIdentifier];
+                      }];
+}
+
+- (void)searchFood
+{
+  [self.navigationController popViewControllerAnimated:YES];
+  [MWMMapViewControlsManager.manager searchTextOnMap:[L(@"food") stringByAppendingString:@" "]
+                                      forInputLocale:[NSLocale currentLocale].localeIdentifier];
+}
+
+- (void)searchTourism
+{
+  [self.navigationController popViewControllerAnimated:YES];
+  [MWMMapViewControlsManager.manager searchTextOnMap:[L(@"tourism") stringByAppendingString:@" "]
+                                      forInputLocale:[NSLocale currentLocale].localeIdentifier];
+}
+
 - (void)routeToItem:(ItemType const)type atIndex:(size_t const)index
 {
-  CHECK(type == ItemType::Attractions || type == ItemType::Cafes,
-        ("Attempt to route to item with type:", static_cast<int>(type)));
-  auto const & item =
-      type == ItemType::Attractions ? m_model.GetAttractionAt(index) : m_model.GetCafeAt(index);
-  MWMRoutePoint * pt = [[MWMRoutePoint alloc] initWithPoint:item.GetFeatureCenter()
-                                                      title:@(item.GetString().c_str())
-                                                   subtitle:@(item.GetFeatureType().c_str())
+  __block m2::PointD point;
+  __block NSString * title;
+  __block NSString * subtitle;
+
+  auto getRoutePointInfo = ^(search::Result const & item) {
+    point = item.GetFeatureCenter();
+    title = @(item.GetString().c_str());
+    subtitle = @(item.GetFeatureTypeName().c_str());
+  };
+
+  switch (type)
+  {
+  case ItemType::Attractions: getRoutePointInfo(m_model.GetAttractionAt(index)); break;
+  case ItemType::Cafes: getRoutePointInfo(m_model.GetCafeAt(index)); break;
+  case ItemType::Hotels: getRoutePointInfo(m_model.GetHotelAt(index)); break;
+  case ItemType::Viator:
+  case ItemType::LocalExperts:
+    CHECK(false, ("Attempt to route to item with type:", static_cast<int>(type)));
+    break;
+  }
+
+  MWMRoutePoint * pt = [[MWMRoutePoint alloc] initWithPoint:point
+                                                      title:title
+                                                   subtitle:subtitle
                                                        type:MWMRoutePointTypeFinish
                                           intermediateIndex:0];
   [MWMRouter setType:MWMRouterTypePedestrian];
   [MWMRouter buildToPoint:pt bestRouter:NO];
   [self.navigationController popViewControllerAnimated:YES];
 
-  [Statistics logEvent:kStatDiscoveryButtonItemClick
+  [Statistics logEvent:kStatPlacepageSponsoredItemSelected
         withParameters:@{
           kStatProvider: StatProvider(type),
           kStatPlacement: kStatDiscovery,

@@ -2,16 +2,12 @@
 
 #include "ugc/types.hpp"
 
-#include "geometry/point2d.hpp"
-
 #include "base/thread_checker.hpp"
-#include "base/visitor.hpp"
 
 #include <memory>
 #include <string>
-#include <vector>
 
-class Index;
+class DataSource;
 class FeatureType;
 struct FeatureID;
 
@@ -20,26 +16,7 @@ namespace ugc
 class Storage
 {
 public:
-  struct UGCIndex
-  {
-    DECLARE_VISITOR(visitor.VisitPoint(m_mercator, "x", "y"), visitor(m_type, "type"),
-                    visitor(m_matchingType, "matching_type"),
-                    visitor(m_offset, "offset"), visitor(m_deleted, "deleted"),
-                    visitor(m_synchronized, "synchronized"), visitor(m_mwmName, "mwm_name"),
-                    visitor(m_dataVersion, "data_version"), visitor(m_featureId, "feature_id"))
-
-    m2::PointD m_mercator{};
-    uint32_t m_type = 0;
-    uint32_t m_matchingType = 0;
-    uint64_t m_offset = 0;
-    bool m_deleted = false;
-    bool m_synchronized = false;
-    std::string m_mwmName;
-    int64_t m_dataVersion;
-    uint32_t m_featureId = 0;
-  };
-
-  explicit Storage(Index const & index) : m_index(index) {}
+  explicit Storage(DataSource const & dataSource) : m_dataSource(dataSource) {}
 
   UGCUpdate GetUGCUpdate(FeatureID const & id) const;
 
@@ -51,23 +28,27 @@ public:
   };
 
   SettingResult SetUGCUpdate(FeatureID const & id, UGCUpdate const & ugc);
-  void SaveIndex() const;
+  bool SaveIndex(std::string const & pathToTargetFile = "") const;
   std::string GetUGCToSend() const;
   void MarkAllAsSynchronized();
   void Defragmentation();
   void Load();
+  size_t GetNumberOfUnsynchronized() const;
 
   /// Testing
-  std::vector<UGCIndex> const & GetIndexesForTesting() const { return m_UGCIndexes; }
+  UpdateIndexes & GetIndexesForTesting() { return m_indexes; }
   size_t GetNumberOfDeletedForTesting() const { return m_numberOfDeleted; }
   SettingResult SetUGCUpdateForTesting(FeatureID const & id, v0::UGCUpdate const & ugc);
+  void LoadForTesting(std::string const & testIndexFilePath);
 
 private:
+  void DefragmentationImpl(bool force);
   uint64_t UGCSizeAtIndex(size_t const indexPosition) const;
   std::unique_ptr<FeatureType> GetFeature(FeatureID const & id) const;
+  void Migrate(std::string const & indexFilePath);
 
-  Index const & m_index;
-  std::vector<UGCIndex> m_UGCIndexes;
+  DataSource const & m_dataSource;
+  UpdateIndexes m_indexes;
   size_t m_numberOfDeleted = 0;
 };
 
@@ -79,5 +60,11 @@ inline std::string DebugPrint(Storage::SettingResult const & result)
   case Storage::SettingResult::InvalidUGC: return "Invalid UGC";
   case Storage::SettingResult::WritingError: return "Writing Error";
   }
+  CHECK_SWITCH();
 }
 }  // namespace ugc
+
+namespace lightweight
+{
+size_t GetNumberOfUnsentUGC();
+}  //namespace lightweight

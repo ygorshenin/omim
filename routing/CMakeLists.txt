@@ -20,6 +20,9 @@ set(
   checkpoint_predictor.hpp
   checkpoints.cpp
   checkpoints.hpp
+  city_roads_loader.cpp
+  city_roads_loader.hpp
+  city_roads_serialization.hpp
   coding.hpp
   cross_mwm_connector.cpp
   cross_mwm_connector.hpp
@@ -29,7 +32,6 @@ set(
   cross_mwm_graph.hpp
   cross_mwm_ids.hpp
   cross_mwm_index_graph.hpp
-  directions_engine.cpp
   directions_engine.hpp
   edge_estimator.cpp
   edge_estimator.hpp
@@ -79,8 +81,6 @@ set(
   road_access_serialization.hpp
   road_graph.cpp
   road_graph.hpp
-  road_graph_router.cpp
-  road_graph_router.hpp
   road_index.cpp
   road_index.hpp
   road_point.hpp
@@ -93,8 +93,7 @@ set(
   router.hpp
   router_delegate.cpp
   router_delegate.hpp
-  routing_algorithm.cpp
-  routing_algorithm.hpp
+  routing_callbacks.hpp
   routing_exceptions.hpp
   routing_helpers.cpp
   routing_helpers.hpp
@@ -110,6 +109,8 @@ set(
   single_vehicle_world_graph.hpp
   speed_camera.cpp
   speed_camera.hpp
+  speed_camera_ser_des.cpp
+  speed_camera_ser_des.hpp
   traffic_stash.cpp
   traffic_stash.hpp
   transit_graph.cpp
@@ -137,8 +138,13 @@ set(
   world_graph.hpp
 )
 
-add_library(${PROJECT_NAME} ${SRC})
-omim_add_test_subdirectory(routing_tests)
-omim_add_test_subdirectory(routing_integration_tests)
-omim_add_test_subdirectory(routing_consistency_tests)
+omim_add_library(${PROJECT_NAME} ${SRC})
+
+if (PLATFORM_DESKTOP)
+  add_subdirectory(routing_quality)
+endif()
+
 omim_add_test_subdirectory(routing_benchmarks)
+omim_add_test_subdirectory(routing_consistency_tests)
+omim_add_test_subdirectory(routing_integration_tests)
+omim_add_test_subdirectory(routing_tests)

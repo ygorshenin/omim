@@ -4,7 +4,6 @@
 #include "drape_frontend/route_shape.hpp"
 
 #include "drape/pointers.hpp"
-#include "drape/texture_manager.hpp"
 
 #include "traffic/speed_groups.hpp"
 
@@ -13,6 +12,12 @@
 #include <functional>
 #include <unordered_map>
 #include <vector>
+
+namespace dp
+{
+  class TextureManager;
+  class GraphicsContext;
+}  // namespace dp
 
 namespace df
 {
@@ -26,11 +31,11 @@ public:
   RouteBuilder(FlushFn && flushFn, FlushArrowsFn && flushArrowsFn,
                FlushMarkersFn && flushMarkersFn);
 
-  void Build(dp::DrapeID subrouteId, SubrouteConstPtr subroute,
+  void Build(ref_ptr<dp::GraphicsContext> context, dp::DrapeID subrouteId, SubrouteConstPtr subroute,
              ref_ptr<dp::TextureManager> textures, int recacheId);
 
-  void BuildArrows(dp::DrapeID subrouteId, std::vector<ArrowBorders> const & borders,
-                   ref_ptr<dp::TextureManager> textures, int recacheId);
+  void BuildArrows(ref_ptr<dp::GraphicsContext> context, dp::DrapeID subrouteId,
+                   std::vector<ArrowBorders> const & borders, ref_ptr<dp::TextureManager> textures, int recacheId);
 
   void ClearRouteCache();
 

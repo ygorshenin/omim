@@ -330,6 +330,39 @@
     vi = Đi thẳng.
     uk = Їдьте прямо.
 
+  [exit]
+    en = Exit.
+    ru = Съезд.
+    ar = مخرج, خروج.
+    cs = výstup.
+    da = Afkørsel.
+    nl = Verlaat.
+    fi = Poistu.
+    fr = Sortie.
+    de = Ausfahrt.
+    hu = Kilépés.
+    id = Keluar.
+    it = Uscita.
+    ja = 出口.
+    ko = 출구.
+    pl = Wyjście.
+    pt = Saída.
+    ro = Ieșire.
+    es = Salida.
+    sv = Utgång.
+    th = ทางออก.
+    tr = çıkış.
+    zh-Hans = 出口.
+    zh-Hant = 出口.
+    el = Εξοδος.
+    hi = बाहर जाएं.
+    hr = Izlaz.
+    sk = Výjazd.
+    sw = Kuondoka.
+    fa = خروج.
+    vi = Lối thoát.
+    uk = З'їзд.
+
   [destination]
     en = You’ll arrive.
     ru = Вы прибудете в пункт назначения.
@@ -2078,3 +2111,7 @@
     fa = در دو مایلی
     vi = Trong hai dặm nữa
     uk = Через дві милі
+
+  [unknown_camera]
+    en = Speed camera ahead
+    ru = Впереди камера

@@ -4,7 +4,6 @@ import android.animation.Animator;
 import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
@@ -37,17 +36,23 @@ import android.view.animation.Animation;
 import android.view.animation.Animation.AnimationListener;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.mapswithme.maps.MwmApplication;
 import com.mapswithme.maps.R;
-import com.mapswithme.maps.taxi.TaxiManager;
 
 public final class UiUtils
 {
   private static final int DEFAULT_TINT_COLOR = Color.parseColor("#20000000");
+  public static final int NO_ID = -1;
+  public static final String PHRASE_SEPARATOR = " • ";
   private static float sScreenDensity;
+
+  public static void addStatusBarOffset(@NonNull View view)
+  {
+    ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
+    params.setMargins(0, UiUtils.getStatusBarHeight(view.getContext()), 0, 0);
+  }
 
   public static class SimpleAnimationListener implements AnimationListener
   {
@@ -215,6 +220,18 @@ public final class UiUtils
     view.setVisibility(condition ? View.VISIBLE : View.GONE);
   }
 
+  public static void hideIf(boolean condition, View... views)
+  {
+    if (condition)
+    {
+      hide(views);
+    }
+    else
+    {
+      show(views);
+    }
+  }
+
   public static void showIf(boolean condition, View... views)
   {
     if (condition)
@@ -250,24 +267,6 @@ public final class UiUtils
   {
     toolbar.setNavigationIcon(ThemeUtils.getResource(toolbar.getContext(), R.attr.homeAsUpIndicator));
   }
-
-  public static AlertDialog buildAlertDialog(Activity activity, int titleId)
-  {
-    return new AlertDialog.Builder(activity)
-            .setCancelable(false)
-            .setMessage(titleId)
-            .setPositiveButton(R.string.ok, new DialogInterface.OnClickListener() {
-              @Override
-              public void onClick(DialogInterface dlg, int which) { dlg.dismiss(); }
-            })
-            .create();
-  }
-
-  public static void showAlertDialog(Activity activity, int titleId)
-  {
-    buildAlertDialog(activity, titleId).show();
-  }
-
 
   public static String deviceOrientationAsString(Activity activity)
   {
@@ -323,12 +322,6 @@ public final class UiUtils
   {
     button.setTextColor(ThemeUtils.getColor(button.getContext(), button.isEnabled() ? R.attr.redButtonTextColor
                                                                                     : R.attr.redButtonTextColorDisabled));
-  }
-
-  public static void updateAccentButton(Button button)
-  {
-    button.setTextColor(ThemeUtils.getColor(button.getContext(), button.isEnabled() ? R.attr.accentButtonTextColor
-                                                                                    : R.attr.accentButtonTextColorDisabled));
   }
 
   public static Uri getUriToResId(@NonNull Context context, @AnyRes int resId)
@@ -467,7 +460,7 @@ public final class UiUtils
     try
     {
       a = context.obtainStyledAttributes(new int[] {res});
-      return a.getResourceId(0, -1);
+      return a.getResourceId(0, NO_ID);
     }
     finally
     {
@@ -481,53 +474,41 @@ public final class UiUtils
     view.setBackgroundResource(getStyledResourceId(view.getContext(), res));
   }
 
-  public static void expandTouchAreaForView(@NonNull final View view, final int extraArea)
+  private static void expandTouchAreaForView(@NonNull final View view, final int extraArea)
   {
     final View parent = (View) view.getParent();
-    parent.post(new Runnable()
-    {
-      @Override
-      public void run()
-      {
-        Rect rect = new Rect();
-        view.getHitRect(rect);
-        rect.top -= extraArea;
-        rect.left -= extraArea;
-        rect.right += extraArea;
-        rect.bottom += extraArea;
-        parent.setTouchDelegate(new TouchDelegate(rect, view));
-      }
-    });
+    parent.post(() ->
+                {
+                  Rect rect = new Rect();
+                  view.getHitRect(rect);
+                  rect.top -= extraArea;
+                  rect.left -= extraArea;
+                  rect.right += extraArea;
+                  rect.bottom += extraArea;
+                  parent.setTouchDelegate(new TouchDelegate(rect, view));
+                });
   }
 
-  public static void showTaxiIcon(@NonNull ImageView logo, @TaxiManager.TaxiType int type)
+  public static void expandTouchAreaForViews(int extraArea, @NonNull View... views)
   {
-    switch (type)
-    {
-      case TaxiManager.PROVIDER_UBER:
-        logo.setImageResource(R.drawable.ic_logo_uber);
-        break;
-      case TaxiManager.PROVIDER_YANDEX:
-        logo.setImageResource(R.drawable.ic_logo_yandex_taxi);
-        break;
-      default:
-        throw new AssertionError("Unsupported taxi type: " + type);
-    }
+    for (View view : views)
+      expandTouchAreaForView(view, extraArea);
   }
 
-  public static void showTaxiTitle(@NonNull TextView title, @TaxiManager.TaxiType int type)
+  public static void expandTouchAreaForView(@NonNull final View view, final int top, final int left,
+                                            final int bottom, final int right)
   {
-    switch (type)
-    {
-      case TaxiManager.PROVIDER_UBER:
-        title.setText(R.string.uber);
-        break;
-      case TaxiManager.PROVIDER_YANDEX:
-        title.setText(R.string.yandex_taxi_title);
-        break;
-      default:
-        throw new AssertionError("Unsupported taxi type: " + type);
-    }
+    final View parent = (View) view.getParent();
+    parent.post(() ->
+                {
+                  Rect rect = new Rect();
+                  view.getHitRect(rect);
+                  rect.top -= top;
+                  rect.left -= left;
+                  rect.right += right;
+                  rect.bottom += bottom;
+                  parent.setTouchDelegate(new TouchDelegate(rect, view));
+                });
   }
 
   // utility class

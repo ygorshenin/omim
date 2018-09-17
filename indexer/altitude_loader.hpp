@@ -1,22 +1,29 @@
 #pragma once
 #include "indexer/feature_altitude.hpp"
-#include "indexer/index.hpp"
 #include "indexer/mwm_set.hpp"
 
 #include "coding/memory_region.hpp"
 
-#include "std/string.hpp"
-#include "std/unique_ptr.hpp"
-#include "std/vector.hpp"
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "3party/succinct/rs_bit_vector.hpp"
 
+class DataSource;
+
 namespace feature
 {
+// @TODO(bykoianko) |m_altitudeAvailability| and |m_featureTable| are saved without
+// taking into account endianness. It should be fixed. The plan is
+// * to use one bit form AltitudeHeader::m_version for keeping information about endianness. (Zero
+//   should be used for big endian.)
+// * to check the endianness of the reader and the bit while reading and to use an appropriate
+//   methods for reading.
 class AltitudeLoader
 {
 public:
-  AltitudeLoader(Index const & index, MwmSet::MwmId const & mwmId);
+  AltitudeLoader(DataSource const & dataSource, MwmSet::MwmId const & mwmId);
 
   /// \returns altitude of feature with |featureId|. All items of the returned vector are valid
   /// or the returned vector is empty.
@@ -27,16 +34,16 @@ public:
   void ClearCache() { m_cache.clear(); }
 
 private:
-  unique_ptr<CopiedMemoryRegion> m_altitudeAvailabilityRegion;
-  unique_ptr<CopiedMemoryRegion> m_featureTableRegion;
+  std::unique_ptr<CopiedMemoryRegion> m_altitudeAvailabilityRegion;
+  std::unique_ptr<CopiedMemoryRegion> m_featureTableRegion;
 
   succinct::rs_bit_vector m_altitudeAvailability;
   succinct::elias_fano m_featureTable;
 
-  unique_ptr<FilesContainerR::TReader> m_reader;
-  map<uint32_t, TAltitudes> m_cache;
+  std::unique_ptr<FilesContainerR::TReader> m_reader;
+  std::map<uint32_t, TAltitudes> m_cache;
   AltitudeHeader m_header;
-  string m_countryFileName;
+  std::string m_countryFileName;
   MwmSet::MwmHandle m_handle;
 };
 }  // namespace feature

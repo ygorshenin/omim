@@ -6,10 +6,10 @@ using namespace std;
 
 namespace search
 {
-CityFinder::CityFinder(Index const & index)
-    : m_unusedBoundaries(index)
-    , m_unusedCache(m_cancellable)
-    , m_finder(index, m_unusedBoundaries, m_unusedCache)
+CityFinder::CityFinder(DataSource const & dataSource)
+  : m_unusedBoundaries(dataSource)
+  , m_unusedCache(m_cancellable)
+  , m_finder(dataSource, m_unusedBoundaries, m_unusedCache)
 {
 }
 

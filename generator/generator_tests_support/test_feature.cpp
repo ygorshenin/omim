@@ -2,6 +2,8 @@
 
 #include "generator/feature_builder.hpp"
 
+#include "editor/osm_editor.hpp"
+
 #include "indexer/classificator.hpp"
 #include "indexer/editable_map_object.hpp"
 #include "indexer/feature.hpp"
@@ -10,12 +12,11 @@
 #include "indexer/feature_meta.hpp"
 #include "indexer/ftypes_matcher.hpp"
 #include "indexer/mwm_set.hpp"
-#include "indexer/osm_editor.hpp"
 
 #include "coding/multilang_utf8_string.hpp"
 
 #include "base/assert.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
 #include <atomic>
@@ -62,7 +63,7 @@ void TestFeature::Init()
   m_metadata.Set(feature::Metadata::FMD_TEST_ID, strings::to_string(m_id));
 }
 
-bool TestFeature::Matches(FeatureType const & feature) const
+bool TestFeature::Matches(FeatureType & feature) const
 {
   istringstream is(feature.GetMetadata().Get(feature::Metadata::FMD_TEST_ID));
   uint64_t id;
@@ -256,6 +257,39 @@ string TestPOI::ToString() const
 {
   ostringstream os;
   os << "TestPOI [" << m_name << ", " << m_lang << ", " << DebugPrint(m_center);
+  if (!m_houseNumber.empty())
+    os << ", " << m_houseNumber;
+  if (!m_streetName.empty())
+    os << ", " << m_streetName;
+  os << "]";
+  return os.str();
+}
+
+// TestMultilingualPOI -----------------------------------------------------------------------------
+TestMultilingualPOI::TestMultilingualPOI(m2::PointD const & center, string const & defaultName,
+                                         map<string, string> const & multilingualNames)
+  : TestPOI(center, defaultName, "default"), m_multilingualNames(multilingualNames)
+{
+}
+
+void TestMultilingualPOI::Serialize(FeatureBuilder1 & fb) const
+{
+  TestPOI::Serialize(fb);
+
+  for (auto const & kv : m_multilingualNames)
+  {
+    CHECK(fb.AddName(kv.first, kv.second),
+          ("Can't set feature name:", kv.second, "(", kv.first, ")"));
+  }
+}
+
+string TestMultilingualPOI::ToString() const
+{
+  ostringstream os;
+  os << "TestPOI [(" << m_name << ", " << m_lang << "), ";
+  for (auto const & kv : m_multilingualNames)
+    os << "( " << kv.second << ", " << kv.first << "), ";
+  os << DebugPrint(m_center);
   if (!m_houseNumber.empty())
     os << ", " << m_houseNumber;
   if (!m_streetName.empty())

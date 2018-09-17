@@ -56,14 +56,15 @@ CGFloat const kButtonsBottomOffset = 6;
     if (hidden)
       self.maxX = 0;
     else
-      self.minX = kViewControlsOffsetToBounds;
+      self.minX = self.availableArea.origin.x + kViewControlsOffsetToBounds;
   }
   else
   {
     if (hidden)
       self.minX = self.superview.width;
     else
-      self.maxX = self.superview.width - kViewControlsOffsetToBounds;
+      self.maxX =
+          self.availableArea.origin.x + self.availableArea.size.width - kViewControlsOffsetToBounds;
   }
 }
 
@@ -95,36 +96,33 @@ CGFloat const kButtonsBottomOffset = 6;
 
 - (void)animate
 {
-  dispatch_async(dispatch_get_main_queue(), ^{
-    [self layoutYPosition];
+  [self layoutYPosition];
 
-    auto const spaceLeft = self.availableHeight;
-    BOOL const isZoomHidden = self.zoomIn.alpha == 0.0;
-    BOOL const willZoomHide = (self.location.maxY > spaceLeft);
-    if (willZoomHide)
-    {
-      if (!isZoomHidden)
-        [self fadeZoomButtonsShow:NO];
-    }
-    else
-    {
-      if (isZoomHidden)
-        [self fadeZoomButtonsShow:YES];
-    }
-    BOOL const isLocationHidden = self.location.alpha == 0.0;
-    BOOL const willLocationHide = (self.location.height > spaceLeft);
-    if (willLocationHide)
-    {
-      if (!isLocationHidden)
-        [self fadeLocationButtonShow:NO];
-    }
-    else
-    {
-      if (isLocationHidden)
-        [self fadeLocationButtonShow:YES];
-    }
-    [self layoutIfNeeded];
-  });
+  auto const spaceLeft = self.availableHeight;
+  BOOL const isZoomHidden = self.zoomIn.alpha == 0.0;
+  BOOL const willZoomHide = (self.location.maxY > spaceLeft);
+  if (willZoomHide)
+  {
+    if (!isZoomHidden)
+      [self fadeZoomButtonsShow:NO];
+  }
+  else
+  {
+    if (isZoomHidden)
+      [self fadeZoomButtonsShow:YES];
+  }
+  BOOL const isLocationHidden = self.location.alpha == 0.0;
+  BOOL const willLocationHide = (self.location.height > spaceLeft);
+  if (willLocationHide)
+  {
+    if (!isLocationHidden)
+      [self fadeLocationButtonShow:NO];
+  }
+  else
+  {
+    if (isLocationHidden)
+      [self fadeLocationButtonShow:YES];
+  }
 }
 
 #pragma mark - Properties

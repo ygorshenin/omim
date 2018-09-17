@@ -2,6 +2,8 @@
 
 #include "indexer/classificator.hpp"
 
+#include "private.h"
+
 namespace ftypes
 {
 BaseSponsoredChecker::BaseSponsoredChecker(std::string const & sponsoredType)

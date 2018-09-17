@@ -42,12 +42,12 @@ NSString * const kiOSEmail = @"ios@maps.me";
     NSString * path = [NSBundle.mainBundle pathForResource:@"faq" ofType:@"html"];
     html = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
     self.aboutViewController =
-        [[WebViewController alloc] initWithHtml:html baseUrl:nil andTitleOrNil:nil];
+        [[WebViewController alloc] initWithHtml:html baseUrl:nil title:nil];
   }
   else
   {
     NSURL * url = [NSURL URLWithString:@"https://support.maps.me"];
-    self.aboutViewController = [[WebViewController alloc] initWithUrl:url andTitleOrNil:nil];
+    self.aboutViewController = [[WebViewController alloc] initWithUrl:url title:nil];
   }
 
   self.aboutViewController.openInSafari = NO;
@@ -112,8 +112,7 @@ NSString * const kiOSEmail = @"ios@maps.me";
   UIAlertAction * cancel =
       [UIAlertAction actionWithTitle:kCancelActionTitle style:UIAlertActionStyleCancel handler:nil];
   [alert addAction:cancel];
-  if (!isIOS8)
-    alert.preferredAction = cancel;
+  alert.preferredAction = cancel;
 
   [self presentViewController:alert animated:YES completion:nil];
 }
@@ -142,7 +141,7 @@ NSString * const kiOSEmail = @"ios@maps.me";
 {
   if ([MWMMailViewController canSendMail])
   {
-    NSString * device = [AppInfo sharedInfo].deviceName;
+    NSString * deviceModel = [AppInfo sharedInfo].deviceModel;
     NSString * languageCode = NSLocale.preferredLanguages.firstObject;
     NSString * language = [[NSLocale localeWithLocaleIdentifier:kLocaleUsedInSupportEmails]
         displayNameForKey:NSLocaleLanguageCode
@@ -154,7 +153,7 @@ NSString * const kiOSEmail = @"ios@maps.me";
     NSString * bundleVersion = [AppInfo sharedInfo].bundleVersion;
     NSString * buildNumber = [AppInfo sharedInfo].buildNumber;
     NSString * text = [NSString stringWithFormat:@"\n\n\n\n- %@ (%@)\n- MAPS.ME %@ (%@)\n- %@/%@",
-                                                 device, UIDevice.currentDevice.systemVersion,
+                                                 deviceModel, UIDevice.currentDevice.systemVersion,
                                                  bundleVersion, buildNumber, language, country];
     NSString * alohalyticsId = [Alohalytics installationId];
     if (alohalyticsId)

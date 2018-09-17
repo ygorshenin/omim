@@ -9,7 +9,7 @@
 #include "geometry/mercator.hpp"
 
 #include "base/assert.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
 #include <cstdint>
@@ -138,6 +138,10 @@ namespace ftype
         ++token;
         lang = (token ? *token : "default");
 
+        // Do not consider languages with suffixes, like "en:pronunciation".
+        if (++token)
+          return false;
+
         // Replace dummy arabian tag with correct tag.
         if (lang == "ar1")
           lang = "ar";
@@ -229,7 +233,7 @@ namespace ftype
     {
       Classificator const & c = classif();
 
-      my::StringIL arr[] =
+      base::StringIL arr[] =
       {
         {"entrance"}, {"highway"},
         {"building", "address"}, {"hwtag", "oneway"}, {"hwtag", "private"},
@@ -266,7 +270,8 @@ namespace ftype
     }
   };
 
-  void MatchTypes(OsmElement * p, FeatureParams & params)
+  void MatchTypes(OsmElement * p, FeatureParams & params,
+                  function<bool(uint32_t)> filterDrawableType)
   {
     set<int> skipRows;
     vector<ClassifObjectPtr> path;
@@ -308,14 +313,15 @@ namespace ftype
 
         // Next objects trying to find by value first.
         // Prevent merging different tags (e.g. shop=pet from shop=abandoned, was:shop=pet).
-       ClassifObjectPtr pObj =
-           path.size() == 1 ? ClassifObjectPtr()
-                            : ForEachTagEx<ClassifObjectPtr>(
-                                  p, skipRows, [&current](string const & k, string const & v) {
-                                    if (!NeedMatchValue(k, v))
-                                      return ClassifObjectPtr();
-                                    return current->BinaryFind(v);
-                                  });
+
+        ClassifObjectPtr pObj;
+        if (path.size() != 1)
+        {
+          pObj = ForEachTagEx<ClassifObjectPtr>(
+                   p, skipRows, [&current](string const & k, string const & v) {
+                     return NeedMatchValue(k, v) ? current->BinaryFind(v) : ClassifObjectPtr();
+                   });
+        }
 
         if (pObj)
         {
@@ -334,10 +340,8 @@ namespace ftype
       for (auto const & e : path)
         ftype::PushValue(t, e.GetIndex());
 
-      // Use features only with drawing rules.
-      if (feature::IsDrawableAny(t))
+      if (filterDrawableType(t))
         params.AddType(t);
-
     } while (true);
   }
 
@@ -435,13 +439,13 @@ namespace ftype
     if (!isHighway || (surface.empty() && smoothness.empty()))
       return string();
 
-    static my::StringIL pavedSurfaces = {"paved", "asphalt", "cobblestone", "cobblestone:flattened",
-                                         "sett", "concrete", "concrete:lanes", "concrete:plates",
-                                         "paving_stones", "metal", "wood"};
-    static my::StringIL badSurfaces = {"cobblestone", "sett", "metal", "wood", "grass", "gravel",
-                                       "mud", "sand", "snow", "woodchips"};
-    static my::StringIL badSmoothness = {"bad", "very_bad", "horrible", "very_horrible", "impassable",
-                                         "robust_wheels", "high_clearance", "off_road_wheels", "rough"};
+    static base::StringIL pavedSurfaces = {"paved", "asphalt", "cobblestone", "cobblestone:flattened",
+                                           "sett", "concrete", "concrete:lanes", "concrete:plates",
+                                           "paving_stones", "metal", "wood"};
+    static base::StringIL badSurfaces = {"cobblestone", "sett", "metal", "wood", "grass", "gravel",
+                                         "mud", "sand", "snow", "woodchips"};
+    static base::StringIL badSmoothness = {"bad", "very_bad", "horrible", "very_horrible", "impassable",
+                                           "robust_wheels", "high_clearance", "off_road_wheels", "rough"};
 
     bool isPaved = false;
     bool isGood = true;
@@ -533,6 +537,53 @@ namespace ftype
         break;
       }
     }
+
+    // Merge attraction and memorial types to predefined set of values
+    p->UpdateTag("artwork_type", [](string & value) {
+      if (value.empty())
+        return;
+      if (value == "mural" || value == "graffiti" || value == "azulejo" || value == "tilework")
+        value = "painting";
+      else if (value == "stone" || value == "installation")
+        value = "sculpture";
+      else if (value == "bust")
+        value = "statue";
+    });
+
+    string const & memorialType = p->GetTag("memorial:type");
+    p->UpdateTag("memorial", [&memorialType](string & value) {
+      if (value.empty()) {
+        if (memorialType.empty())
+          return;
+        else
+          value = memorialType;
+      }
+
+      if (value == "blue_plaque" || value == "stolperstein")
+        value = "plaque";
+      else if (value == "war_memorial" || value == "stele" || value == "obelisk" ||
+               value == "stone" || value == "cross")
+        value = "sculpture";
+      else if (value == "bust" || value == "person")
+        value = "statue";
+    });
+
+    p->UpdateTag("castle_type", [](string & value) {
+      if (value.empty())
+        return;
+      if (value == "fortress" || value == "kremlin" || value == "castrum" ||
+          value == "shiro" || value == "citadel")
+        value = "defensive";
+      else if (value == "manor" || value == "palace")
+        value = "stately";
+    });
+
+    p->UpdateTag("attraction", [](string & value) {
+      // "specified" is a special value which means we have the "attraction" tag,
+      // but its value is not "animal".
+      if (!value.empty() && value != "animal")
+        value = "specified";
+    });
   }
 
   void PostprocessElement(OsmElement * p, FeatureParams & params)
@@ -569,7 +620,7 @@ namespace ftype
     bool noOneway = false;
 
     // Get a copy of source types, because we will modify params in the loop;
-    FeatureParams::TTypes const vTypes = params.m_Types;
+    FeatureParams::Types const vTypes = params.m_types;
     for (size_t i = 0; i < vTypes.size(); ++i)
     {
       if (!highwayDone && types.IsHighway(vTypes[i]))
@@ -591,6 +642,7 @@ namespace ftype
           { "toll", "~", [&params] { params.AddType(types.Get(CachedTypes::TOLL)); }},
 
           { "foot", "!", [&params] { params.AddType(types.Get(CachedTypes::NOFOOT)); }},
+          { "foot", "use_sidepath", [&params] { params.AddType(types.Get(CachedTypes::NOFOOT)); }},
           { "foot", "~", [&params] { params.AddType(types.Get(CachedTypes::YESFOOT)); }},
           { "sidewalk", "~", [&params] { params.AddType(types.Get(CachedTypes::YESFOOT)); }},
 
@@ -657,7 +709,8 @@ namespace ftype
     }
   }
 
-  void GetNameAndType(OsmElement * p, FeatureParams & params)
+  void GetNameAndType(OsmElement * p, FeatureParams & params,
+                      function<bool(uint32_t)> filterDrawableType)
   {
     // Stage1: Preprocess tags.
     PreprocessElement(p);
@@ -710,14 +763,14 @@ namespace ftype
     });
 
     // Stage4: Match tags in classificator to find feature types.
-    MatchTypes(p, params);
+    MatchTypes(p, params, filterDrawableType);
 
     // Stage5: Postprocess feature types.
     PostprocessElement(p, params);
 
     params.FinishAddingTypes();
 
-    // Stage6: Collect addidtional information about feature such as
+    // Stage6: Collect additional information about feature such as
     // hotel stars, opening hours, cuisine, ...
     ForEachTag<bool>(p, MetadataTagProcessor(params));
   }

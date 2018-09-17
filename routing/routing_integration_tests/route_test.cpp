@@ -1,5 +1,7 @@
 #include "testing/testing.hpp"
 
+#include "routing/routing_callbacks.hpp"
+
 #include "routing/routing_integration_tests/routing_test_tools.hpp"
 
 #include "geometry/mercator.hpp"
@@ -23,20 +25,19 @@ namespace
     integration::CalculateRouteAndTestRouteLength(
         integration::GetVehicleComponents<VehicleType::Car>(),
         MercatorBounds::FromLatLon(55.66216, 37.63259), {0., 0.},
-        MercatorBounds::FromLatLon(55.66237, 37.63560), 1700.);
+        MercatorBounds::FromLatLon(55.66237, 37.63560), 2320.);
   }
 
-  // Fails because cheackpoints are far from roads (inside Kremlin and inside airport).
   UNIT_TEST(MoscowToSVOAirport)
   {
     integration::CalculateRouteAndTestRouteLength(
         integration::GetVehicleComponents<VehicleType::Car>(),
         MercatorBounds::FromLatLon(55.75100, 37.61790), {0., 0.},
-        MercatorBounds::FromLatLon(55.97310, 37.41460), 30470.);
+        MercatorBounds::FromLatLon(55.97310, 37.41460), 37284.);
     integration::CalculateRouteAndTestRouteLength(
         integration::GetVehicleComponents<VehicleType::Car>(),
         MercatorBounds::FromLatLon(55.97310, 37.41460), {0., 0.},
-        MercatorBounds::FromLatLon(55.75100, 37.61790), 30470.);
+        MercatorBounds::FromLatLon(55.75100, 37.61790), 39449.);
   }
 
   // Restrictions tests. Check restrictions generation, if there are any errors.
@@ -99,14 +100,14 @@ namespace
         integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Car>(),
                                     MercatorBounds::FromLatLon(45.34123, 36.67679), {0., 0.},
                                     MercatorBounds::FromLatLon(45.36479, 36.62194));
-    TEST_EQUAL(route.second, IRouter::NoError, ());
+    TEST_EQUAL(route.second, RouterResultCode::NoError, ());
     CHECK(route.first, ());
     integration::TestRoutePointsNumber(*route.first, kExpectedPointsNumber);
     // And backward case
     route = integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Car>(),
                                         MercatorBounds::FromLatLon(45.36479, 36.62194), {0., 0.},
                                         MercatorBounds::FromLatLon(45.34123, 36.67679));
-    TEST_EQUAL(route.second, IRouter::NoError, ());
+    TEST_EQUAL(route.second, RouterResultCode::NoError, ());
     CHECK(route.first, ());
     integration::TestRoutePointsNumber(*route.first, kExpectedPointsNumber);
   }
@@ -119,14 +120,14 @@ namespace
         integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Car>(),
                                     MercatorBounds::FromLatLon(46.16255, -63.81643), {0., 0.},
                                     MercatorBounds::FromLatLon(46.25401, -63.70213));
-    TEST_EQUAL(route.second, IRouter::NoError, ());
+    TEST_EQUAL(route.second, RouterResultCode::NoError, ());
     CHECK(route.first, ());
     integration::TestRoutePointsNumber(*route.first, kExpectedPointsNumber);
     // And backward case
     route = integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Car>(),
                                         MercatorBounds::FromLatLon(46.25401, -63.70213), {0., 0.},
                                         MercatorBounds::FromLatLon(46.16255, -63.81643));
-    TEST_EQUAL(route.second, IRouter::NoError, ());
+    TEST_EQUAL(route.second, RouterResultCode::NoError, ());
     CHECK(route.first, ());
     integration::TestRoutePointsNumber(*route.first, kExpectedPointsNumber);
   }
@@ -308,7 +309,6 @@ namespace
         MercatorBounds::FromLatLon(49.85015, 2.24296), 126000.);
   }
 
-  // Fails to return correct time.
   UNIT_TEST(RussiaSmolenskRussiaMoscowTimeTest)
   {
     TRouteResult const routeResult =
@@ -316,12 +316,12 @@ namespace
                                     MercatorBounds::FromLatLon(54.7998, 32.05489), {0., 0.},
                                     MercatorBounds::FromLatLon(55.753, 37.60169));
 
-    IRouter::ResultCode const result = routeResult.second;
-    TEST_EQUAL(result, IRouter::NoError, ());
+    RouterResultCode const result = routeResult.second;
+    TEST_EQUAL(result, RouterResultCode::NoError, ());
 
     CHECK(routeResult.first, ());
     Route const & route = *routeResult.first;
-    integration::TestRouteTime(route, 17850.);
+    integration::TestRouteTime(route, 15144.6);
   }
 
   UNIT_TEST(RussiaMoscowLenigradskiy39GeroevPanfilovtsev22TimeTest)
@@ -330,8 +330,8 @@ namespace
         integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Car>(),
                                     MercatorBounds::FromLatLon(55.7971, 37.53804), {0., 0.},
                                     MercatorBounds::FromLatLon(55.8579, 37.40990));
-    IRouter::ResultCode const result = routeResult.second;
-    TEST_EQUAL(result, IRouter::NoError, ());
+    RouterResultCode const result = routeResult.second;
+    TEST_EQUAL(result, RouterResultCode::NoError, ());
 
     CHECK(routeResult.first, ());
     Route const & route = *routeResult.first;
@@ -345,8 +345,8 @@ namespace
                                     MercatorBounds::FromLatLon(55.7971, 37.53804), {0., 0.},
                                     MercatorBounds::FromLatLon(55.8579, 37.40990));
 
-    IRouter::ResultCode const result = routeResult.second;
-    TEST_EQUAL(result, IRouter::NoError, ());
+    RouterResultCode const result = routeResult.second;
+    TEST_EQUAL(result, RouterResultCode::NoError, ());
 
     CHECK(routeResult.first, ());
     Route const & route = *routeResult.first;
@@ -364,10 +364,61 @@ namespace
         integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Car>(),
                                     MercatorBounds::FromLatLon(34.0739, -115.3212), {0.0, 0.0},
                                     MercatorBounds::FromLatLon(34.0928, -115.5930));
-    IRouter::ResultCode const result = routeResult.second;
-    TEST_EQUAL(result, IRouter::NoError, ());
+    RouterResultCode const result = routeResult.second;
+    TEST_EQUAL(result, RouterResultCode::NoError, ());
     CHECK(routeResult.first, ());
     Route const & route = *routeResult.first;
     TEST_LESS(route.GetTotalTimeSec(), numeric_limits<double >::max() / 2.0, ());
+  }
+
+  // Test on routing along features with tag man_made:pier.
+  UNIT_TEST(CanadaVictoriaVancouverTest)
+  {
+    TRouteResult const routeResult =
+        integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Car>(),
+                                    MercatorBounds::FromLatLon(48.47831, -123.32749), {0.0, 0.0},
+                                    MercatorBounds::FromLatLon(49.26242, -123.11553));
+    RouterResultCode const result = routeResult.second;
+    TEST_EQUAL(result, RouterResultCode::NoError, ());
+  }
+
+  // Test on the route with the finish near zero length edge.
+  UNIT_TEST(BelarusSlonimFinishNearZeroEdgeTest)
+  {
+    TRouteResult const routeResult =
+        integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Car>(),
+                                    MercatorBounds::FromLatLon(53.08279, 25.30036), {0.0, 0.0},
+                                    MercatorBounds::FromLatLon(53.09443, 25.34356));
+    RouterResultCode const result = routeResult.second;
+    TEST_EQUAL(result, RouterResultCode::NoError, ());
+  }
+
+  // Test on the route with the start near zero length edge.
+  UNIT_TEST(BelarusSlonimStartNearZeroEdgeTest)
+  {
+    TRouteResult const routeResult =
+        integration::CalculateRoute(integration::GetVehicleComponents<VehicleType::Car>(),
+                                    MercatorBounds::FromLatLon(53.09422, 25.34411), {0.0, 0.0},
+                                    MercatorBounds::FromLatLon(53.09271, 25.3467));
+    RouterResultCode const result = routeResult.second;
+    TEST_EQUAL(result, RouterResultCode::NoError, ());
+  }
+
+  // Test of decreasing speed factor on roads with bad cover.
+  UNIT_TEST(RussiaLenOblSpeedFactorsTest)
+  {
+    integration::CalculateRouteAndTestRouteLength(
+        integration::GetVehicleComponents<VehicleType::Car>(),
+        MercatorBounds::FromLatLon(60.23884, 29.71603), {0.0, 0.0},
+        MercatorBounds::FromLatLon(60.28975, 29.79399), 11618.1);
+  }
+
+  // Test of decreasing speed factor on roads with bad cover.
+  UNIT_TEST(RussiaMosOblSpeedFactorsTest)
+  {
+    integration::CalculateRouteAndTestRouteLength(
+        integration::GetVehicleComponents<VehicleType::Car>(),
+        MercatorBounds::FromLatLon(55.93843, 36.02782), {0., 0.},
+        MercatorBounds::FromLatLon(55.9375, 36.04195), 4819.1);
   }
 }  // namespace

@@ -2,7 +2,10 @@
 <resources>
   <string name="shared_user_label" translatable="false">Maps With Me</string>
 
-  <!-- FB -->
+  <!-- Dev facebook credentials
+  <string name="facebook_app_id" translatable="false">462405334160274</string>
+  <string name="fb_login_protocol_scheme">fb462405334160274</string> -->
+
   <string name="facebook_app_id" translatable="false">185237551520383</string>
   <string name="fb_login_protocol_scheme">fb185237551520383</string>
 
@@ -49,6 +52,7 @@
   <string name="pref_tts_info_link" translatable="false">TtsInfoLink</string>
   <string name="tts_info_link" translatable="false">https://support.maps.me/hc/en-us/articles/208628985-How-can-I-check-TTS-settings-on-my-Android-device-</string>
   <string name="pref_autodownload" translatable="false">AutoDownloadMap</string>
+  <string name="pref_backupbookmarks" translatable="false">BackupBookmarks</string>
   <string name="pref_3d" translatable="false">3D</string>
   <string name="pref_3d_buildings" translatable="false">3DBuildings</string>
   <string name="pref_track_screen" translatable="false">TrackScreen</string>
@@ -81,4 +85,11 @@
   <string name="tag_height_limited" translatable="false">height limited</string>
 
   <string name="search_hotel_filter" translatable="false">search_hotel_filter_%s</string>
+
+  <string name="pref_subtittle_opt_out" translatable="false">pref_subtittle_opt_out</string>
+  <string name="pref_opt_out_fabric" translatable="false">pref_opt_out_fabric</string>
+  <string name="pref_opt_out_fabric_activated" translatable="false">pref_opt_out_fabric_activated</string>
+  <string name="pref_opt_out_mopub" translatable="false">pref_opt_out_mopub</string>
+  <string name="pref_opt_out_flurry" translatable="false">pref_opt_out_flurry</string>
+
 </resources>

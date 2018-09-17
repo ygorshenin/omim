@@ -3,6 +3,7 @@
 #import "MWMMapViewControlsManager.h"
 #import "SwiftBridge.h"
 #import "3party/Alohalytics/src/alohalytics_objc.h"
+#import "Flurry.h"
 
 #include "Framework.h"
 
@@ -22,6 +23,8 @@ char const * kStatisticsEnabledSettingsKey = "StatisticsEnabled";
 NSString * const kUDAutoNightModeOff = @"AutoNightModeOff";
 NSString * const kThemeMode = @"ThemeMode";
 NSString * const kSpotlightLocaleLanguageId = @"SpotlightLocaleLanguageId";
+NSString * const kUDTrackWarningAlertWasShown = @"TrackWarningAlertWasShown";
+NSString * const kCrashReportingDisabled = @"CrashReportingDisabled";
 }  // namespace
 
 @implementation MWMSettings
@@ -112,11 +115,13 @@ NSString * const kSpotlightLocaleLanguageId = @"SpotlightLocaleLanguageId";
   if (statisticsEnabled)
   {
     [Alohalytics enable];
+    [Flurry trackPreciseLocation:YES];
   }
   else
   {
     [Alohalytics logEvent:@"statisticsDisabled"];
     [Alohalytics disable];
+    [Flurry trackPreciseLocation:NO];
   }
   settings::Set(kStatisticsEnabledSettingsKey, static_cast<bool>(statisticsEnabled));
 }
@@ -178,4 +183,25 @@ NSString * const kSpotlightLocaleLanguageId = @"SpotlightLocaleLanguageId";
   f.AllowTransliteration(isTransliteration);
 }
 
++ (BOOL)isTrackWarningAlertShown
+{
+  return [NSUserDefaults.standardUserDefaults boolForKey:kUDTrackWarningAlertWasShown];
+}
+
++ (void)setTrackWarningAlertShown:(BOOL)shown
+{
+  NSUserDefaults * ud = NSUserDefaults.standardUserDefaults;
+  [ud setBool:shown forKey:kUDTrackWarningAlertWasShown];
+  [ud synchronize];
+}
+
++ (BOOL)crashReportingDisabled
+{
+  return [[NSUserDefaults standardUserDefaults] boolForKey:kCrashReportingDisabled];
+}
+
++ (void)setCrashReportingDisabled:(BOOL)disabled
+{
+  [[NSUserDefaults standardUserDefaults] setBool:disabled forKey:kCrashReportingDisabled];
+}
 @end

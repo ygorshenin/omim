@@ -1,8 +1,12 @@
 project(generator_tool)
 
-include_directories(${OMIM_PATH}/3party/gflags/src)
+include_directories(${OMIM_ROOT}/3party/gflags/src)
 
 set(SRC generator_tool.cpp)
+
+if (BUILD_DESIGNER)
+  set(SRC MACOSX_BUNDLE ${SRC})
+endif()
 
 omim_add_executable(${PROJECT_NAME} ${SRC})
 
@@ -16,8 +20,8 @@ omim_link_libraries(
   ugc
   search
   storage
-  indexer
   editor
+  indexer
   platform
   geometry
   coding

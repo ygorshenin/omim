@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"منتها الیه سمت چپ.",
 "make_a_u_turn":"دور بزنید.",
 "go_straight":"مستقیم بروید.",
+"exit":"خروج.",
 "destination":"شما خواهید رسید.",
 "you_have_reached_the_destination":" شما رسیده اید.  ",
 "in_50_meters":" در پنجاه متری",
@@ -61,5 +62,6 @@
 "in_5000_feet":"در پنج هزار قدمی",
 "in_1_mile":"در یک مایلی",
 "in_1_5_miles":"در یک و نیم مایلی",
-"in_2_miles":"در دو مایلی"
+"in_2_miles":"در دو مایلی",
+"unknown_camera":"Speed camera ahead"
 }

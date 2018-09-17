@@ -1,11 +1,15 @@
 #pragma once
 
+#include "geometry/point2d.hpp"
+
 #include "indexer/feature_decl.hpp"
 
 #include "coding/hex.hpp"
 
 #include "base/math.hpp"
 #include "base/visitor.hpp"
+
+#include "defines.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -333,12 +337,13 @@ struct UGC
 
   bool IsEmpty() const
   {
-    return !((!m_ratings.empty() || !m_reviews.empty()) && m_totalRating >= 0 && m_basedOn > 0);
+    return m_reviews.empty() &&
+           (m_ratings.empty() || m_totalRating <= kInvalidRatingValue || m_basedOn == 0);
   }
 
   Ratings m_ratings;
   Reviews m_reviews;
-  float m_totalRating = -1.f;
+  float m_totalRating = kInvalidRatingValue;
   uint32_t m_basedOn{};
 };
 
@@ -414,5 +419,37 @@ inline std::string DebugPrint(UGCUpdate const & ugcUpdate)
   os << "days since epoch:" << ToDaysSinceEpoch(ugcUpdate.m_time) << " ]";
   return os.str();
 }
+
+enum class IndexVersion : uint8_t
+{
+  V0 = 0,
+  V1 = 1,
+  Latest = V1
+};
+
+struct UpdateIndex
+{
+  DECLARE_VISITOR(visitor.VisitPoint(m_mercator, "x", "y"), visitor(m_type, "type"),
+                  visitor(m_matchingType, "matching_type"),
+                  visitor(m_offset, "offset"), visitor(m_deleted, "deleted"),
+                  visitor(m_synchronized, "synchronized"), visitor(m_mwmName, "mwm_name"),
+                  visitor(m_dataVersion, "data_version"), visitor(m_featureId, "feature_id"),
+                  visitor(m_version, IndexVersion::V0, "version"))
+
+  m2::PointD m_mercator = m2::PointD::Zero();
+  // Index of the type from classificator.txt
+  uint32_t m_type = 0;
+  // Index of the type from ugc_types.txt
+  uint32_t m_matchingType = 0;
+  uint64_t m_offset = 0;
+  bool m_deleted = false;
+  bool m_synchronized = false;
+  std::string m_mwmName;
+  int64_t m_dataVersion = 0;
+  uint32_t m_featureId = 0;
+  IndexVersion m_version = IndexVersion::Latest;
+};
+
+using UpdateIndexes = std::vector<UpdateIndex>;
 }  // namespace ugc
 

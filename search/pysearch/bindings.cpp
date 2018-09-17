@@ -4,6 +4,7 @@
 #include "search/tracer.hpp"
 
 #include "indexer/classificator_loader.hpp"
+#include "indexer/data_source.hpp"
 
 #include "storage/country.hpp"
 #include "storage/country_info_getter.hpp"
@@ -18,7 +19,6 @@
 #include "geometry/rect2d.hpp"
 
 #include "base/assert.hpp"
-#include "base/stl_add.hpp"
 
 #include <boost/python.hpp>
 
@@ -74,7 +74,7 @@ void Init(string const & resource_path, string const & mwm_path)
 
   classificator::Load();
 
-  g_affiliations = my::make_unique<storage::TMappingAffiliations>();
+  g_affiliations = make_unique<storage::TMappingAffiliations>();
   storage::TCountryTree countries;
   auto const rv = storage::LoadCountriesFromFile(countriesFile, countries, *g_affiliations);
   CHECK(rv != -1, ("Can't load countries from:", countriesFile));
@@ -183,9 +183,9 @@ unique_ptr<storage::CountryInfoGetter> CreateCountryInfoGetter()
 
 struct Context
 {
-  Context() : m_engine(m_index, CreateCountryInfoGetter(), search::Engine::Params{}) {}
-
-  Index m_index;
+  Context() : m_engine(m_dataSource, CreateCountryInfoGetter(), search::Engine::Params{}) {}
+  // todo(@pimenov) Choose right type for 'm_dataSource'.
+  FrozenDataSource m_dataSource;
   search::tests_support::TestSearchEngine m_engine;
 };
 
@@ -199,7 +199,7 @@ struct SearchEngineProxy
     for (auto & mwm : mwms)
     {
       mwm.SyncWithDisk();
-      m_context->m_index.RegisterMap(mwm);
+      m_context->m_dataSource.RegisterMap(mwm);
     }
   }
 

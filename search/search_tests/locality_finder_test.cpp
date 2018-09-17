@@ -1,10 +1,10 @@
 #include "testing/testing.hpp"
 
-#include "indexer/indexer_tests_support/test_with_classificator.hpp"
+#include "generator/generator_tests_support/test_with_classificator.hpp"
 
-#include "indexer/data_header.hpp"
-#include "indexer/index.hpp"
 #include "indexer/classificator_loader.hpp"
+#include "indexer/data_header.hpp"
+#include "indexer/data_source.hpp"
 
 #include "search/categories_cache.hpp"
 #include "search/locality_finder.hpp"
@@ -18,13 +18,13 @@
 
 namespace
 {
-class LocalityFinderTest : public indexer::tests_support::TestWithClassificator
+class LocalityFinderTest : public generator::tests_support::TestWithClassificator
 {
   platform::LocalCountryFile m_worldFile;
 
-  Index m_index;
+  FrozenDataSource m_dataSource;
 
-  my::Cancellable m_cancellable;
+  base::Cancellable m_cancellable;
   search::VillagesCache m_villagesCache;
   search::CitiesBoundariesTable m_boundariesTable;
 
@@ -34,20 +34,20 @@ class LocalityFinderTest : public indexer::tests_support::TestWithClassificator
 public:
   LocalityFinderTest()
     : m_villagesCache(m_cancellable)
-    , m_boundariesTable(m_index)
-    , m_finder(m_index, m_boundariesTable, m_villagesCache)
+    , m_boundariesTable(m_dataSource)
+    , m_finder(m_dataSource, m_boundariesTable, m_villagesCache)
   {
     m_worldFile = platform::LocalCountryFile::MakeForTesting("World");
 
     try
     {
-      auto const p = m_index.Register(m_worldFile);
+      auto const p = m_dataSource.Register(m_worldFile);
       TEST_EQUAL(MwmSet::RegResult::Success, p.second, ());
 
       MwmSet::MwmId const & id = p.first;
       TEST(id.IsAlive(), ());
 
-      m_worldRect = id.GetInfo()->m_limitRect;
+      m_worldRect = id.GetInfo()->m_bordersRect;
       m_boundariesTable.Load();
     }
     catch (RootException const & ex)

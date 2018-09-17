@@ -8,7 +8,7 @@
 #include "search/search_tests_support/test_search_request.hpp"
 
 #include "indexer/classificator_loader.hpp"
-#include "indexer/index.hpp"
+#include "indexer/data_source.hpp"
 
 #include "storage/country_info_getter.hpp"
 #include "storage/index.hpp"
@@ -152,7 +152,7 @@ int main(int argc, char * argv[])
   }
 
   classificator::Load();
-  Index index;
+  FrozenDataSource dataSource;
 
   vector<platform::LocalCountryFile> mwms;
   platform::FindAllLocalMapsAndCleanup(numeric_limits<int64_t>::max() /* the latest version */,
@@ -160,13 +160,13 @@ int main(int argc, char * argv[])
   for (auto & mwm : mwms)
   {
     mwm.SyncWithDisk();
-    index.RegisterMap(mwm);
+    dataSource.RegisterMap(mwm);
   }
 
-  TestSearchEngine engine(index, move(infoGetter), Engine::Params{});
+  TestSearchEngine engine(dataSource, move(infoGetter), Engine::Params{});
 
   vector<Stats> stats(samples.size());
-  FeatureLoader loader(index);
+  FeatureLoader loader(dataSource);
   Matcher matcher(loader);
 
   cout << "SampleId,";
@@ -190,7 +190,7 @@ int main(int argc, char * argv[])
 
     for (size_t j = 0; j < results.size(); ++j)
     {
-      if (results[j].GetResultType() != Result::RESULT_FEATURE)
+      if (results[j].GetResultType() != Result::Type::Feature)
         continue;
       auto const & info = results[j].GetRankingInfo();
       cout << i << ",";

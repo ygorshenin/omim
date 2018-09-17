@@ -95,7 +95,13 @@ char const * kCenterLatLon = "cll";
 char const * kLocale = "locale";
 char const * kSearchOnMap = "map";
 }  // namespace search
-  
+
+namespace catalogue
+{
+char const * kId = "id";
+char const * kName = "name";
+}
+
 namespace
 {
 enum class ApiURLType
@@ -104,7 +110,8 @@ enum class ApiURLType
   Map,
   Route,
   Search,
-  Lead
+  Lead,
+  Catalogue
 };
 
 std::array<std::string, 3> const kAvailableSchemes = {{"mapswithme", "mwm", "mapsme"}};
@@ -123,6 +130,8 @@ ApiURLType URLType(Uri const & uri)
     return ApiURLType::Search;
   if (path == "lead")
     return ApiURLType::Lead;
+  if (path == "catalogue")
+    return ApiURLType::Catalogue;
 
   return ApiURLType::Incorrect;
 }
@@ -193,14 +202,14 @@ ParsedMapApi::ParsingResult ParsedMapApi::Parse(Uri const & uri)
         return ParsingResult::Incorrect;
 
       ASSERT(m_bmManager != nullptr, ());
-      UserMarkNotificationGuard guard(*m_bmManager, UserMark::Type::API);
+      auto editSession = m_bmManager->GetEditSession();
       for (auto const & p : points)
       {
         m2::PointD glPoint(MercatorBounds::FromLatLon(p.m_lat, p.m_lon));
-        ApiMarkPoint * mark = static_cast<ApiMarkPoint *>(guard.m_controller.CreateUserMark(glPoint));
+        auto * mark = editSession.CreateUserMark<ApiMarkPoint>(glPoint);
         mark->SetName(p.m_name);
         mark->SetApiID(p.m_id);
-        mark->SetStyle(style::GetSupportedStyle(p.m_style, p.m_name, ""));
+        mark->SetStyle(style::GetSupportedStyle(p.m_style));
       }
 
       return ParsingResult::Map;
@@ -258,7 +267,25 @@ ParsedMapApi::ParsingResult ParsedMapApi::Parse(Uri const & uri)
       description.Write();
       return ParsingResult::Lead;
     }
+    case ApiURLType::Catalogue:
+    {
+      CatalogItem item;
+      auto const result = uri.ForEachKeyValue([&item, this](string const & key, string const & value)
+                                              {
+                                                return CatalogKeyValue(key, value, item);
+                                              });
+
+      if (!result)
+        return ParsingResult::Incorrect;
+
+      if (item.m_id.empty())
+        return ParsingResult::Incorrect;
+
+      m_catalogItem = item;
+      return ParsingResult::Catalogue;
+    }
   }
+  CHECK_SWITCH();
 }
 
 bool ParsedMapApi::RouteKeyValue(string const & key, string const & value, vector<string> & pattern)
@@ -434,6 +461,18 @@ bool ParsedMapApi::LeadKeyValue(string const & key, string const & value, lead::
   return true;
 }
 
+bool ParsedMapApi::CatalogKeyValue(string const & key, string const & value, CatalogItem & item) const
+{
+  using namespace catalogue;
+
+  if (key == kName)
+    item.m_name = value;
+  else if (key == kId)
+    item.m_id = value;
+
+  return true;
+}
+
 void ParsedMapApi::Reset()
 {
   m_globalBackUrl.clear();
@@ -446,20 +485,18 @@ void ParsedMapApi::Reset()
 bool ParsedMapApi::GetViewportRect(m2::RectD & rect) const
 {
   ASSERT(m_bmManager != nullptr, ());
-  UserMarkNotificationGuard guard(*m_bmManager, UserMark::Type::API);
-
-  size_t markCount = guard.m_controller.GetUserMarkCount();
-  if (markCount == 1 && m_zoomLevel >= 1)
+  auto const & markIds = m_bmManager->GetUserMarkIds(UserMark::Type::API);
+  if (markIds.size() == 1 && m_zoomLevel >= 1)
   {
     double zoom = min(static_cast<double>(scales::GetUpperComfortScale()), m_zoomLevel);
-    rect = df::GetRectForDrawScale(zoom, guard.m_controller.GetUserMark(0)->GetPivot());
+    rect = df::GetRectForDrawScale(zoom, m_bmManager->GetUserMark(*markIds.begin())->GetPivot());
     return true;
   }
   else
   {
     m2::RectD result;
-    for (size_t i = 0; i < guard.m_controller.GetUserMarkCount(); ++i)
-      result.Add(guard.m_controller.GetUserMark(i)->GetPivot());
+    for (auto markId : markIds)
+      result.Add(m_bmManager->GetUserMark(markId)->GetPivot());
 
     if (result.IsValid())
     {
@@ -474,12 +511,11 @@ bool ParsedMapApi::GetViewportRect(m2::RectD & rect) const
 ApiMarkPoint const * ParsedMapApi::GetSinglePoint() const
 {
   ASSERT(m_bmManager != nullptr, ());
-  UserMarkNotificationGuard guard(*m_bmManager, UserMark::Type::API);
-
-  if (guard.m_controller.GetUserMarkCount() != 1)
+  auto const & markIds = m_bmManager->GetUserMarkIds(UserMark::Type::API);
+  if (markIds.size() != 1)
     return nullptr;
 
-  return static_cast<ApiMarkPoint const *>(guard.m_controller.GetUserMark(0));
+  return static_cast<ApiMarkPoint const *>(m_bmManager->GetUserMark(*markIds.begin()));
 }
 
 }

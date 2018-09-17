@@ -2,6 +2,9 @@
 
 #include "drape_frontend/route_shape.hpp"
 
+#include "drape/graphics_context.hpp"
+#include "drape/texture_manager.hpp"
+
 namespace df
 {
 RouteBuilder::RouteBuilder(FlushFn && flushFn, FlushArrowsFn && flushArrowsFn,
@@ -11,7 +14,7 @@ RouteBuilder::RouteBuilder(FlushFn && flushFn, FlushArrowsFn && flushArrowsFn,
   , m_flushMarkersFn(std::move(flushMarkersFn))
 {}
 
-void RouteBuilder::Build(dp::DrapeID subrouteId, SubrouteConstPtr subroute,
+void RouteBuilder::Build(ref_ptr<dp::GraphicsContext> context, dp::DrapeID subrouteId, SubrouteConstPtr subroute,
                          ref_ptr<dp::TextureManager> textures, int recacheId)
 {
   RouteCacheData cacheData;
@@ -31,7 +34,7 @@ void RouteBuilder::Build(dp::DrapeID subrouteId, SubrouteConstPtr subroute,
   auto markersData = RouteShape::CacheMarkers(subrouteId, subroute, recacheId, textures);
 
   // Flush route geometry.
-  GLFunctions::glFlush();
+  context->Flush();
 
   if (m_flushFn != nullptr)
   {
@@ -49,8 +52,9 @@ void RouteBuilder::ClearRouteCache()
   m_routeCache.clear();
 }
 
-void RouteBuilder::BuildArrows(dp::DrapeID subrouteId, std::vector<ArrowBorders> const & borders,
-                               ref_ptr<dp::TextureManager> textures, int recacheId)
+void RouteBuilder::BuildArrows(ref_ptr<dp::GraphicsContext> context, dp::DrapeID subrouteId,
+                               std::vector<ArrowBorders> const & borders, ref_ptr<dp::TextureManager> textures,
+                               int recacheId)
 {
   auto it = m_routeCache.find(subrouteId);
   if (it == m_routeCache.end())
@@ -64,7 +68,7 @@ void RouteBuilder::BuildArrows(dp::DrapeID subrouteId, std::vector<ArrowBorders>
                                it->second.m_baseDepthIndex, *routeArrowsData.get());
 
   // Flush route arrows geometry.
-  GLFunctions::glFlush();
+  context->Flush();
 
   if (m_flushArrowsFn != nullptr)
     m_flushArrowsFn(std::move(routeArrowsData));

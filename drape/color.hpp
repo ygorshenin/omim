@@ -12,6 +12,7 @@ namespace dp
 struct Color
 {
   Color();
+  explicit Color(uint32_t rgba);
   Color(uint8_t red, uint8_t green, uint8_t blue, uint8_t alpha);
 
   uint8_t GetRed() const;
@@ -56,10 +57,10 @@ Color Extract(uint32_t xrgb, uint8_t a);
 inline string DebugPrint(Color const & c)
 {
   ostringstream out;
-  out << "R = " << c.GetRed()
-      << "G = " << c.GetGreen()
-      << "B = " << c.GetBlue()
-      << "A = " << c.GetAlpha();
+  out << "[R = " << static_cast<uint32_t>(c.GetRed())
+      << ", G = " << static_cast<uint32_t>(c.GetGreen())
+      << ", B = " << static_cast<uint32_t>(c.GetBlue())
+      << ", A = " << static_cast<uint32_t>(c.GetAlpha()) << "]";
   return out.str();
 }
 

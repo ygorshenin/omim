@@ -43,13 +43,6 @@ BookingHotel::BookingHotel(std::string const & src)
   m_translations = rec[FieldIndex(Fields::Translations)];
 }
 
-std::ostream & operator<<(std::ostream & s, BookingHotel const & h)
-{
-  s << std::fixed << std::setprecision(7);
-  s << "Id: " << h.m_id << "\t Name: " << h.m_name << "\t Address: " << h.m_address
-    << "\t lat: " << h.m_latLon.lat << " lon: " << h.m_latLon.lon;
-  return s;
-}
 
 // BookingDataset ----------------------------------------------------------------------------------
 template <>
@@ -77,7 +70,7 @@ void BookingDataset::PreprocessMatchedOsmObject(ObjectId, FeatureBuilder1 & fb,
     meta.Drop(feature::Metadata::EType::FMD_PHONE_NUMBER);
 
     auto const tourism = classif().GetTypeByPath({"tourism"});
-    my::EraseIf(params.m_Types, [tourism](uint32_t type)
+    base::EraseIf(params.m_types, [tourism](uint32_t type)
     {
       ftype::TruncValue(type, 1);
       return type == tourism;

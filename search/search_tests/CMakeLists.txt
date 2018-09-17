@@ -20,9 +20,11 @@ set(
   point_rect_matcher_tests.cpp
   query_saver_tests.cpp
   ranking_tests.cpp
+  results_tests.cpp
   region_info_getter_tests.cpp
   segment_tree_tests.cpp
   string_match_test.cpp
+  text_index_tests.cpp
 )
 
 omim_add_test(${PROJECT_NAME} ${SRC})
@@ -30,11 +32,11 @@ omim_add_test(${PROJECT_NAME} ${SRC})
 omim_link_libraries(
   ${PROJECT_NAME}
   search_tests_support
-  indexer_tests_support
   generator_tests_support
+  platform_tests_support
   search
-  indexer
   editor
+  indexer
   storage
   platform
   geometry

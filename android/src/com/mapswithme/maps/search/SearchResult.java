@@ -1,5 +1,7 @@
 package com.mapswithme.maps.search;
 
+import android.support.annotation.NonNull;
+
 import com.mapswithme.maps.bookmarks.data.FeatureId;
 
 import static com.mapswithme.maps.search.SearchResultTypes.TYPE_LOCAL_ADS_CUSTOMER;
@@ -10,12 +12,15 @@ import static com.mapswithme.maps.search.SearchResultTypes.TYPE_SUGGEST;
  * Class instances are created from native code.
  */
 @SuppressWarnings("unused")
-public class SearchResult implements SearchData
+public class SearchResult implements SearchData, PopularityProvider
 {
   // Values should match osm::YesNoUnknown enum.
   public static final int OPEN_NOW_UNKNOWN = 0;
   public static final int OPEN_NOW_YES = 1;
   public static final int OPEN_NOW_NO = 2;
+
+  public static final SearchResult EMPTY = new SearchResult("", "", 0, 0,
+                                                            new int[] {});
 
   public static class Description
   {
@@ -24,23 +29,26 @@ public class SearchResult implements SearchData
     public final String region;
     public final String distance;
     public final String cuisine;
-    public final String rating;
     public final String pricing;
+    public final float rating;
     public final int stars;
     public final int openNow;
+    public final boolean hasPopularityHigherPriority;
 
     public Description(FeatureId featureId, String featureType, String region, String distance,
-                       String cuisine, String rating, String pricing, int stars, int openNow)
+                       String cuisine, String pricing, float rating, int stars, int openNow,
+                       boolean hasPopularityHigherPriority)
     {
       this.featureId = featureId;
       this.featureType = featureType;
       this.region = region;
       this.distance = distance;
       this.cuisine = cuisine;
-      this.rating = rating;
       this.pricing = pricing;
+      this.rating = rating;
       this.stars = stars;
       this.openNow = openNow;
+      this.hasPopularityHigherPriority = hasPopularityHigherPriority;
     }
   }
 
@@ -56,6 +64,8 @@ public class SearchResult implements SearchData
   public final int[] highlightRanges;
 
   public final boolean isHotel;
+  @NonNull
+  private final Popularity mPopularity;
 
   public SearchResult(String name, String suggestion, double lat, double lon, int[] highlightRanges)
   {
@@ -66,16 +76,17 @@ public class SearchResult implements SearchData
     this.isHotel = false;
     this.description = null;
     this.type = TYPE_SUGGEST;
-
     this.highlightRanges = highlightRanges;
+    mPopularity = Popularity.defaultInstance();
   }
 
   public SearchResult(String name, Description description, double lat, double lon, int[] highlightRanges,
-                      boolean isHotel, boolean isLocalAdsCustomer)
+                      boolean isHotel, boolean isLocalAdsCustomer, @NonNull Popularity popularity)
   {
     this.type = isLocalAdsCustomer ? TYPE_LOCAL_ADS_CUSTOMER : TYPE_RESULT;
     this.name = name;
     this.isHotel = isHotel;
+    mPopularity = popularity;
     this.suggestion = null;
     this.lat = lat;
     this.lon = lon;
@@ -87,5 +98,12 @@ public class SearchResult implements SearchData
   public int getItemViewType()
   {
     return type;
+  }
+
+  @NonNull
+  @Override
+  public Popularity getPopularity()
+  {
+    return mPopularity;
   }
 }

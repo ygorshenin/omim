@@ -2,9 +2,6 @@
 <Workspace
    version = "1.0">
    <FileRef
-      location = "group:transit/transit.xcodeproj">
-   </FileRef>
-   <FileRef
       location = "container:common-debug.xcconfig">
    </FileRef>
    <FileRef
@@ -190,6 +187,9 @@
       location = "container:"
       name = "3party">
       <FileRef
+         location = "container:open_location_code/open_location_code.xcodeproj">
+      </FileRef>
+      <FileRef
          location = "container:agg/agg.xcodeproj">
       </FileRef>
       <FileRef
@@ -260,6 +260,9 @@
       location = "container:drape_frontend/drape_frontend.xcodeproj">
    </FileRef>
    <FileRef
+      location = "group:shaders/shaders.xcodeproj">
+   </FileRef>
+   <FileRef
       location = "container:editor/editor.xcodeproj">
    </FileRef>
    <FileRef
@@ -285,6 +288,9 @@
    </FileRef>
    <FileRef
       location = "container:mapshot/mapshot.xcodeproj">
+   </FileRef>
+   <FileRef
+      location = "group:metrics/metrics.xcodeproj">
    </FileRef>
    <FileRef
       location = "container:openlr/openlr.xcodeproj">
@@ -314,6 +320,9 @@
       location = "container:tracking/tracking.xcodeproj">
    </FileRef>
    <FileRef
+      location = "group:transit/transit.xcodeproj">
+   </FileRef>
+   <FileRef
       location = "container:qtMapsMe/qtMapsMe.xcodeproj">
    </FileRef>
    <FileRef
@@ -321,6 +330,9 @@
    </FileRef>
    <FileRef
       location = "container:software_renderer/software_renderer.xcodeproj">
+   </FileRef>
+   <FileRef
+      location = "container:kml/kml.xcodeproj">
    </FileRef>
    <FileRef
       location = "container:../iphone/Maps/Maps.xcodeproj">

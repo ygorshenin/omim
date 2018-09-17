@@ -1,17 +1,22 @@
 #pragma once
 
-#include "indexer/feature.hpp"
+#include "indexer/feature_data.hpp"
 
 #include "coding/file_reader.hpp"
 #include "coding/read_write_utils.hpp"
 
-#include "base/osm_id.hpp"
+#include "base/geo_object_id.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <functional>
 #include <list>
+#include <string>
+#include <vector>
 
-
-namespace serial { class CodingParams; }
+namespace serial
+{
+class GeometryCodingParams;
+}  // namespace serial
 
 /// Used for serialization\deserialization of features during --generate_features.
 class FeatureBuilder1
@@ -20,10 +25,10 @@ class FeatureBuilder1
   friend std::string DebugPrint(FeatureBuilder1 const & f);
 
 public:
-  using TPointSeq = vector<m2::PointD>;
-  using TGeometry = std::list<TPointSeq>;
+  using PointSeq = std::vector<m2::PointD>;
+  using Geometry = std::list<PointSeq>;
 
-  using TBuffer = vector<char>;
+  using Buffer = std::vector<char>;
 
   FeatureBuilder1();
 
@@ -47,30 +52,30 @@ public:
   void SetLinear(bool reverseGeometry = false);
 
   /// Set that feature is area and get ownership of holes.
-  void SetAreaAddHoles(TGeometry const & holes);
-  inline void SetArea() { m_params.SetGeomType(feature::GEOM_AREA); }
+  void SetAreaAddHoles(Geometry const & holes);
+  void SetArea() { m_params.SetGeomType(feature::GEOM_AREA); }
 
-  inline bool IsLine() const { return (GetGeomType() == feature::GEOM_LINE); }
-  inline bool IsArea() const { return (GetGeomType() == feature::GEOM_AREA); }
+  bool IsLine() const { return (GetGeomType() == feature::GEOM_LINE); }
+  bool IsArea() const { return (GetGeomType() == feature::GEOM_AREA); }
 
-  void AddPolygon(vector<m2::PointD> & poly);
+  void AddPolygon(std::vector<m2::PointD> & poly);
 
   void ResetGeometry();
   //@}
 
 
-  inline feature::Metadata const & GetMetadata() const { return m_params.GetMetadata(); }
-  inline feature::Metadata & GetMetadataForTesting() { return m_params.GetMetadata(); }
-  inline TGeometry const & GetGeometry() const { return m_polygons; }
-  inline TPointSeq const & GetOuterGeometry() const { return m_polygons.front(); }
-  inline feature::EGeomType GetGeomType() const { return m_params.GetGeomType(); }
+  feature::Metadata const & GetMetadata() const { return m_params.GetMetadata(); }
+  feature::Metadata & GetMetadataForTesting() { return m_params.GetMetadata(); }
+  Geometry const & GetGeometry() const { return m_polygons; }
+  PointSeq const & GetOuterGeometry() const { return m_polygons.front(); }
+  feature::EGeomType GetGeomType() const { return m_params.GetGeomType(); }
 
-  inline void AddType(uint32_t type) { m_params.AddType(type); }
-  inline bool HasType(uint32_t t) const { return m_params.IsTypeExist(t); }
-  inline bool PopExactType(uint32_t type) { return m_params.PopExactType(type); }
-  inline void SetType(uint32_t type) { m_params.SetType(type); }
-  inline uint32_t FindType(uint32_t comp, uint8_t level) const { return m_params.FindType(comp, level); }
-  inline FeatureParams::TTypes const & GetTypes() const  { return m_params.m_Types; }
+  void AddType(uint32_t type) { m_params.AddType(type); }
+  bool HasType(uint32_t t) const { return m_params.IsTypeExist(t); }
+  bool PopExactType(uint32_t type) { return m_params.PopExactType(type); }
+  void SetType(uint32_t type) { m_params.SetType(type); }
+  uint32_t FindType(uint32_t comp, uint8_t level) const { return m_params.FindType(comp, level); }
+  FeatureParams::Types const & GetTypes() const { return m_params.m_types; }
 
   /// Check classificator types for their compatibility with feature geometry type.
   /// Need to call when using any classificator types manipulating.
@@ -83,35 +88,36 @@ public:
 
   template <class FnT> bool RemoveTypesIf(FnT fn)
   {
-    m_params.m_Types.erase(remove_if(m_params.m_Types.begin(), m_params.m_Types.end(), fn),
-                           m_params.m_Types.end());
-    return m_params.m_Types.empty();
+    base::EraseIf(m_params.m_types, fn);
+    return m_params.m_types.empty();
   }
 
   /// @name Serialization.
   //@{
-  void Serialize(TBuffer & data) const;
-  void SerializeBase(TBuffer & data, serial::CodingParams const & params, bool saveAddInfo) const;
+  void Serialize(Buffer & data) const;
+  void SerializeBase(Buffer & data, serial::GeometryCodingParams const & params,
+                     bool saveAddInfo) const;
+  void SerializeBorder(serial::GeometryCodingParams const & params, Buffer & data) const;
 
-  void Deserialize(TBuffer & data);
+  void Deserialize(Buffer & data);
   //@}
 
   /// @name Selectors.
   //@{
-  inline m2::RectD GetLimitRect() const { return m_limitRect; }
+  m2::RectD GetLimitRect() const { return m_limitRect; }
 
   bool FormatFullAddress(std::string & res) const;
 
   /// Get common parameters of feature.
-  FeatureBase GetFeatureBase() const;
+  feature::TypesHolder GetTypesHolder() const;
 
   bool IsGeometryClosed() const;
   m2::PointD GetGeometryCenter() const;
   m2::PointD GetKeyPoint() const;
 
   size_t GetPointsCount() const;
-  inline size_t GetPolygonsCount() const { return m_polygons.size(); }
-  inline size_t GetTypesCount() const { return m_params.m_Types.size(); }
+  size_t GetPolygonsCount() const { return m_polygons.size(); }
+  size_t GetTypesCount() const { return m_params.m_types.size(); }
   //@}
 
   /// @name Iterate through polygons points.
@@ -135,7 +141,7 @@ public:
       toDo(m_center);
     else
     {
-      for (TPointSeq const & points : m_polygons)
+      for (PointSeq const & points : m_polygons)
       {
         for (auto const & pt : points)
           if (!toDo(pt))
@@ -157,22 +163,21 @@ public:
 
   /// @note This function overrides all previous assigned types.
   /// Set all the parameters, except geometry type (it's set by other functions).
-  inline void SetParams(FeatureParams const & params) { m_params.SetParams(params); }
+  void SetParams(FeatureParams const & params) { m_params.SetParams(params); }
 
-  inline FeatureParams const & GetParams() const { return m_params; }
+  FeatureParams const & GetParams() const { return m_params; }
 
   /// @name For OSM debugging and osm objects replacement, store original OSM id
   //@{
-  void AddOsmId(osm::Id id);
-  void SetOsmId(osm::Id id);
-  osm::Id GetFirstOsmId() const;
-  osm::Id GetLastOsmId() const;
+  void AddOsmId(base::GeoObjectId id);
+  void SetOsmId(base::GeoObjectId id);
+  base::GeoObjectId GetFirstOsmId() const;
+  base::GeoObjectId GetLastOsmId() const;
   /// @returns an id of the most general element: node's one if there is no area or relation,
   /// area's one if there is no relation, and relation id otherwise.
-  osm::Id GetMostGenericOsmId() const;
-  bool HasOsmId(osm::Id const & id) const;
-  std::string GetOsmIdsString() const;
-  vector<osm::Id> const & GetOsmIds() const { return m_osmIds; }
+  base::GeoObjectId GetMostGenericOsmId() const;
+  bool HasOsmId(base::GeoObjectId const & id) const;
+  std::vector<base::GeoObjectId> const & GetOsmIds() const { return m_osmIds; }
   //@}
 
   uint64_t GetWayIDForRouting() const;
@@ -181,7 +186,7 @@ public:
   bool IsDrawableInRange(int lowScale, int highScale) const;
 
   void SetCoastCell(int64_t iCell) { m_coastCell = iCell; }
-  inline bool IsCoastCell() const { return (m_coastCell != -1); }
+  bool IsCoastCell() const { return (m_coastCell != -1); }
 
   bool AddName(std::string const & lang, std::string const & name);
   std::string GetName(int8_t lang = StringUtf8Multilang::kDefaultCode) const;
@@ -199,7 +204,7 @@ public:
 
 protected:
   /// Used for features debugging
-  vector<osm::Id> m_osmIds;
+  std::vector<base::GeoObjectId> m_osmIds;
 
   FeatureParams m_params;
 
@@ -212,7 +217,7 @@ protected:
   m2::PointD m_center;    // Check  HEADER_HAS_POINT
 
   /// List of geometry polygons.
-  TGeometry m_polygons; // Check HEADER_IS_AREA
+  Geometry m_polygons; // Check HEADER_IS_AREA
 
   /// Not used in GEOM_POINTs
   int64_t m_coastCell;
@@ -221,10 +226,10 @@ protected:
 /// Used for serialization of features during final pass.
 class FeatureBuilder2 : public FeatureBuilder1
 {
-  using TBase = FeatureBuilder1;
-  using TOffsets = vector<uint32_t>;
+  using Base = FeatureBuilder1;
+  using Offsets = std::vector<uint32_t>;
 
-  static void SerializeOffsets(uint32_t mask, TOffsets const & offsets, TBuffer & buffer);
+  static void SerializeOffsets(uint32_t mask, Offsets const & offsets, Buffer & buffer);
 
   /// For debugging
   friend std::string DebugPrint(FeatureBuilder2 const & f);
@@ -234,19 +239,19 @@ public:
   {
     /// @name input
     //@{
-    TOffsets m_ptsOffset;
-    TOffsets m_trgOffset;
+    Offsets m_ptsOffset;
+    Offsets m_trgOffset;
     uint8_t m_ptsMask;
     uint8_t m_trgMask;
 
     uint32_t m_ptsSimpMask;
 
-    TPointSeq m_innerPts;
-    TPointSeq m_innerTrg;
+    PointSeq m_innerPts;
+    PointSeq m_innerTrg;
     //@}
 
     /// @name output
-    TBase::TBuffer m_buffer;
+    Base::Buffer m_buffer;
 
     SupportingData() : m_ptsMask(0), m_trgMask(0), m_ptsSimpMask(0) {}
   };
@@ -254,7 +259,10 @@ public:
   /// @name Overwrite from base_type.
   //@{
   bool PreSerialize(SupportingData const & data);
-  void Serialize(SupportingData & data, serial::CodingParams const & params);
+  bool IsLocalityObject() const;
+  void SerializeLocalityObject(serial::GeometryCodingParams const & params,
+                               SupportingData & data) const;
+  void Serialize(SupportingData & data, serial::GeometryCodingParams const & params) const;
   //@}
 
   feature::AddressData const & GetAddressData() const { return m_params.GetAddressData(); }
@@ -267,7 +275,7 @@ namespace feature
   void ReadFromSourceRowFormat(TSource & src, FeatureBuilder1 & fb)
   {
     uint32_t const sz = ReadVarUint<uint32_t>(src);
-    typename FeatureBuilder1::TBuffer buffer(sz);
+    typename FeatureBuilder1::Buffer buffer(sz);
     src.Read(&buffer[0], sz);
     fb.Deserialize(buffer);
   }

@@ -6,6 +6,7 @@ include_directories(
 
 set(
   SRC
+  transit_display_info.hpp
   transit_graph_data.cpp
   transit_graph_data.hpp
   transit_serdes.hpp
@@ -14,5 +15,5 @@ set(
   transit_types.hpp
 )
 
-add_library(${PROJECT_NAME} ${SRC})
+omim_add_library(${PROJECT_NAME} ${SRC})
 omim_add_test_subdirectory(transit_tests)

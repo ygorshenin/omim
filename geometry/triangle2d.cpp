@@ -1,15 +1,17 @@
 #include "triangle2d.hpp"
 
-#include "distance.hpp"
-#include "robust_orientation.hpp"
-#include "segment2d.hpp"
+#include "geometry/parametrized_segment.hpp"
+#include "geometry/robust_orientation.hpp"
+#include "geometry/segment2d.hpp"
 
 #include "base/math.hpp"
 
-#include "std/chrono.hpp"
-#include "std/random.hpp"
+#include <chrono>
+#include <limits>
+#include <random>
 
 using namespace m2::robust;
+using namespace std;
 
 namespace m2
 {
@@ -57,7 +59,7 @@ m2::PointD GetRandomPointInsideTriangle(m2::TriangleD const & t)
 {
   size_t kDistribMax = 1000;
 
-  auto const seed = static_cast<uint32_t>(system_clock::now().time_since_epoch().count());
+  auto const seed = static_cast<uint32_t>(chrono::system_clock::now().time_since_epoch().count());
   default_random_engine engine(seed);
   uniform_int_distribution<size_t> distrib(0, kDistribMax);
   double const r1 = sqrt(static_cast<double>(distrib(engine)) / kDistribMax);
@@ -70,7 +72,7 @@ m2::PointD GetRandomPointInsideTriangles(vector<m2::TriangleD> const & v)
   if (v.empty())
     return m2::PointD();
 
-  auto const seed = static_cast<uint32_t>(system_clock::now().time_since_epoch().count());
+  auto const seed = static_cast<uint32_t>(chrono::system_clock::now().time_since_epoch().count());
   default_random_engine engine(seed);
   uniform_int_distribution<size_t> distrib(0, v.size() - 1);
   return GetRandomPointInsideTriangle(v[distrib(engine)]);
@@ -81,7 +83,6 @@ m2::PointD ProjectPointToTriangles(m2::PointD const & pt, vector<m2::TriangleD> 
   if (v.empty())
     return pt;
 
-  auto distToLine = m2::DistanceToLineSquare<m2::PointD>();
   int minT = -1;
   int minI = -1;
   double minDist = numeric_limits<double>::max();
@@ -89,8 +90,8 @@ m2::PointD ProjectPointToTriangles(m2::PointD const & pt, vector<m2::TriangleD> 
   {
     for (int i = 0; i < 3; i++)
     {
-      distToLine.SetBounds(v[t].m_points[i], v[t].m_points[(i + 1) % 3]);
-      double const dist = distToLine(pt);
+      m2::ParametrizedSegment<m2::PointD> segment(v[t].m_points[i], v[t].m_points[(i + 1) % 3]);
+      double const dist = segment.SquaredDistanceToPoint(pt);
       if (dist < minDist)
       {
         minDist = dist;
@@ -99,9 +100,8 @@ m2::PointD ProjectPointToTriangles(m2::PointD const & pt, vector<m2::TriangleD> 
       }
     }
   }
-  auto projectToLine = m2::ProjectionToSection<m2::PointD>();
-  projectToLine.SetBounds(v[minT].m_points[minI], v[minT].m_points[(minI + 1) % 3]);
-  return projectToLine(pt);
+  m2::ParametrizedSegment<m2::PointD> segment(v[minT].m_points[minI],
+                                              v[minT].m_points[(minI + 1) % 3]);
+  return segment.ClosestPointTo(pt);
 }
-
 } // namespace m2;

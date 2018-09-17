@@ -1,6 +1,7 @@
 #pragma once
 
 #include "routing/index_router.hpp"
+#include "routing/routing_callbacks.hpp"
 
 #include "storage/country_info_getter.hpp"
 
@@ -28,7 +29,7 @@
  *    Do this only if you really need it.
  * 3. If you want to check that a turn is absent - use TestTurnCount.
  * 4. The easiest way to gather all the information for writing an integration test is
- *    - to put a break point in IRouter::CalculateRoute() method;
+ *    - to put a break point in CalculateRoute() method;
  *    - to make a route with MapWithMe desktop application;
  *    - to get all necessary parameters and result of the route calculation;
  *    - to place them into the test you're writing.
@@ -42,7 +43,7 @@ using namespace routing;
 using namespace turns;
 using platform::LocalCountryFile;
 
-typedef pair<shared_ptr<Route>, IRouter::ResultCode> TRouteResult;
+typedef pair<shared_ptr<Route>, RouterResultCode> TRouteResult;
 
 namespace integration
 {
@@ -50,7 +51,7 @@ shared_ptr<model::FeaturesFetcher> CreateFeaturesFetcher(vector<LocalCountryFile
 
 unique_ptr<storage::CountryInfoGetter> CreateCountryInfoGetter();
 
-unique_ptr<IndexRouter> CreateVehicleRouter(Index & index,
+unique_ptr<IndexRouter> CreateVehicleRouter(DataSource & dataSource,
                                             storage::CountryInfoGetter const & infoGetter,
                                             traffic::TrafficCache const & trafficCache,
                                             vector<LocalCountryFile> const & localFiles,
@@ -80,7 +81,7 @@ class VehicleRouterComponents : public IRouterComponents
 public:
   VehicleRouterComponents(vector<LocalCountryFile> const & localFiles, VehicleType vehicleType)
     : IRouterComponents(localFiles)
-    , m_indexRouter(CreateVehicleRouter(m_featuresFetcher->GetIndex(), *m_infoGetter, m_trafficCache,
+    , m_indexRouter(CreateVehicleRouter(m_featuresFetcher->GetDataSource(), *m_infoGetter, m_trafficCache,
                                         localFiles, vehicleType))
   {
   }

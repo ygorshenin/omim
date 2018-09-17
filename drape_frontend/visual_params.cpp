@@ -8,21 +8,14 @@
 
 #include "indexer/scales.hpp"
 
-#include "std/algorithm.hpp"
-#include "std/limits.hpp"
-#include "std/utility.hpp"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <utility>
 
 namespace df
 {
-
-namespace
-{
-
-static VisualParams g_VizParams;
-
-typedef pair<string, double> visual_scale_t;
-
-} // namespace
+using VisualScale = std::pair<std::string, double>;
 
 #ifdef DEBUG
 static bool g_isInited = false;
@@ -38,66 +31,81 @@ double const VisualParams::kHdpiScale = 1.5;
 double const VisualParams::kXhdpiScale = 2.0;
 double const VisualParams::k6plusScale = 2.4;
 double const VisualParams::kXxhdpiScale = 3.0;
+double const VisualParams::kXxxhdpiScale = 3.5;
+
+VisualParams::VisualParams()
+  : m_tileSize(0)
+  , m_visualScale(0.0)
+  , m_fontScale(1.0)
+{}
+
+VisualParams & VisualParams::Instance()
+{
+  static VisualParams vizParams;
+  return vizParams;
+}
 
 void VisualParams::Init(double vs, uint32_t tileSize)
 {
-  g_VizParams.m_tileSize = tileSize;
-  g_VizParams.m_visualScale = vs;
+  VisualParams & vizParams = Instance();
+  vizParams.m_tileSize = tileSize;
+  vizParams.m_visualScale = vs;
 
   // Here we set up glyphs rendering parameters separately for high-res and low-res screens.
   if (vs <= 1.0)
-    g_VizParams.m_glyphVisualParams = { 0.48f, 0.08f, 0.2f, 0.01f, 0.49f, 0.04f };
+    vizParams.m_glyphVisualParams = { 0.48f, 0.08f, 0.2f, 0.01f, 0.49f, 0.04f };
   else
-    g_VizParams.m_glyphVisualParams = { 0.5f, 0.06f, 0.2f, 0.01f, 0.49f, 0.04f };
+    vizParams.m_glyphVisualParams = { 0.5f, 0.06f, 0.2f, 0.01f, 0.49f, 0.04f };
 
   RISE_INITED;
 }
 
 uint32_t VisualParams::GetGlyphSdfScale() const
 {
+  ASSERT_INITED;
   return (m_visualScale <= 1.0) ? 3 : 4;
 }
 
 bool VisualParams::IsSdfPrefered() const
 {
+  ASSERT_INITED;
   return m_visualScale >= kHdpiScale;
 }
 
 uint32_t VisualParams::GetGlyphBaseSize() const
 {
+  ASSERT_INITED;
   return 22;
 }
 
 double VisualParams::GetFontScale() const
 {
+  ASSERT_INITED;
   return m_fontScale;
 }
 
 void VisualParams::SetFontScale(double fontScale)
 {
+  ASSERT_INITED;
   m_fontScale = fontScale;
 }
 
-VisualParams & VisualParams::Instance()
+std::string const & VisualParams::GetResourcePostfix(double visualScale)
 {
   ASSERT_INITED;
-  return g_VizParams;
-}
-
-string const & VisualParams::GetResourcePostfix(double visualScale)
-{
-  static visual_scale_t postfixes[] =
+  static VisualScale postfixes[] =
   {
-    make_pair("mdpi", kMdpiScale),
-    make_pair("hdpi", kHdpiScale),
-    make_pair("xhdpi", kXhdpiScale),
-    make_pair("xxhdpi", kXxhdpiScale),
-    make_pair("6plus", k6plusScale),
+    std::make_pair("mdpi", kMdpiScale),
+    std::make_pair("hdpi", kHdpiScale),
+    std::make_pair("xhdpi", kXhdpiScale),
+    std::make_pair("6plus", k6plusScale),
+    std::make_pair("xxhdpi", kXxhdpiScale),
+    std::make_pair("xxxhdpi", kXxxhdpiScale),
   };
 
   // Looking for the nearest available scale.
   int postfixIndex = -1;
-  double minValue = numeric_limits<double>::max();
+  double minValue = std::numeric_limits<double>::max();
   for (int i = 0; i < static_cast<int>(ARRAY_SIZE(postfixes)); i++)
   {
     double val = fabs(postfixes[i].second - visualScale);
@@ -112,49 +120,49 @@ string const & VisualParams::GetResourcePostfix(double visualScale)
   return postfixes[postfixIndex].first;
 }
 
-string const & VisualParams::GetResourcePostfix() const
+std::string const & VisualParams::GetResourcePostfix() const
 {
+  ASSERT_INITED;
   return VisualParams::GetResourcePostfix(m_visualScale);
 }
 
 double VisualParams::GetVisualScale() const
 {
+  ASSERT_INITED;
   return m_visualScale;
 }
 
 uint32_t VisualParams::GetTileSize() const
 {
+  ASSERT_INITED;
   return m_tileSize;
 }
 
 uint32_t VisualParams::GetTouchRectRadius() const
 {
+  ASSERT_INITED;
   float const kRadiusInPixels = 20.0f;
-  return kRadiusInPixels * GetVisualScale();
+  return static_cast<uint32_t>(kRadiusInPixels * GetVisualScale());
 }
 
 double VisualParams::GetDragThreshold() const
 {
+  ASSERT_INITED;
   double const kDragThresholdInPixels = 10.0;
   return kDragThresholdInPixels * GetVisualScale();
 }
 
 double VisualParams::GetScaleThreshold() const
 {
+  ASSERT_INITED;
   double const kScaleThresholdInPixels = 2.0;
   return kScaleThresholdInPixels * GetVisualScale();
 }
 
 VisualParams::GlyphVisualParams const & VisualParams::GetGlyphVisualParams() const
 {
+  ASSERT_INITED;
   return m_glyphVisualParams;
-}
-
-VisualParams::VisualParams()
-  : m_tileSize(0)
-  , m_visualScale(0.0)
-  , m_fontScale(1.0)
-{
 }
 
 m2::RectD const & GetWorldRect()
@@ -168,8 +176,7 @@ int GetTileScaleBase(ScreenBase const & s, uint32_t tileSize)
   ScreenBase tmpS = s;
   tmpS.Rotate(-tmpS.GetAngle());
 
-  // slightly smaller than original to produce "antialiasing" effect using bilinear filtration.
-  int const halfSize = static_cast<int>(tileSize / 1.05 / 2.0);
+  auto const halfSize = tileSize / 2;
 
   m2::RectD glbRect;
   m2::PointD const pxCenter = tmpS.PixelRect().Center();
@@ -187,13 +194,18 @@ int GetTileScaleBase(ScreenBase const & s)
 
 int GetTileScaleBase(m2::RectD const & r)
 {
-  double const sz = max(r.SizeX(), r.SizeY());
-  return max(1, my::rounds(log((MercatorBounds::maxX - MercatorBounds::minX) / sz) / log(2.0)));
+  double const sz = std::max(r.SizeX(), r.SizeY());
+  return std::max(1, my::rounds(log((MercatorBounds::maxX - MercatorBounds::minX) / sz) / log(2.0)));
+}
+
+double GetTileScaleBase(double drawScale)
+{
+  return std::max(1.0, drawScale - GetTileScaleIncrement());
 }
 
 int GetTileScaleIncrement(uint32_t tileSize, double visualScale)
 {
-  return log(tileSize / 256.0 / visualScale) / log(2.0);
+  return static_cast<int>(log(tileSize / 256.0 / visualScale) / log(2.0));
 }
 
 int GetTileScaleIncrement()
@@ -205,7 +217,7 @@ int GetTileScaleIncrement()
 m2::RectD GetRectForDrawScale(int drawScale, m2::PointD const & center, uint32_t tileSize, double visualScale)
 {
   // +1 - we will calculate half length for each side
-  double const factor = 1 << (max(1, drawScale - GetTileScaleIncrement(tileSize, visualScale)) + 1);
+  double const factor = 1 << (std::max(1, drawScale - GetTileScaleIncrement(tileSize, visualScale)) + 1);
 
   double const len = (MercatorBounds::maxX - MercatorBounds::minX) / factor;
 
@@ -233,7 +245,7 @@ m2::RectD GetRectForDrawScale(double drawScale, m2::PointD const & center)
 
 uint32_t CalculateTileSize(uint32_t screenWidth, uint32_t screenHeight)
 {
-  uint32_t const maxSz = max(screenWidth, screenHeight);
+  uint32_t const maxSz = std::max(screenWidth, screenHeight);
 
   // we're calculating the tileSize based on (maxSz > 1024 ? rounded : ceiled)
   // to the nearest power of two value of the maxSz
@@ -264,7 +276,7 @@ uint32_t CalculateTileSize(uint32_t screenWidth, uint32_t screenHeight)
 
 int GetDrawTileScale(int baseScale, uint32_t tileSize, double visualScale)
 {
-  return max(1, baseScale + GetTileScaleIncrement(tileSize, visualScale));
+  return std::max(1, baseScale + GetTileScaleIncrement(tileSize, visualScale));
 }
 
 int GetDrawTileScale(ScreenBase const & s, uint32_t tileSize, double visualScale)
@@ -283,6 +295,11 @@ int GetDrawTileScale(int baseScale)
   return GetDrawTileScale(baseScale, p.GetTileSize(), p.GetVisualScale());
 }
 
+double GetDrawTileScale(double baseScale)
+{
+  return std::max(1.0, baseScale + GetTileScaleIncrement());
+}
+
 int GetDrawTileScale(ScreenBase const & s)
 {
   VisualParams const & p = VisualParams::Instance();
@@ -293,12 +310,6 @@ int GetDrawTileScale(m2::RectD const & r)
 {
   VisualParams const & p = VisualParams::Instance();
   return GetDrawTileScale(r, p.GetTileSize(), p.GetVisualScale());
-}
-
-double GetZoomLevel(double scale)
-{
-  static double const kLog2 = log(2.0);
-  return my::clamp(fabs(log(scale) / kLog2), 1.0, scales::GetUpperStyleScale() + 1.0);
 }
 
 void ExtractZoomFactors(ScreenBase const & s, double & zoom, int & index, float & lerpCoef)
@@ -327,15 +338,28 @@ m2::PointF InterpolateByZoomLevels(int index, float lerpCoef, std::vector<m2::Po
   return values[scales::UPPER_STYLE_SCALE];
 }
 
-double GetNormalizedZoomLevel(double scale, int minZoom)
+double GetNormalizedZoomLevel(double screenScale, int minZoom)
 {
   double const kMaxZoom = scales::GetUpperStyleScale() + 1.0;
-  return my::clamp((GetZoomLevel(scale) - minZoom) / (kMaxZoom - minZoom), 0.0, 1.0);
+  return my::clamp((GetZoomLevel(screenScale) - minZoom) / (kMaxZoom - minZoom), 0.0, 1.0);
 }
 
-double GetScale(double zoomLevel)
+double GetScreenScale(double zoomLevel)
 {
-  return pow(2.0, -zoomLevel);
+  VisualParams const & p = VisualParams::Instance();
+  auto const factor = pow(2.0, GetTileScaleBase(zoomLevel));
+  auto const len = (MercatorBounds::maxX - MercatorBounds::minX) / factor;
+  auto const pxLen = static_cast<double>(p.GetTileSize());
+  return len / pxLen;
 }
 
-} // namespace df
+double GetZoomLevel(double screenScale)
+{
+  VisualParams const & p = VisualParams::Instance();
+  auto const pxLen = static_cast<double>(p.GetTileSize());
+  auto const len = pxLen * screenScale;
+  auto const factor = (MercatorBounds::maxX - MercatorBounds::minX) / len;
+  static double const kLog2 = log(2.0);
+  return my::clamp(GetDrawTileScale(fabs(log(factor) / kLog2)), 1.0, scales::GetUpperStyleScale() + 1.0);
+}
+}  // namespace df

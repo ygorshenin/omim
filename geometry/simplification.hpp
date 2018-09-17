@@ -1,12 +1,16 @@
 #pragma once
-#include "base/base.hpp"
-#include "base/stl_add.hpp"
-#include "base/logging.hpp"
 
-#include "std/iterator.hpp"
-#include "std/algorithm.hpp"
-#include "std/utility.hpp"
-#include "std/vector.hpp"
+#include "geometry/point2d.hpp"
+
+#include "base/base.hpp"
+#include "base/logging.hpp"
+#include "base/stl_helpers.hpp"
+
+#include <algorithm>
+#include <cstdint>
+#include <iterator>
+#include <utility>
+#include <vector>
 
 // Polyline simplification algorithms.
 //
@@ -15,42 +19,41 @@
 
 namespace impl
 {
-
 ///@name This functions take input range NOT like STL does: [first, last].
 //@{
-template <typename DistanceF, typename IterT>
-pair<double, IterT> MaxDistance(IterT first, IterT last, DistanceF & dist)
+template <typename DistanceFn, typename Iter>
+std::pair<double, Iter> MaxDistance(Iter first, Iter last, DistanceFn & distFn)
 {
-  pair<double, IterT> res(0.0, last);
-  if (distance(first, last) <= 1)
+  std::pair<double, Iter> res(0.0, last);
+  if (std::distance(first, last) <= 1)
     return res;
 
-  dist.SetBounds(*first, *last);
-  for (IterT i = first + 1; i != last; ++i)
+  for (Iter i = first + 1; i != last; ++i)
   {
-    double const d = dist(*i);
-    if (d > res.first)
+    double const d = distFn(m2::PointD(*first), m2::PointD(*last), m2::PointD(*i));
+    if (res.first < d)
     {
       res.first = d;
       res.second = i;
     }
   }
+
   return res;
 }
 
 // Actual SimplifyDP implementation.
-template <typename DistanceF, typename IterT, typename OutT>
-void SimplifyDP(IterT first, IterT last, double epsilon, DistanceF & dist, OutT & out)
+template <typename DistanceFn, typename Iter, typename Out>
+void SimplifyDP(Iter first, Iter last, double epsilon, DistanceFn & distFn, Out & out)
 {
-  pair<double, IterT> maxDist = impl::MaxDistance(first, last, dist);
+  std::pair<double, Iter> maxDist = impl::MaxDistance(first, last, distFn);
   if (maxDist.second == last || maxDist.first < epsilon)
   {
     out(*last);
   }
   else
   {
-    impl::SimplifyDP(first, maxDist.second, epsilon, dist, out);
-    impl::SimplifyDP(maxDist.second, last, epsilon, dist, out);
+    impl::SimplifyDP(first, maxDist.second, epsilon, distFn, out);
+    impl::SimplifyDP(maxDist.second, last, epsilon, distFn, out);
   }
 }
 //@}
@@ -64,58 +67,57 @@ struct SimplifyOptimalRes
   int32_t m_NextPoint;
   uint32_t m_PointCount;
 };
-
-}
+}  // namespace impl
 
 // Douglas-Peucker algorithm for STL-like range [beg, end).
-// Iteratively includes the point with max distance form the current simplification.
+// Iteratively includes the point with max distance from the current simplification.
 // Average O(n log n), worst case O(n^2).
-template <typename DistanceF, typename IterT, typename OutT>
-void SimplifyDP(IterT beg, IterT end, double epsilon, DistanceF dist, OutT out)
+template <typename DistanceFn, typename Iter, typename Out>
+void SimplifyDP(Iter beg, Iter end, double epsilon, DistanceFn distFn, Out out)
 {
   if (beg != end)
   {
     out(*beg);
-    impl::SimplifyDP(beg, end-1, epsilon, dist, out);
+    impl::SimplifyDP(beg, end - 1, epsilon, distFn, out);
   }
 }
 
 // Dynamic programming near-optimal simplification.
 // Uses O(n) additional memory.
-// Worst case O(n^3) performance, average O(n*k^2), where k is kMaxFalseLookAhead - parameter,
+// Worst case O(n^3) performance, average O(n*k^2), where k is maxFalseLookAhead - parameter,
 // which limits the number of points to try, that produce error > epsilon.
 // Essentially, it's a trade-off between optimality and performance.
 // Values around 20 - 200 are reasonable.
-template <typename DistanceF, typename IterT, typename OutT>
-void SimplifyNearOptimal(int kMaxFalseLookAhead, IterT beg, IterT end,
-                         double epsilon, DistanceF dist, OutT out)
+template <typename DistanceFn, typename Iter, typename Out>
+void SimplifyNearOptimal(int maxFalseLookAhead, Iter beg, Iter end, double epsilon,
+                         DistanceFn distFn, Out out)
 {
   int32_t const n = static_cast<int32_t>(end - beg);
   if (n <= 2)
   {
-    for (IterT it = beg; it != end; ++it)
+    for (Iter it = beg; it != end; ++it)
       out(*it);
     return;
   }
 
-  vector<impl::SimplifyOptimalRes> F(n);
+  std::vector<impl::SimplifyOptimalRes> F(n);
   F[n - 1] = impl::SimplifyOptimalRes(n, 1);
   for (int32_t i = n - 2; i >= 0; --i)
   {
-    for (int32_t falseCount = 0, j = i + 1; j < n && falseCount < kMaxFalseLookAhead; ++j)
+    for (int32_t falseCount = 0, j = i + 1; j < n && falseCount < maxFalseLookAhead; ++j)
     {
       uint32_t const newPointCount = F[j].m_PointCount + 1;
       if (newPointCount < F[i].m_PointCount)
       {
-          if (impl::MaxDistance(beg + i, beg + j, dist).first < epsilon)
-          {
-            F[i].m_NextPoint = j;
-            F[i].m_PointCount = newPointCount;
-          }
-          else
-          {
-            ++falseCount;
-          }
+        if (impl::MaxDistance(beg + i, beg + j, distFn).first < epsilon)
+        {
+          F[i].m_NextPoint = j;
+          F[i].m_PointCount = newPointCount;
+        }
+        else
+        {
+          ++falseCount;
+        }
       }
     }
   }
@@ -124,30 +126,27 @@ void SimplifyNearOptimal(int kMaxFalseLookAhead, IterT beg, IterT end,
     out(*(beg + i));
 }
 
-
 // Additional points filter to use in simplification.
 // SimplifyDP can produce points that define degenerate triangle.
-template <class DistanceF, class PointT>
+template <typename DistanceFn, typename Point>
 class AccumulateSkipSmallTrg
 {
-  DistanceF & m_dist;
-  vector<PointT> & m_vec;
-  double m_eps;
-
 public:
-  AccumulateSkipSmallTrg(DistanceF & dist, vector<PointT> & vec, double eps)
-    : m_dist(dist), m_vec(vec), m_eps(eps)
+  AccumulateSkipSmallTrg(DistanceFn & distFn, std::vector<Point> & vec, double eps)
+    : m_distFn(distFn), m_vec(vec), m_eps(eps)
   {
   }
 
-  void operator() (PointT const & p) const
+  void operator()(Point const & p) const
   {
     // remove points while they make linear triangle with p
     size_t count;
     while ((count = m_vec.size()) >= 2)
     {
-      m_dist.SetBounds(m_vec[count-2], p);
-      if (m_dist(m_vec[count-1]) < m_eps)
+      auto const a = m2::PointD(m_vec[count - 2]);
+      auto const b = m2::PointD(p);
+      auto const c = m2::PointD(m_vec[count - 1]);
+      if (m_distFn(a, b, c) < m_eps)
         m_vec.pop_back();
       else
         break;
@@ -155,4 +154,9 @@ public:
 
     m_vec.push_back(p);
   }
+
+private:
+  DistanceFn & m_distFn;
+  std::vector<Point> & m_vec;
+  double m_eps;
 };

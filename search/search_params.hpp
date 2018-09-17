@@ -20,6 +20,7 @@ class Tracer;
 
 struct SearchParams
 {
+  static size_t const kDefaultNumBookmarksResults = 1000;
   static size_t const kDefaultNumResultsEverywhere = 30;
   static size_t const kDefaultNumResultsInViewport = 200;
 
@@ -41,7 +42,7 @@ struct SearchParams
 
   size_t m_maxNumResults = kDefaultNumResultsEverywhere;
 
-  // A minimum distance between search results in meters, needed for
+  // Minimal distance between search results in mercators, needed for
   // pre-ranking of viewport search results.
   double m_minDistanceOnMapBetweenResults = 0.0;
 
@@ -57,8 +58,6 @@ struct SearchParams
   bool m_needHighlighting = false;
 
   std::shared_ptr<hotels_filter::Rule> m_hotelsFilter;
-
-  bool m_cianMode = false;
 
   std::shared_ptr<Tracer> m_tracer;
 };

@@ -1,19 +1,19 @@
 #include "drape/drape_tests/dummy_texture.hpp"
+#include "drape/drape_tests/glmock_functions.hpp"
 #include "drape/drape_tests/img.hpp"
-#include "testing/testing.hpp"
-
-#include "drape/font_texture.hpp"
-#include "drape/glyph_manager.hpp"
 
 #include "platform/platform.hpp"
 #include "qt_tstfrm/test_main_loop.hpp"
+#include "testing/testing.hpp"
 
-#include "std/bind.hpp"
+#include "drape/drape_routine.hpp"
+#include "drape/font_texture.hpp"
+#include "drape/glyph_manager.hpp"
+
+#include <functional>
 
 #include <QtCore/QPoint>
 #include <QtGui/QPainter>
-
-#include "drape/drape_tests/glmock_functions.hpp"
 
 #include <gmock/gmock.h>
 
@@ -23,6 +23,7 @@ using ::testing::InSequence;
 using ::testing::AnyNumber;
 using ::testing::Invoke;
 using namespace dp;
+using namespace std::placeholders;
 
 namespace
 {
@@ -30,6 +31,7 @@ class UploadedRender
 {
 public:
   UploadedRender(QPoint const & pen) : m_pen(pen) {}
+
   void glMemoryToQImage(int x, int y, int w, int h, glConst f, glConst t, void const * memory)
   {
     TEST(f == gl_const::GLAlpha || f == gl_const::GLAlpha8 || f == gl_const::GLRed, ());
@@ -57,14 +59,15 @@ private:
 
 class DummyGlyphIndex : public GlyphIndex
 {
-  typedef GlyphIndex TBase;
-
 public:
-  DummyGlyphIndex(m2::PointU size, ref_ptr<GlyphManager> mng) : TBase(size, mng) {}
+  DummyGlyphIndex(m2::PointU size, ref_ptr<GlyphManager> mng,
+                  ref_ptr<GlyphGenerator> glyphGenerator)
+    : GlyphIndex(size, mng, glyphGenerator)
+  {}
   ref_ptr<Texture::ResourceInfo> MapResource(GlyphKey const & key)
   {
     bool dummy = false;
-    return TBase::MapResource(key, dummy);
+    return GlyphIndex::MapResource(key, dummy);
   }
 };
 }  // namespace
@@ -73,6 +76,7 @@ UNIT_TEST(UploadingGlyphs)
 {
 // This unit test creates window so can't be run in GUI-less Linux machine.
 #ifndef OMIM_OS_LINUX
+  DrapeRoutine::Init();
   EXPECTGL(glHasExtension(_)).Times(AnyNumber());
   EXPECTGL(glBindTexture(_)).Times(AnyNumber());
   EXPECTGL(glDeleteTexture(_)).Times(AnyNumber());
@@ -87,8 +91,9 @@ UNIT_TEST(UploadingGlyphs)
   args.m_blacklist = "fonts_blacklist.txt";
   GetPlatform().GetFontNames(args.m_fonts);
 
+  GlyphGenerator glyphGenerator(4);
   GlyphManager mng(args);
-  DummyGlyphIndex index(m2::PointU(128, 128), make_ref(&mng));
+  DummyGlyphIndex index(m2::PointU(128, 128), make_ref(&mng), make_ref(&glyphGenerator));
   size_t count = 1;  // invalid symbol glyph has mapped internally.
   count += (index.MapResource(GlyphKey(0x58, GlyphManager::kDynamicGlyphSize)) != nullptr) ? 1 : 0;
   count += (index.MapResource(GlyphKey(0x59, GlyphManager::kDynamicGlyphSize)) != nullptr) ? 1 : 0;
@@ -98,7 +103,7 @@ UNIT_TEST(UploadingGlyphs)
 
   Texture::Params p;
   p.m_allocator = GetDefaultAllocator();
-  p.m_format = dp::ALPHA;
+  p.m_format = dp::TextureFormat::Alpha;
   p.m_width = p.m_height = 128;
 
   DummyTexture tex;
@@ -121,6 +126,7 @@ UNIT_TEST(UploadingGlyphs)
       .WillRepeatedly(Invoke(&r, &UploadedRender::glMemoryToQImage));
   index.UploadResources(make_ref(&tex));
 
-  RunTestLoop("UploadingGlyphs", bind(&UploadedRender::Render, &r, _1));
+  RunTestLoop("UploadingGlyphs", std::bind(&UploadedRender::Render, &r, _1));
+  DrapeRoutine::Shutdown();
 #endif
 }

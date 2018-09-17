@@ -96,6 +96,7 @@ Platform::Platform()
   m_writableDir = my::AddSlashIfNeeded(m_writableDir);
 
   m_settingsDir = m_writableDir;
+  m_privateDir = m_writableDir;
 
   NSString * tempDir = NSTemporaryDirectory();
   if (tempDir == nil)
@@ -112,6 +113,23 @@ Platform::Platform()
 }
 
 string Platform::UniqueClientId() const { return [Alohalytics installationId].UTF8String; }
+
+string Platform::MacAddress(bool md5Decoded) const
+{
+  // Not implemented.
+  UNUSED_VALUE(md5Decoded);
+  return {};
+}
+
+string Platform::DeviceName() const
+{
+  return OMIM_OS_NAME;
+}
+
+string Platform::DeviceModel() const
+{
+  return {};
+}
 
 void Platform::RunOnGuiThread(base::TaskLoop::Task && task)
 {

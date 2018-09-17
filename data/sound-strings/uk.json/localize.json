@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Різкий поворот наліво.",
 "make_a_u_turn":"Зробіть розворот.",
 "go_straight":"Їдьте прямо.",
+"exit":"З'їзд.",
 "destination":"Ви прибудете.",
 "you_have_reached_the_destination":"Ви прибули.",
 "in_50_meters":"Через п'ятдесят метрів",
@@ -61,5 +62,6 @@
 "in_5000_feet":"Через п'ять тисяч футів",
 "in_1_mile":"Через одну милю",
 "in_1_5_miles":"Через півтори милі",
-"in_2_miles":"Через дві милі"
+"in_2_miles":"Через дві милі",
+"unknown_camera":"Speed camera ahead"
 }

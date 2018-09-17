@@ -3,7 +3,7 @@
 #include "routing/road_graph.hpp"
 
 #include "indexer/classificator_loader.hpp"
-#include "indexer/index.hpp"
+#include "indexer/data_source.hpp"
 
 #include "storage/country_parent_getter.hpp"
 
@@ -48,6 +48,7 @@ DEFINE_string(ids_path, "", "Path to a file with segment ids to process.");
 DEFINE_string(countries_filename, "",
               "Name of countries file which describes mwm tree. Used to get country specific "
               "routing restrictions.");
+DEFINE_int32(algo_version, 0, "Use new decoding algorithm");
 
 using namespace openlr;
 
@@ -57,7 +58,8 @@ int32_t const kMinNumThreads = 1;
 int32_t const kMaxNumThreads = 128;
 int32_t const kHandleAllSegments = -1;
 
-void LoadIndexes(std::string const & pathToMWMFolder, std::vector<Index> & indexes)
+void LoadDataSources(std::string const & pathToMWMFolder,
+                     std::vector<FrozenDataSource> & dataSources)
 {
   CHECK(Platform::IsDirectory(pathToMWMFolder), (pathToMWMFolder, "must be a directory."));
 
@@ -66,8 +68,8 @@ void LoadIndexes(std::string const & pathToMWMFolder, std::vector<Index> & index
 
   CHECK(!files.empty(), (pathToMWMFolder, "Contains no .mwm files."));
 
-  size_t const numIndexes = indexes.size();
-  std::vector<uint64_t> numCountries(numIndexes);
+  size_t const numDataSources = dataSources.size();
+  std::vector<uint64_t> numCountries(numDataSources);
 
   for (auto const & fileName : files)
   {
@@ -81,9 +83,9 @@ void LoadIndexes(std::string const & pathToMWMFolder, std::vector<Index> & index
     try
     {
       localFile.SyncWithDisk();
-      for (size_t i = 0; i < numIndexes; ++i)
+      for (size_t i = 0; i < numDataSources; ++i)
       {
-        auto const result = indexes[i].RegisterMap(localFile);
+        auto const result = dataSources[i].RegisterMap(localFile);
         CHECK_EQUAL(result.second, MwmSet::RegResult::Success, ("Can't register mwm:", localFile));
 
         auto const & info = result.first.GetInfo();
@@ -97,7 +99,7 @@ void LoadIndexes(std::string const & pathToMWMFolder, std::vector<Index> & index
     }
   }
 
-  for (size_t i = 0; i < numIndexes; ++i)
+  for (size_t i = 0; i < numDataSources; ++i)
   {
     if (numCountries[i] == 0)
       LOG(LWARNING, ("No countries for thread", i));
@@ -129,7 +131,7 @@ bool ValidateNumThreads(char const * flagname, int32_t value)
   return true;
 }
 
-bool ValidataMwmPath(char const * flagname, std::string const & value)
+bool ValidateMwmPath(char const * flagname, std::string const & value)
 {
   if (value.empty())
   {
@@ -140,10 +142,28 @@ bool ValidataMwmPath(char const * flagname, std::string const & value)
   return true;
 }
 
+bool ValidateVersion(char const * flagname, int32_t value)
+{
+  if (value == 0)
+  {
+    printf("--%s should be specified\n", flagname);
+    return false;
+  }
+
+  if (value != 1 && value != 2)
+  {
+    printf("--%s should be one of 1 or 2\n", flagname);
+    return false;
+  }
+
+  return true;
+}
+
 bool const g_limitDummy = google::RegisterFlagValidator(&FLAGS_limit, &ValidateLimit);
 bool const g_numThreadsDummy =
     google::RegisterFlagValidator(&FLAGS_num_threads, &ValidateNumThreads);
-bool const g_mwmsPathDummy = google::RegisterFlagValidator(&FLAGS_mwms_path, &ValidataMwmPath);
+bool const g_mwmsPathDummy = google::RegisterFlagValidator(&FLAGS_mwms_path, &ValidateMwmPath);
+bool const g_algoVersion = google::RegisterFlagValidator(&FLAGS_algo_version, &ValidateVersion);
 
 void SaveNonMatchedIds(std::string const & filename, std::vector<DecodedPath> const & paths)
 {
@@ -174,10 +194,10 @@ std::vector<LinearSegment> LoadSegments(pugi::xml_document & document)
     segments.resize(FLAGS_limit);
   }
 
-  my::EraseIf(segments,
-              [&filter](LinearSegment const & segment) { return !filter.Matches(segment); });
+  base::EraseIf(segments,
+                [&filter](LinearSegment const & segment) { return !filter.Matches(segment); });
 
-  std::sort(segments.begin(), segments.end(), my::LessBy(&LinearSegment::m_segmentId));
+  std::sort(segments.begin(), segments.end(), base::LessBy(&LinearSegment::m_segmentId));
 
   return segments;
 }
@@ -240,10 +260,11 @@ int main(int argc, char * argv[])
 
   auto const numThreads = static_cast<uint32_t>(FLAGS_num_threads);
 
-  std::vector<Index> indexes(numThreads);
-  LoadIndexes(FLAGS_mwms_path, indexes);
+  std::vector<FrozenDataSource> dataSources(numThreads);
 
-  OpenLRDecoder decoder(indexes, storage::CountryParentGetter(FLAGS_countries_filename,
+  LoadDataSources(FLAGS_mwms_path, dataSources);
+
+  OpenLRDecoder decoder(dataSources, storage::CountryParentGetter(FLAGS_countries_filename,
                                                               GetPlatform().ResourcesDir()));
 
   pugi::xml_document document;
@@ -257,7 +278,12 @@ int main(int argc, char * argv[])
   auto const segments = LoadSegments(document);
 
   std::vector<DecodedPath> paths(segments.size());
-  decoder.Decode(segments, numThreads, paths);
+  switch (FLAGS_algo_version)
+  {
+  case 1: decoder.DecodeV1(segments, numThreads, paths); break;
+  case 2: decoder.DecodeV2(segments, numThreads, paths); break;
+  default: ASSERT(false, ("There should be no way to fall here"));
+  }
 
   SaveNonMatchedIds(FLAGS_non_matched_ids, paths);
   if (!FLAGS_assessment_output.empty())

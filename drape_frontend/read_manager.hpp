@@ -25,7 +25,6 @@ class TextureManager;
 namespace df
 {
 class MapDataProvider;
-class CoverageUpdateDescriptor;
 class MetalineManager;
 
 uint8_t constexpr kReadingThreadsCount = 2;
@@ -34,7 +33,7 @@ class ReadManager
 {
 public:
   ReadManager(ref_ptr<ThreadsCommutator> commutator, MapDataProvider & model,
-              bool allow3dBuildings, bool trafficEnabled);
+              bool allow3dBuildings, bool trafficEnabled, EngineContext::TIsUGCFn && isUGCFn);
 
   void Start();
   void Stop();
@@ -54,12 +53,14 @@ public:
 
   void SetDisplacementMode(int displacementMode);
 
-  bool SetCustomFeatures(std::set<FeatureID> && ids);
+  void SetCustomFeatures(CustomFeatures && ids);
   std::vector<FeatureID> GetCustomFeaturesArray() const;
   bool RemoveCustomFeatures(MwmSet::MwmId const & mwmId);
   bool RemoveAllCustomFeatures();
 
   bool IsModeChanged() const { return m_modeChanged; }
+
+  void EnableUGCRendering(bool enabled);
 
 private:
   void OnTaskFinished(threads::IRoutine * task);
@@ -80,6 +81,7 @@ private:
   bool m_trafficEnabled;
   int m_displacementMode;
   bool m_modeChanged;
+  bool m_ugcRenderingEnabled;
 
   struct LessByTileInfo
   {
@@ -101,6 +103,8 @@ private:
   TTilesCollection m_activeTiles;
 
   CustomFeaturesContextPtr m_customFeaturesContext;
+
+  EngineContext::TIsUGCFn m_isUGCFn;
 
   void CancelTileInfo(std::shared_ptr<TileInfo> const & tileToCancel);
   void ClearTileInfo(std::shared_ptr<TileInfo> const & tileToClear);

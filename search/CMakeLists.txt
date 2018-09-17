@@ -7,10 +7,24 @@ set(
   approximate_string_match.hpp
   base/inverted_list.hpp
   base/mem_search_index.hpp
+  base/text_index/dictionary.hpp
+  base/text_index/header.cpp
+  base/text_index/header.hpp
+  base/text_index/mem.cpp
+  base/text_index/mem.hpp
+  base/text_index/merger.cpp
+  base/text_index/merger.hpp  
+  base/text_index/postings.hpp
+  base/text_index/reader.hpp
+  base/text_index/text_index.cpp
+  base/text_index/text_index.hpp
+  base/text_index/utils.hpp
   bookmarks/data.cpp
   bookmarks/data.hpp
   bookmarks/processor.cpp
   bookmarks/processor.hpp
+  bookmarks/results.hpp
+  bookmarks/types.hpp
   cancel_exception.hpp
   categories_cache.cpp
   categories_cache.hpp
@@ -35,8 +49,6 @@ set(
   emitter.hpp
   engine.cpp
   engine.hpp
-  everywhere_search_callback.cpp
-  everywhere_search_callback.hpp
   feature_loader.cpp
   feature_loader.hpp
   feature_offset_match.hpp
@@ -150,11 +162,9 @@ set(
   types_skipper.hpp
   utils.cpp
   utils.hpp
-  viewport_search_callback.cpp
-  viewport_search_callback.hpp
 )
 
-add_library(${PROJECT_NAME} ${SRC})
+omim_add_library(${PROJECT_NAME} ${SRC})
 
 if (PLATFORM_DESKTOP)
   add_subdirectory(search_quality)
@@ -163,3 +173,8 @@ endif()
 omim_add_pybindings_subdirectory(pysearch)
 omim_add_test_subdirectory(search_tests)
 omim_add_test_subdirectory(search_integration_tests)
+
+target_link_libraries(
+  ${PROJECT_NAME}
+  openlocationcode
+)

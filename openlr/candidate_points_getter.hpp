@@ -3,7 +3,7 @@
 #include "openlr/graph.hpp"
 #include "openlr/stats.hpp"
 
-#include "indexer/index.hpp"
+#include "indexer/data_source.hpp"
 
 #include "geometry/point2d.hpp"
 
@@ -15,18 +15,13 @@ namespace openlr
 {
 class CandidatePointsGetter
 {
-  using MwmIdByPointFn = std::function<MwmSet::MwmId(m2::PointD const &)>;
-
 public:
   CandidatePointsGetter(size_t const maxJunctionCandidates, size_t const maxProjectionCandidates,
-                        Index const & index, MwmIdByPointFn const & mwmIdByPointFn, Graph & graph,
-                        v2::Stats & stat)
+                        DataSource const & dataSource, Graph & graph)
     : m_maxJunctionCandidates(maxJunctionCandidates)
     , m_maxProjectionCandidates(maxProjectionCandidates)
-    , m_index(index)
-    , m_mwmIdByPointFn(mwmIdByPointFn)
+    , m_dataSource(dataSource)
     , m_graph(graph)
-    , m_stat(stat)
   {
   }
 
@@ -43,9 +38,7 @@ private:
   size_t const m_maxJunctionCandidates;
   size_t const m_maxProjectionCandidates;
 
-  Index const & m_index;
+  DataSource const & m_dataSource;
   Graph & m_graph;
-  v2::Stats & m_stat;
-  MwmIdByPointFn m_mwmIdByPointFn;
 };
 }  // namespace openlr

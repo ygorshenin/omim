@@ -11,7 +11,7 @@
 #include "geometry/mercator.hpp"
 
 #include "base/control_flow.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 
 namespace search
 {
@@ -87,7 +87,7 @@ bool Matcher::Matches(Sample::Result const & golden, FeatureType & ft)
 
 bool Matcher::Matches(Sample::Result const & golden, search::Result const & actual)
 {
-  if (actual.GetResultType() != Result::RESULT_FEATURE)
+  if (actual.GetResultType() != Result::Type::Feature)
     return false;
 
   FeatureType ft;

@@ -278,6 +278,8 @@ static void UpdateItem(JNIEnv * env, jobject item, NodeAttrs const & attrs)
   static jfieldID const countryItemFieldTotalChildCount = env->GetFieldID(g_countryItemClass, "totalChildCount", "I");
   static jfieldID const countryItemFieldPresent = env->GetFieldID(g_countryItemClass, "present", "Z");
   static jfieldID const countryItemFieldProgress = env->GetFieldID(g_countryItemClass, "progress", "I");
+  static jfieldID const countryItemFieldDownloadedBytes = env->GetFieldID(g_countryItemClass, "downloadedBytes", "J");
+  static jfieldID const countryItemFieldBytesToDownload = env->GetFieldID(g_countryItemClass, "bytesToDownload", "J");
 
   // Localized name
   jni::TScopedLocalRef const name(env, jni::ToJavaString(env, attrs.m_nodeLocalName));
@@ -337,10 +339,12 @@ static void UpdateItem(JNIEnv * env, jobject item, NodeAttrs const & attrs)
 
   // Progress
   int progress = 0;
-  if (attrs.m_downloadingProgress.second)
+  if (attrs.m_downloadingProgress.second != 0)
     progress = (int)(attrs.m_downloadingProgress.first * kMaxProgress / attrs.m_downloadingProgress.second);
 
   env->SetIntField(item, countryItemFieldProgress, progress);
+  env->SetLongField(item, countryItemFieldDownloadedBytes, attrs.m_downloadingProgress.first);
+  env->SetLongField(item, countryItemFieldBytesToDownload, attrs.m_downloadingProgress.second);
 }
 
 static void PutItemsToList(JNIEnv * env, jobject const list, TCountriesVec const & children, int category,
@@ -444,12 +448,18 @@ Java_com_mapswithme_maps_downloader_MapManager_nativeFindCountry(JNIEnv * env, j
 JNIEXPORT jboolean JNICALL
 Java_com_mapswithme_maps_downloader_MapManager_nativeIsDownloading(JNIEnv * env, jclass clazz)
 {
-  return GetStorage().IsDownloadInProgress();
+  return static_cast<jboolean>(GetStorage().IsDownloadInProgress());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_mapswithme_maps_downloader_MapManager_nativeGetCurrentDownloadingCountryId(JNIEnv * env, jclass)
+{
+  return jni::ToJavaString(env, GetStorage().GetCurrentDownloadingCountryId());
 }
 
 static void StartBatchingCallbacks()
 {
-  ASSERT_THREAD_CHECKER(g_batchingThreadChecker, ("StartBatchingCallbacks"));
+  CHECK_THREAD_CHECKER(g_batchingThreadChecker, ("StartBatchingCallbacks"));
   ASSERT(!g_isBatched, ());
   ASSERT(g_batchedCallbackData.empty(), ());
 
@@ -458,7 +468,7 @@ static void StartBatchingCallbacks()
 
 static void EndBatchingCallbacks(JNIEnv * env)
 {
-  ASSERT_THREAD_CHECKER(g_batchingThreadChecker, ("EndBatchingCallbacks"));
+  CHECK_THREAD_CHECKER(g_batchingThreadChecker, ("EndBatchingCallbacks"));
 
   static jclass arrayListClass = jni::GetGlobalClassRef(env, "java/util/ArrayList");
   static jmethodID arrayListCtor = jni::GetConstructorID(env, arrayListClass, "(I)V");

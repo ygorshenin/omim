@@ -1,5 +1,6 @@
 #import "MWMRouter.h"
 #import <Crashlytics/Crashlytics.h>
+#import "MWMAlertViewController+CPP.h"
 #import "MWMCoreRouterType.h"
 #import "MWMFrameworkListener.h"
 #import "MWMLocationHelpers.h"
@@ -18,7 +19,13 @@
 
 #include "Framework.h"
 
+#include "indexer/feature_altitude.hpp"
+
 #include "platform/local_country_file_utils.hpp"
+
+#include <cstdint>
+#include <memory>
+#include <vector>
 
 using namespace routing;
 
@@ -122,6 +129,7 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
     case MWMRoutePreviewTaxiCellTypeTaxi: provider = kStatUnknown; break;
     case MWMRoutePreviewTaxiCellTypeUber: provider = kStatUber; break;
     case MWMRoutePreviewTaxiCellTypeYandex: provider = kStatYandex; break;
+    case MWMRoutePreviewTaxiCellTypeMaxim: provider = kStatMaxim; break;
     }
 
     [Statistics logEvent:eventName
@@ -150,6 +158,11 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
 
 + (void)stopRouting
 {
+  auto type = GetFramework().GetRoutingManager().GetRouter();
+  [Statistics logEvent:kStatRoutingRouteFinish withParameters:@{
+                                                                kStatMode : @(routing::ToString(type).c_str()),
+                                                                kStatRoutingInterrupted : @([self isRouteFinished])
+                                                                }];
   [self stop:YES];
 }
 
@@ -281,7 +294,8 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
 {
   NSMutableArray<NSString *> * turnNotifications = [@[] mutableCopy];
   vector<string> notifications;
-  GetFramework().GetRoutingManager().GenerateTurnNotifications(notifications);
+  GetFramework().GetRoutingManager().GenerateNotifications(notifications);
+
   for (auto const & text : notifications)
     [turnNotifications addObject:@(text.c_str())];
   return [turnNotifications copy];
@@ -428,7 +442,14 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
       else
         [Statistics logEvent:kStatEventName(kStatPointToPoint, kStatGo)
               withParameters:@{kStatValue : kStatPointToPoint}];
-      
+
+      auto type = GetFramework().GetRoutingManager().GetRouter();
+      [Statistics logEvent:kStatRoutingRouteStart
+            withParameters:@{
+                             kStatMode : @(routing::ToString(type).c_str()),
+                             kStatTraffic : @(GetFramework().GetTrafficManager().IsEnabled())
+                             }];
+
       if (p1.isMyPosition && [MWMLocationManager lastLocation])
       {
         rm.FollowRoute();
@@ -478,7 +499,6 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
 
 + (void)stop:(BOOL)removeRoutePoints
 {
-  [Statistics logEvent:kStatEventName(kStatPointToPoint, kStatClose)];
   [self doStop:removeRoutePoints];
   // Don't save taxi routing type as default.
   if ([MWMRouter isTaxi])
@@ -491,6 +511,8 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
 {
   [self clearAltitudeImagesData];
   GetFramework().GetRoutingManager().CloseRouting(removeRoutePoints);
+  if (removeRoutePoints)
+    GetFramework().GetRoutingManager().DeleteSavedRoutePoints();
   [MWMThemeManager setAutoUpdates:NO];
   [[MapsAppDelegate theApp] showAlertIfRequired];
 }
@@ -513,14 +535,21 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
 
 + (void)routeAltitudeImageForSize:(CGSize)size completion:(MWMImageHeightBlock)block
 {
-  auto router = self.router;
-  dispatch_async(router.renderAltitudeImagesQueue, ^{
+  if (![self hasRouteAltitude])
+    return;
+
+  auto routePointDistanceM = std::make_shared<std::vector<double>>(std::vector<double>());
+  auto altitudes = std::make_shared<feature::TAltitudes>(feature::TAltitudes());
+  if (!GetFramework().GetRoutingManager().GetRouteAltitudesAndDistancesM(*routePointDistanceM, *altitudes))
+    return;
+
+  // Note. |routePointDistanceM| and |altitudes| should not be used in the method after line below.
+  dispatch_async(self.router.renderAltitudeImagesQueue, [=] () {
     auto router = self.router;
-    if (![self hasRouteAltitude])
-      return;
     CGFloat const screenScale = [UIScreen mainScreen].scale;
-    CGSize const scaledSize = {.width = size.width * screenScale,
-                               .height = size.height * screenScale};
+    CGSize const scaledSize = {size.width * screenScale, size.height * screenScale};
+    CHECK_GREATER_OR_EQUAL(scaledSize.width, 0.0, ());
+    CHECK_GREATER_OR_EQUAL(scaledSize.height, 0.0, ());
     uint32_t const width = static_cast<uint32_t>(scaledSize.width);
     uint32_t const height = static_cast<uint32_t>(scaledSize.height);
     if (width == 0 || height == 0)
@@ -534,11 +563,17 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
       int32_t minRouteAltitude = 0;
       int32_t maxRouteAltitude = 0;
       measurement_utils::Units units = measurement_utils::Units::Metric;
-      if (!GetFramework().GetRoutingManager().GenerateRouteAltitudeChart(
-              width, height, imageRGBAData, minRouteAltitude, maxRouteAltitude, units))
+ 
+      if(!GetFramework().GetRoutingManager().GenerateRouteAltitudeChart(width, height,
+                                                                        *altitudes,
+                                                                        *routePointDistanceM,
+                                                                        imageRGBAData,
+                                                                        minRouteAltitude,
+                                                                        maxRouteAltitude, units))
       {
         return;
       }
+
       if (imageRGBAData.empty())
         return;
       imageData = [NSData dataWithBytes:imageRGBAData.data() length:imageRGBAData.size()];
@@ -581,13 +616,13 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
 
 #pragma mark - MWMFrameworkRouteBuilderObserver
 
-- (void)processRouteBuilderEvent:(routing::IRouter::ResultCode)code
+- (void)processRouteBuilderEvent:(routing::RouterResultCode)code
                        countries:(storage::TCountriesVec const &)absentCountries
 {
   MWMMapViewControlsManager * mapViewControlsManager = [MWMMapViewControlsManager manager];
   switch (code)
   {
-  case routing::IRouter::ResultCode::NoError:
+  case routing::RouterResultCode::NoError:
   {
     GetFramework().DeactivateMapSelection(true);
 
@@ -603,25 +638,28 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
     [self updateFollowingInfo];
     break;
   }
-  case routing::IRouter::RouteFileNotExist:
-  case routing::IRouter::InconsistentMWMandRoute:
-  case routing::IRouter::NeedMoreMaps:
-  case routing::IRouter::FileTooOld:
-  case routing::IRouter::RouteNotFound:
+  case routing::RouterResultCode::RouteFileNotExist:
+  case routing::RouterResultCode::InconsistentMWMandRoute:
+  case routing::RouterResultCode::NeedMoreMaps:
+  case routing::RouterResultCode::FileTooOld:
+  case routing::RouterResultCode::RouteNotFound:
     if ([MWMRouter isTaxi])
       return;
     [self presentDownloaderAlert:code countries:absentCountries];
     [[MWMNavigationDashboardManager manager] onRouteError:L(@"routing_planning_error")];
     break;
-  case routing::IRouter::Cancelled:
+  case routing::RouterResultCode::Cancelled:
     [mapViewControlsManager onRoutePrepare];
     break;
-  case routing::IRouter::StartPointNotFound:
-  case routing::IRouter::EndPointNotFound:
-  case routing::IRouter::NoCurrentPosition:
-  case routing::IRouter::PointsInDifferentMWM:
-  case routing::IRouter::InternalError:
-  case routing::IRouter::IntermediatePointNotFound:
+  case routing::RouterResultCode::StartPointNotFound:
+  case routing::RouterResultCode::EndPointNotFound:
+  case routing::RouterResultCode::NoCurrentPosition:
+  case routing::RouterResultCode::PointsInDifferentMWM:
+  case routing::RouterResultCode::InternalError:
+  case routing::RouterResultCode::IntermediatePointNotFound:
+  case routing::RouterResultCode::TransitRouteNotFoundNoNetwork:
+  case routing::RouterResultCode::TransitRouteNotFoundTooLongPedestrian:
+  case routing::RouterResultCode::RouteNotFoundRedressRouteError:
     if ([MWMRouter isTaxi])
       return;
     [[MWMAlertViewController activeAlertController] presentAlert:code];
@@ -650,7 +688,7 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
 
 #pragma mark - Alerts
 
-- (void)presentDownloaderAlert:(routing::IRouter::ResultCode)code
+- (void)presentDownloaderAlert:(routing::RouterResultCode)code
                      countries:(storage::TCountriesVec const &)countries
 {
   MWMAlertViewController * activeAlertController = [MWMAlertViewController activeAlertController];
@@ -659,7 +697,7 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
     [activeAlertController presentRoutingMigrationAlertWithOkBlock:^{
       [Statistics logEvent:kStatDownloaderMigrationDialogue
             withParameters:@{kStatFrom : kStatRouting}];
-      [[MapViewController controller] openMigration];
+      [[MapViewController sharedController] openMigration];
     }];
   }
   else if (!countries.empty())
@@ -667,7 +705,7 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
     [activeAlertController presentDownloaderAlertWithCountries:countries
         code:code
         cancelBlock:^{
-          if (code != routing::IRouter::NeedMoreMaps)
+          if (code != routing::RouterResultCode::NeedMoreMaps)
             [MWMRouter stopRouting];
         }
         downloadBlock:^(storage::TCountriesVec const & downloadCountries, MWMVoidBlock onSuccess) {
@@ -701,8 +739,11 @@ void logPointEvent(MWMRoutePoint * point, NSString * eventType)
     auto & rm = GetFramework().GetRoutingManager();
     if ([self isRoutingActive] || !rm.HasSavedRoutePoints())
       return;
-    rm.LoadRoutePoints();
-    [self rebuildWithBestRouter:YES];
+    rm.LoadRoutePoints([self](bool success)
+    {
+      if (success)
+        [self rebuildWithBestRouter:YES];
+    });
   }
   else
   {

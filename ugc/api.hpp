@@ -10,7 +10,7 @@
 
 #include <functional>
 
-class Index;
+class DataSource;
 struct FeatureID;
 
 namespace ugc
@@ -20,10 +20,11 @@ class Api
 public:
   using UGCCallback = platform::SafeCallback<void(UGC const & ugc, UGCUpdate const & update)>;
   using UGCCallbackUnsafe = std::function<void(UGC const & ugc, UGCUpdate const & update)>;
-  using UGCJsonToSendCallback = std::function<void(std::string && jsonStr)>;
+  using UGCJsonToSendCallback = std::function<void(std::string && jsonStr, size_t numberOfUnsynchronized)>;
   using OnResultCallback = platform::SafeCallback<void(Storage::SettingResult const result)>;
+  using NumberOfUnsynchronizedCallback = std::function<void(size_t number)>;
 
-  explicit Api(Index const & index);
+  Api(DataSource const & dataSource, NumberOfUnsynchronizedCallback const & callback);
 
   void GetUGC(FeatureID const & id, UGCCallbackUnsafe const & callback);
   void SetUGCUpdate(FeatureID const & id, UGCUpdate const & ugc,
@@ -31,6 +32,8 @@ public:
   void GetUGCToSend(UGCJsonToSendCallback const & callback);
   void SendingCompleted();
   void SaveUGCOnDisk();
+
+  Loader & GetLoader();
 
 private:
   void GetUGCImpl(FeatureID const & id, UGCCallbackUnsafe const & callback);

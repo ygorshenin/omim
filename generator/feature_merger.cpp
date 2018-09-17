@@ -1,8 +1,8 @@
 #include "generator/feature_merger.hpp"
 
-#include "indexer/feature.hpp"
-#include "indexer/feature_visibility.hpp"
 #include "indexer/classificator.hpp"
+#include "indexer/feature_algo.hpp"
+#include "indexer/feature_visibility.hpp"
 
 #include "coding/point_to_integer.hpp"
 
@@ -24,8 +24,8 @@ void MergedFeatureBuilder1::AppendFeature(MergedFeatureBuilder1 const & fb, bool
   // Also merge Osm IDs for debugging
   m_osmIds.insert(m_osmIds.end(), fb.m_osmIds.begin(), fb.m_osmIds.end());
 
-  TPointSeq & thisG = m_polygons.front();
-  TPointSeq const & fbG = fb.GetOuterGeometry();
+  PointSeq & thisG = m_polygons.front();
+  PointSeq const & fbG = fb.GetOuterGeometry();
 
   if (fb.m_isRound)
   {
@@ -106,18 +106,18 @@ size_t MergedFeatureBuilder1::GetKeyPointsCount() const
 
 double MergedFeatureBuilder1::GetPriority() const
 {
-  TPointSeq const & poly = GetOuterGeometry();
+  PointSeq const & poly = GetOuterGeometry();
 
   double pr = 0.0;
   for (size_t i = 1; i < poly.size(); ++i)
-    pr += poly[i-1].SquareLength(poly[i]);
+    pr += poly[i-1].SquaredLength(poly[i]);
   return pr;
 }
 
 
 FeatureMergeProcessor::key_t FeatureMergeProcessor::get_key(m2::PointD const & p)
 {
-  return PointToInt64(p, m_coordBits);
+  return PointToInt64Obsolete(p, m_coordBits);
 }
 
 FeatureMergeProcessor::FeatureMergeProcessor(uint32_t coordBits)
@@ -234,7 +234,7 @@ void FeatureMergeProcessor::DoMerge(FeatureEmitterIFace & emitter)
         {
           bool const toBack = pt.second;
           bool fromBegin = true;
-          if ((pt.first.SquareLength(pp->FirstPoint()) > pt.first.SquareLength(pp->LastPoint())) == toBack)
+          if ((pt.first.SquaredLength(pp->FirstPoint()) > pt.first.SquaredLength(pp->LastPoint())) == toBack)
             fromBegin = false;
 
           curr.AppendFeature(*pp, fromBegin, toBack);

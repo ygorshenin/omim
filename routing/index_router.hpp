@@ -1,5 +1,8 @@
 #pragma once
 
+#include "routing/base/astar_algorithm.hpp"
+#include "routing/base/routing_result.hpp"
+
 #include "routing/cross_mwm_graph.hpp"
 #include "routing/directions_engine.hpp"
 #include "routing/edge_estimator.hpp"
@@ -7,13 +10,13 @@
 #include "routing/features_road_graph.hpp"
 #include "routing/joint.hpp"
 #include "routing/router.hpp"
+#include "routing/routing_callbacks.hpp"
 #include "routing/segmented_route.hpp"
 #include "routing/world_graph.hpp"
 
 #include "routing_common/num_mwm_id.hpp"
 #include "routing_common/vehicle_model.hpp"
 
-#include "indexer/index.hpp"
 #include "indexer/mwm_set.hpp"
 
 #include "geometry/tree4d.hpp"
@@ -24,6 +27,8 @@
 #include <set>
 #include <string>
 #include <vector>
+
+class DataSource;
 
 namespace routing
 {
@@ -57,10 +62,11 @@ public:
     m2::PointD const m_direction;
   };
 
-  IndexRouter(VehicleType vehicleType, bool loadAltitudes, CountryParentNameGetterFn const & countryParentNameGetterFn,
+  IndexRouter(VehicleType vehicleType, bool loadAltitudes,
+              CountryParentNameGetterFn const & countryParentNameGetterFn,
               TCountryFileFn const & countryFileFn, CourntryRectFn const & countryRectFn,
               shared_ptr<NumMwmIds> numMwmIds, unique_ptr<m4::Tree<NumMwmId>> numMwmTree,
-              traffic::TrafficCache const & trafficCache, Index & index);
+              traffic::TrafficCache const & trafficCache, DataSource & dataSource);
 
   std::unique_ptr<WorldGraph> MakeSingleMwmWorldGraph();
   bool FindBestSegment(m2::PointD const & point, m2::PointD const & direction,
@@ -68,22 +74,21 @@ public:
 
   // IRouter overrides:
   std::string GetName() const override { return m_name; }
-  ResultCode CalculateRoute(Checkpoints const & checkpoints, m2::PointD const & startDirection,
-                            bool adjustToPrevRoute, RouterDelegate const & delegate,
-                            Route & route) override;
+  RouterResultCode CalculateRoute(Checkpoints const & checkpoints, m2::PointD const & startDirection,
+                                  bool adjustToPrevRoute, RouterDelegate const & delegate,
+                                  Route & route) override;
 
 private:
-  IRouter::ResultCode DoCalculateRoute(Checkpoints const & checkpoints,
-                                       m2::PointD const & startDirection,
-                                       RouterDelegate const & delegate, Route & route);
-  IRouter::ResultCode CalculateSubroute(Checkpoints const & checkpoints, size_t subrouteIdx,
-                                        Segment const & startSegment,
-                                        RouterDelegate const & delegate, IndexGraphStarter & graph,
-                                        std::vector<Segment> & subroute);
+  RouterResultCode DoCalculateRoute(Checkpoints const & checkpoints,
+                                    m2::PointD const & startDirection,
+                                    RouterDelegate const & delegate, Route & route);
+  RouterResultCode CalculateSubroute(Checkpoints const & checkpoints, size_t subrouteIdx,
+                                     RouterDelegate const & delegate, IndexGraphStarter & graph,
+                                     std::vector<Segment> & subroute);
 
-  IRouter::ResultCode AdjustRoute(Checkpoints const & checkpoints,
-                                  m2::PointD const & startDirection,
-                                  RouterDelegate const & delegate, Route & route);
+  RouterResultCode AdjustRoute(Checkpoints const & checkpoints,
+                               m2::PointD const & startDirection,
+                               RouterDelegate const & delegate, Route & route);
 
   std::unique_ptr<WorldGraph> MakeWorldGraph();
 
@@ -102,19 +107,49 @@ private:
 
   // Input route may contains 'leaps': shortcut edges from mwm border enter to exit.
   // ProcessLeaps replaces each leap with calculated route through mwm.
-  IRouter::ResultCode ProcessLeaps(std::vector<Segment> const & input,
+  RouterResultCode ProcessLeaps(std::vector<Segment> const & input,
                                    RouterDelegate const & delegate, WorldGraph::Mode prevMode,
                                    IndexGraphStarter & starter, std::vector<Segment> & output);
-  IRouter::ResultCode RedressRoute(std::vector<Segment> const & segments,
-                                   RouterDelegate const & delegate, IndexGraphStarter & starter,
-                                   Route & route) const;
+  RouterResultCode RedressRoute(std::vector<Segment> const & segments,
+                                RouterDelegate const & delegate, IndexGraphStarter & starter,
+                                Route & route) const;
 
   bool AreMwmsNear(std::set<NumMwmId> const & mwmIds) const;
+  bool DoesTransitSectionExist(NumMwmId numMwmId) const;
+  RouterResultCode ConvertTransitResult(std::set<NumMwmId> const & mwmIds,
+                                        RouterResultCode resultCode) const;
+
+  template <typename Graph>
+  RouterResultCode ConvertResult(typename AStarAlgorithm<Graph>::Result result) const
+  {
+    switch (result)
+    {
+    case AStarAlgorithm<Graph>::Result::NoPath: return RouterResultCode::RouteNotFound;
+    case AStarAlgorithm<Graph>::Result::Cancelled: return RouterResultCode::Cancelled;
+    case AStarAlgorithm<Graph>::Result::OK: return RouterResultCode::NoError;
+    }
+    CHECK_SWITCH();
+  }
+
+  template <typename Graph>
+  RouterResultCode FindPath(
+      typename AStarAlgorithm<Graph>::Params & params, std::set<NumMwmId> const & mwmIds,
+      RoutingResult<typename Graph::Vertex, typename Graph::Weight> & routingResult) const
+  {
+    AStarAlgorithm<Graph> algorithm;
+    if (params.m_graph.GetMode() == WorldGraph::Mode::LeapsOnly)
+    {
+      return ConvertTransitResult(mwmIds,
+                                  ConvertResult<Graph>(algorithm.FindPath(params, routingResult)));
+    }
+    return ConvertTransitResult(
+        mwmIds, ConvertResult<Graph>(algorithm.FindPathBidirectional(params, routingResult)));
+  }
 
   VehicleType m_vehicleType;
   bool m_loadAltitudes;
   std::string const m_name;
-  Index & m_index;
+  DataSource & m_dataSource;
   std::shared_ptr<VehicleModelFactoryInterface> m_vehicleModelFactory;
 
   TCountryFileFn const m_countryFileFn;

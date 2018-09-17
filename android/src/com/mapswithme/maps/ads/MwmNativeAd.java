@@ -10,6 +10,7 @@ import android.view.View;
  */
 public interface MwmNativeAd
 {
+
   @NonNull
   String getBannerId();
 
@@ -51,4 +52,10 @@ public interface MwmNativeAd
    */
   @Nullable
   String getPrivacyInfoUrl();
+
+  /**
+   * Returns a network type which the native ad belongs to.
+   */
+  @NonNull
+  NetworkType getNetworkType();
 }

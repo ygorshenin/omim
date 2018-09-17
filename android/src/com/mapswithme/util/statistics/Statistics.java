@@ -11,6 +11,7 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.Pair;
 
 import com.facebook.ads.AdError;
 import com.facebook.appevents.AppEventsLogger;
@@ -22,6 +23,7 @@ import com.mapswithme.maps.PrivateVariables;
 import com.mapswithme.maps.ads.MwmNativeAd;
 import com.mapswithme.maps.ads.NativeAdError;
 import com.mapswithme.maps.api.ParsedMwmRequest;
+import com.mapswithme.maps.bookmarks.data.BookmarkManager;
 import com.mapswithme.maps.bookmarks.data.MapObject;
 import com.mapswithme.maps.downloader.MapManager;
 import com.mapswithme.maps.editor.Editor;
@@ -30,6 +32,7 @@ import com.mapswithme.maps.location.LocationHelper;
 import com.mapswithme.maps.routing.RoutePointInfo;
 import com.mapswithme.maps.taxi.TaxiInfoError;
 import com.mapswithme.maps.taxi.TaxiManager;
+import com.mapswithme.maps.widget.menu.MainMenu;
 import com.mapswithme.maps.widget.placepage.Sponsored;
 import com.mapswithme.util.BatteryState;
 import com.mapswithme.util.Config;
@@ -41,6 +44,7 @@ import com.my.tracker.MyTracker;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,7 +53,16 @@ import static com.mapswithme.util.BatteryState.CHARGING_STATUS_PLUGGED;
 import static com.mapswithme.util.BatteryState.CHARGING_STATUS_UNKNOWN;
 import static com.mapswithme.util.BatteryState.CHARGING_STATUS_UNPLUGGED;
 import static com.mapswithme.util.statistics.Statistics.EventName.APPLICATION_COLD_STARTUP_INFO;
-import static com.mapswithme.util.statistics.Statistics.EventName.DISCOVERY_OPEN;
+import static com.mapswithme.util.statistics.Statistics.EventName.BM_GUIDES_DOWNLOADDIALOGUE_CLICK;
+import static com.mapswithme.util.statistics.Statistics.EventName.BM_RESTORE_PROPOSAL_CLICK;
+import static com.mapswithme.util.statistics.Statistics.EventName.BM_RESTORE_PROPOSAL_ERROR;
+import static com.mapswithme.util.statistics.Statistics.EventName.BM_RESTORE_PROPOSAL_SUCCESS;
+import static com.mapswithme.util.statistics.Statistics.EventName.BM_SYNC_ERROR;
+import static com.mapswithme.util.statistics.Statistics.EventName.BM_SYNC_PROPOSAL_APPROVED;
+import static com.mapswithme.util.statistics.Statistics.EventName.BM_SYNC_PROPOSAL_ERROR;
+import static com.mapswithme.util.statistics.Statistics.EventName.BM_SYNC_PROPOSAL_SHOWN;
+import static com.mapswithme.util.statistics.Statistics.EventName.BM_SYNC_PROPOSAL_TOGGLE;
+import static com.mapswithme.util.statistics.Statistics.EventName.BM_SYNC_SUCCESS;
 import static com.mapswithme.util.statistics.Statistics.EventName.DOWNLOADER_DIALOG_ERROR;
 import static com.mapswithme.util.statistics.Statistics.EventName.PP_BANNER_BLANK;
 import static com.mapswithme.util.statistics.Statistics.EventName.PP_BANNER_ERROR;
@@ -61,12 +74,19 @@ import static com.mapswithme.util.statistics.Statistics.EventName.PP_SPONSORED_O
 import static com.mapswithme.util.statistics.Statistics.EventName.PP_SPONSORED_SHOWN;
 import static com.mapswithme.util.statistics.Statistics.EventName.PP_SPONSOR_ITEM_SELECTED;
 import static com.mapswithme.util.statistics.Statistics.EventName.ROUTING_PLAN_TOOLTIP_CLICK;
+import static com.mapswithme.util.statistics.Statistics.EventName.ROUTING_ROUTE_FINISH;
+import static com.mapswithme.util.statistics.Statistics.EventName.ROUTING_ROUTE_START;
+import static com.mapswithme.util.statistics.Statistics.EventName.SEARCH_FILTER_CLICK;
+import static com.mapswithme.util.statistics.Statistics.EventName.TOOLBAR_CLICK;
+import static com.mapswithme.util.statistics.Statistics.EventName.TOOLBAR_MENU_CLICK;
 import static com.mapswithme.util.statistics.Statistics.EventName.UGC_AUTH_ERROR;
 import static com.mapswithme.util.statistics.Statistics.EventName.UGC_AUTH_EXTERNAL_REQUEST_SUCCESS;
 import static com.mapswithme.util.statistics.Statistics.EventName.UGC_AUTH_SHOWN;
 import static com.mapswithme.util.statistics.Statistics.EventName.UGC_REVIEW_START;
+import static com.mapswithme.util.statistics.Statistics.EventParam.ACTION;
 import static com.mapswithme.util.statistics.Statistics.EventParam.BANNER;
 import static com.mapswithme.util.statistics.Statistics.EventParam.BATTERY;
+import static com.mapswithme.util.statistics.Statistics.EventParam.BUTTON;
 import static com.mapswithme.util.statistics.Statistics.EventParam.CATEGORY;
 import static com.mapswithme.util.statistics.Statistics.EventParam.CHARGING;
 import static com.mapswithme.util.statistics.Statistics.EventParam.DESTINATION;
@@ -74,9 +94,11 @@ import static com.mapswithme.util.statistics.Statistics.EventParam.ERROR;
 import static com.mapswithme.util.statistics.Statistics.EventParam.ERROR_CODE;
 import static com.mapswithme.util.statistics.Statistics.EventParam.ERROR_MESSAGE;
 import static com.mapswithme.util.statistics.Statistics.EventParam.FEATURE_ID;
+import static com.mapswithme.util.statistics.Statistics.EventParam.HAS_AUTH;
 import static com.mapswithme.util.statistics.Statistics.EventParam.HOTEL;
 import static com.mapswithme.util.statistics.Statistics.EventParam.HOTEL_LAT;
 import static com.mapswithme.util.statistics.Statistics.EventParam.HOTEL_LON;
+import static com.mapswithme.util.statistics.Statistics.EventParam.INTERRUPTED;
 import static com.mapswithme.util.statistics.Statistics.EventParam.ITEM;
 import static com.mapswithme.util.statistics.Statistics.EventParam.MAP_DATA_SIZE;
 import static com.mapswithme.util.statistics.Statistics.EventParam.METHOD;
@@ -94,13 +116,25 @@ import static com.mapswithme.util.statistics.Statistics.EventParam.RESTAURANT_LO
 import static com.mapswithme.util.statistics.Statistics.EventParam.STATE;
 import static com.mapswithme.util.statistics.Statistics.EventParam.TYPE;
 import static com.mapswithme.util.statistics.Statistics.EventParam.VALUE;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.BACKUP;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.BICYCLE;
 import static com.mapswithme.util.statistics.Statistics.ParamValue.BOOKING_COM;
-import static com.mapswithme.util.statistics.Statistics.ParamValue.CIAN;
-import static com.mapswithme.util.statistics.Statistics.ParamValue.GEOCHAT;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.DISK_NO_SPACE;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.FACEBOOK;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.GOOGLE;
 import static com.mapswithme.util.statistics.Statistics.ParamValue.HOLIDAY;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.MAPSME;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.NO_BACKUP;
 import static com.mapswithme.util.statistics.Statistics.ParamValue.OPENTABLE;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.PEDESTRIAN;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.PHONE;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.RESTORE;
 import static com.mapswithme.util.statistics.Statistics.ParamValue.SEARCH_BOOKING_COM;
-import static com.mapswithme.util.statistics.Statistics.ParamValue.THOR;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.TAXI;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.TRAFFIC;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.TRANSIT;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.UNKNOWN;
+import static com.mapswithme.util.statistics.Statistics.ParamValue.VEHICLE;
 import static com.mapswithme.util.statistics.Statistics.ParamValue.VIATOR;
 
 public enum Statistics
@@ -132,14 +166,35 @@ public enum Statistics
     public static final String DOWNLOADER_DIALOG_MANUAL_DOWNLOAD = "Downloader_OnStartScreen_manual_download";
     public static final String DOWNLOADER_DIALOG_DOWNLOAD = "Downloader_OnStartScreen_auto_download";
     public static final String DOWNLOADER_DIALOG_LATER = "Downloader_OnStartScreen_select_later";
+    public static final String DOWNLOADER_DIALOG_HIDE = "Downloader_OnStartScreen_select_hide";
     public static final String DOWNLOADER_DIALOG_CANCEL = "Downloader_OnStartScreen_cancel_download";
+
+    public static final String SETTINGS_TRACKING_DETAILS = "Settings_Tracking_details";
+    public static final String SETTINGS_TRACKING_TOGGLE = "Settings_Tracking_toggle";
     static final String DOWNLOADER_DIALOG_ERROR = "Downloader_OnStartScreen_error";
 
     // bookmarks
-    public static final String BMK_GROUP_CREATED = "Bookmark. Group created";
-    public static final String BMK_GROUP_CHANGED = "Bookmark. Group changed";
-    public static final String BMK_COLOR_CHANGED = "Bookmark. Color changed";
-    public static final String BMK_CREATED = "Bookmark. Bookmark created";
+    public static final String BM_GROUP_CREATED = "Bookmark. Group created";
+    public static final String BM_GROUP_CHANGED = "Bookmark. Group changed";
+    public static final String BM_COLOR_CHANGED = "Bookmark. Color changed";
+    public static final String BM_CREATED = "Bookmark. Bookmark created";
+    public static final String BM_SYNC_PROPOSAL_SHOWN = "Bookmarks_SyncProposal_shown";
+    public static final String BM_SYNC_PROPOSAL_APPROVED = "Bookmarks_SyncProposal_approved";
+    public static final String BM_SYNC_PROPOSAL_ERROR = "Bookmarks_SyncProposal_error";
+    public static final String BM_SYNC_PROPOSAL_ENABLED = "Bookmarks_SyncProposal_enabled";
+    public static final String BM_SYNC_PROPOSAL_TOGGLE = "Settings_BookmarksSync_toggle";
+    public static final String BM_SYNC_STARTED = "Bookmarks_sync_started";
+    public static final String BM_SYNC_ERROR = "Bookmarks_sync_error";
+    public static final String BM_SYNC_SUCCESS = "Bookmarks_sync_success";
+    static final String BM_RESTORE_PROPOSAL_CLICK = "Bookmarks_RestoreProposal_click";
+    public static final String BM_RESTORE_PROPOSAL_CANCEL = "Bookmarks_RestoreProposal_cancel";
+    public static final String BM_RESTORE_PROPOSAL_SUCCESS = "Bookmarks_RestoreProposal_success";
+    static final String BM_RESTORE_PROPOSAL_ERROR = "Bookmarks_RestoreProposal_error";
+    static final String BM_TAB_CLICK = "Bookmarks_Tab_click";
+    private static final String BM_DOWNLOADED_CATALOGUE_OPEN = "Bookmarks_Downloaded_Catalogue_open";
+    private static final String BM_DOWNLOADED_CATALOGUE_ERROR = "Bookmarks_Downloaded_Catalogue_error";
+    public static final String BM_GUIDEDOWNLOADTOAST_SHOWN = "Bookmarks_GuideDownloadToast_shown";
+    public static final String BM_GUIDES_DOWNLOADDIALOGUE_CLICK = "Bookmarks_Guides_DownloadDialogue_click";
 
     // search
     public static final String SEARCH_CAT_CLICKED = "Search. Category clicked";
@@ -148,6 +203,11 @@ public enum Statistics
     public static final String SEARCH_TAB_SELECTED = "Search_Tab_selected";
     public static final String SEARCH_SPONSOR_CATEGORY_SHOWN = "Search_SponsoredCategory_shown";
     public static final String SEARCH_SPONSOR_CATEGORY_SELECTED = "Search_SponsoredCategory_selected";
+    public static final String SEARCH_FILTER_OPEN = "Search_Filter_Open";
+    public static final String SEARCH_FILTER_CANCEL = "Search_Filter_Cancel";
+    public static final String SEARCH_FILTER_RESET = "Search_Filter_Reset";
+    public static final String SEARCH_FILTER_APPLY = "Search_Filter_Apply";
+    public static final String SEARCH_FILTER_CLICK = "Search_Filter_Click";
 
     // place page
     public static final String PP_OPEN = "PP. Open";
@@ -176,20 +236,13 @@ public enum Statistics
     public static final String PP_HOTEL_REVIEWS_LAND = "PlacePage_Hotel_Reviews_land";
     public static final String PP_HOTEL_DESCRIPTION_LAND = "PlacePage_Hotel_Description_land";
     public static final String PP_HOTEL_FACILITIES = "PlacePage_Hotel_Facilities_open";
+    public static final String PP_HOTEL_SEARCH_SIMILAR = "Placepage_Hotel_search_similar";
     static final String PP_OWNERSHIP_BUTTON_CLICK = "Placepage_OwnershipButton_click";
 
     // toolbar actions
     public static final String TOOLBAR_MY_POSITION = "Toolbar. MyPosition";
-    public static final String TOOLBAR_SEARCH = "Toolbar. Search";
-    public static final String TOOLBAR_MENU = "Toolbar. Menu";
-    public static final String TOOLBAR_BOOKMARKS = "Toolbar. Bookmarks";
-
-    // menu actions
-    public static final String MENU_DOWNLOADER = "Menu. Downloader";
-    public static final String MENU_SETTINGS = "Menu. SettingsAndMore";
-    public static final String MENU_SHARE = "Menu. Share";
-    public static final String MENU_P2P = "Menu. Point to point.";
-    public static final String MENU_ADD_PLACE = "Menu. Add place.";
+    static final String TOOLBAR_CLICK = "Toolbar_click";
+    static final String TOOLBAR_MENU_CLICK = "Toolbar_Menu_click";
 
     // dialogs
     public static final String PLUS_DIALOG_LATER = "GPlus dialog cancelled.";
@@ -204,16 +257,17 @@ public enum Statistics
     public static final String PLACE_SHARED = "Place Shared";
     public static final String API_CALLED = "API called";
     public static final String DOWNLOAD_COUNTRY_NOTIFICATION_SHOWN = "Download country notification shown";
-    public static final String DOWNLOAD_COUNTRY_NOTIFICATION_CLICKED = "Download country notification clicked";
     public static final String ACTIVE_CONNECTION = "Connection";
     public static final String STATISTICS_STATUS_CHANGED = "Statistics status changed";
     public static final String TTS_FAILURE_LOCATION = "TTS failure location";
+    public static final String UGC_NOT_AUTH_NOTIFICATION_SHOWN = "UGC_UnsentNotification_shown";
+    public static final String UGC_NOT_AUTH_NOTIFICATION_CLICKED = "UGC_UnsentNotification_clicked";
 
     // routing
     public static final String ROUTING_BUILD = "Routing. Build";
     public static final String ROUTING_START_SUGGEST_REBUILD = "Routing. Suggest rebuild";
-    public static final String ROUTING_START = "Routing. Start";
-    public static final String ROUTING_CLOSE = "Routing. Close";
+    public static final String ROUTING_ROUTE_START = "Routing_Route_start";
+    public static final String ROUTING_ROUTE_FINISH = "Routing_Route_finish";
     public static final String ROUTING_CANCEL = "Routing. Cancel";
     public static final String ROUTING_VEHICLE_SET = "Routing. Set vehicle";
     public static final String ROUTING_PEDESTRIAN_SET = "Routing. Set pedestrian";
@@ -233,8 +287,6 @@ public enum Statistics
     public static final String ROUTING_SEARCH_CLICK = "Routing_Search_click";
     public static final String ROUTING_BOOKMARKS_CLICK = "Routing_Bookmarks_click";
     public static final String ROUTING_PLAN_TOOLTIP_CLICK = "Routing_PlanTooltip_click";
-
-    public static final String DISCOVERY_OPEN = "DiscoveryButton_Open";
 
     // editor
     public static final String EDITOR_START_CREATE = "Editor_Add_start";
@@ -263,13 +315,12 @@ public enum Statistics
     public static final String UGC_AUTH_DECLINED = "UGC_Auth_declined";
     public static final String UGC_AUTH_EXTERNAL_REQUEST_SUCCESS = "UGC_Auth_external_request_success";
     public static final String UGC_AUTH_ERROR = "UGC_Auth_error";
+    public static final String MAP_LAYERS_ACTIVATE = "Map_Layers_activate";
 
     public static class Settings
     {
       public static final String WEB_SITE = "Setings. Go to website";
-      public static final String WEB_BLOG = "Setings. Go to blog";
       public static final String FEEDBACK_GENERAL = "Send general feedback to android@maps.me";
-      public static final String SUBSCRIBE = "Settings. Subscribed";
       public static final String REPORT_BUG = "Settings. Bug reported";
       public static final String RATE = "Settings. Rate app called";
       public static final String TELL_FRIEND = "Settings. Tell to friend";
@@ -301,7 +352,7 @@ public enum Statistics
     static final String CHANNEL = "Channel";
     static final String CALLER_ID = "Caller ID";
     public static final String ENABLED = "Enabled";
-    static final String RATING = "Rating";
+    public static final String RATING = "Rating";
     static final String CONNECTION_TYPE = "Connection name";
     static final String CONNECTION_FAST = "Connection fast";
     static final String CONNECTION_METERED = "Connection limit";
@@ -320,8 +371,8 @@ public enum Statistics
     public static final String ERR_MSG = "error_message";
     public static final String OSM = "OSM";
     public static final String FACEBOOK = "Facebook";
-    static final String PROVIDER = "provider";
-    static final String HOTEL = "hotel";
+    public static final String PROVIDER = "provider";
+    public static final String HOTEL = "hotel";
     static final String HOTEL_LAT = "hotel_lat";
     static final String HOTEL_LON = "hotel_lon";
     static final String RESTAURANT = "restaurant";
@@ -348,21 +399,30 @@ public enum Statistics
     static final String ITEM = "item";
     static final String DESTINATION = "destination";
     static final String PLACEMENT = "placement";
+    public static final String PRICE_CATEGORY = "price_category";
+    public static final String DATE = "date";
+    static final String HAS_AUTH = "has_auth";
+    public static final String STATUS = "status";
+    static final String INTERRUPTED = "interrupted";
+    static final String BUTTON = "button";
+
     private EventParam() {}
   }
 
   public static class ParamValue
   {
-    static final String BOOKING_COM = "Booking.Com";
+    public static final String BOOKING_COM = "Booking.Com";
+    public static final String OSM = "OSM";
+    public static final String ON = "on";
+    public static final String OFF = "off";
+    public static final String CRASH_REPORTS = "crash_reports";
+    public static final String PERSONAL_ADS = "personal_ads";
     static final String SEARCH_BOOKING_COM = "Search.Booking.Com";
     static final String OPENTABLE = "OpenTable";
     static final String VIATOR = "Viator.Com";
     static final String LOCALS_EXPERTS = "Locals.Maps.Me";
     static final String SEARCH_RESTAURANTS = "Search.Restaurants";
     static final String SEARCH_ATTRACTIONS = "Search.Attractions";
-    static final String GEOCHAT = "Geochat";
-    static final String CIAN = "Cian.Ru";
-    static final String THOR = "Thor";
     static final String HOLIDAY = "Holiday";
     public static final String NO_PRODUCTS = "no_products";
     static final String ADD = "add";
@@ -371,6 +431,37 @@ public enum Statistics
     static final String PLACEPAGE_PREVIEW = "placepage_preview";
     static final String PLACEPAGE = "placepage";
     public static final String FACEBOOK = "facebook";
+    public static final String CHECKIN = "check_in";
+    public static final String CHECKOUT = "check_out";
+    public static final String ANY = "any";
+    public static final String GOOGLE = "google";
+    public static final String MAPSME = "mapsme";
+    public static final String PHONE = "phone";
+    public static final String UNKNOWN = "unknown";
+    static final String NETWORK = "network";
+    static final String DISK = "disk";
+    static final String AUTH = "auth";
+    static final String USER_INTERRUPTED = "user_interrupted";
+    static final String INVALID_CALL = "invalid_call";
+    static final String NO_BACKUP = "no_backup";
+    static final String DISK_NO_SPACE = "disk_no_space";
+    static final String BACKUP = "backup";
+    static final String RESTORE = "restore";
+    public static final String NO_INTERNET = "no_internet";
+    public static final String MY = "my";
+    public static final String DOWNLOADED = "downloaded";
+    static final String SUBWAY = "subway";
+    static final String TRAFFIC = "traffic";
+    public static final String SUCCESS = "success";
+    public static final String UNAVAILABLE = "unavailable";
+    static final String PEDESTRIAN = "pedestrian";
+    static final String VEHICLE = "vehicle";
+    static final String BICYCLE = "bicycle";
+    static final String TAXI = "taxi";
+    static final String TRANSIT = "transit";
+    public final static String VIEW_ON_MAP = "view on map";
+    public final static String NOT_NOW = "not now";
+    public final static String CLICK_OUTSIDE = "click outside pop-up";
   }
 
   // Initialized once in constructor and does not change until the process restarts.
@@ -395,10 +486,13 @@ public enum Statistics
     if (mEnabled)
     {
       //noinspection ConstantConditions
-      FlurryAgent.setLogLevel(BuildConfig.DEBUG ? Log.DEBUG : Log.ERROR);
       FlurryAgent.setVersionName(BuildConfig.VERSION_NAME);
-      FlurryAgent.setCaptureUncaughtExceptions(false);
-      FlurryAgent.init(context, PrivateVariables.flurryKey());
+      new FlurryAgent
+          .Builder()
+          .withLogEnabled(true)
+          .withLogLevel(BuildConfig.DEBUG ? Log.DEBUG : Log.ERROR)
+          .withCaptureUncaughtExceptions(false)
+          .build(context, PrivateVariables.flurryKey());
     }
     // At the moment, need to always initialize engine for correct JNI http part reusing.
     // Statistics is still enabled/disabled separately and never sent anywhere if turned off.
@@ -491,13 +585,13 @@ public enum Statistics
 
   public void trackColorChanged(String from, String to)
   {
-    trackEvent(EventName.BMK_COLOR_CHANGED, params().add(EventParam.FROM, from)
-                                                    .add(EventParam.TO, to));
+    trackEvent(EventName.BM_COLOR_CHANGED, params().add(EventParam.FROM, from)
+                                                   .add(EventParam.TO, to));
   }
 
   public void trackBookmarkCreated()
   {
-    trackEvent(EventName.BMK_CREATED, params().add(EventParam.COUNT, String.valueOf(++mBookmarksCreated)));
+    trackEvent(EventName.BM_CREATED, params().add(EventParam.COUNT, String.valueOf(++mBookmarksCreated)));
   }
 
   public void trackPlaceShared(String channel)
@@ -563,6 +657,23 @@ public enum Statistics
       PushwooshHelper.nativeSendEditorEditObjectTag();
   }
 
+  public void trackSubwayEvent(@NonNull String status)
+  {
+    trackMapLayerEvent(ParamValue.SUBWAY, status);
+  }
+
+  public void trackTrafficEvent(@NonNull String status)
+  {
+    trackMapLayerEvent(ParamValue.TRAFFIC, status);
+  }
+
+  private void trackMapLayerEvent(@NonNull String eventName, @NonNull String status)
+  {
+    ParameterBuilder builder = params().add(EventParam.NAME, eventName)
+                                       .add(EventParam.STATUS, status);
+    trackEvent(EventName.MAP_LAYERS_ACTIVATE, builder);
+  }
+
   public void trackEditorSuccess(boolean newObject)
   {
     trackEvent(newObject ? EventName.EDITOR_SUCCESS_CREATE : EventName.EDITOR_SUCCESS_EDIT,
@@ -583,10 +694,11 @@ public enum Statistics
   }
 
   public void trackTaxiInRoutePlanning(@Nullable MapObject from, @Nullable MapObject to,
-                                       @Nullable Location location, @TaxiManager.TaxiType int type, boolean isAppInstalled)
+                                       @Nullable Location location, @NonNull String providerName,
+                                       boolean isAppInstalled)
   {
     Statistics.ParameterBuilder params = Statistics.params();
-    params.add(Statistics.EventParam.PROVIDER, type == TaxiManager.PROVIDER_YANDEX ? "Yandex" : "Uber");
+    params.add(Statistics.EventParam.PROVIDER, providerName);
 
     params.add(Statistics.EventParam.FROM_LAT, from != null ? String.valueOf(from.getLat()) : "N/A")
           .add(Statistics.EventParam.FROM_LON, from != null ? String.valueOf(from.getLon()) : "N/A");
@@ -599,19 +711,17 @@ public enum Statistics
     trackEvent(event, location, params.get());
   }
 
-  public void trackTaxiEvent(@NonNull String eventName, @TaxiManager.TaxiType int type)
+  public void trackTaxiEvent(@NonNull String eventName, @NonNull String providerName)
   {
     Statistics.ParameterBuilder params = Statistics.params();
-    params.add(Statistics.EventParam.PROVIDER,
-               type == TaxiManager.PROVIDER_YANDEX ? "Yandex" : "Uber");
+    params.add(Statistics.EventParam.PROVIDER, providerName);
     trackEvent(eventName, params);
   }
 
   public void trackTaxiError(@NonNull TaxiInfoError error)
   {
     Statistics.ParameterBuilder params = Statistics.params();
-    params.add(Statistics.EventParam.PROVIDER,
-               error.getType() == TaxiManager.PROVIDER_YANDEX ? "Yandex" : "Uber");
+    params.add(Statistics.EventParam.PROVIDER, error.getProviderName());
     params.add(ERROR_CODE, error.getCode().name());
     trackEvent(EventName.ROUTING_TAXI_ROUTE_BUILT, params);
   }
@@ -648,6 +758,23 @@ public enum Statistics
   public void trackBookHotelEvent(@NonNull Sponsored hotel, @NonNull MapObject mapObject)
   {
     trackHotelEvent(PP_SPONSORED_BOOK, hotel, mapObject);
+  }
+
+  public void trackBookmarksTabEvent(@NonNull String param)
+  {
+    ParameterBuilder params = params().add(EventParam.VALUE, param);
+    trackEvent(EventName.BM_TAB_CLICK, params);
+  }
+
+  public void trackOpenCatalogScreen()
+  {
+    trackEvent(EventName.BM_DOWNLOADED_CATALOGUE_OPEN, Collections.emptyMap());
+  }
+
+  public void trackDownloadCatalogError(@NonNull String value)
+  {
+    ParameterBuilder params = params().add(EventParam.ERROR, value);
+    trackEvent(EventName.BM_DOWNLOADED_CATALOGUE_ERROR, params);
   }
 
   public void trackPPBanner(@NonNull String eventName, @NonNull MwmNativeAd ad, @BannerState int state)
@@ -720,10 +847,10 @@ public enum Statistics
         charging = "unknown";
         break;
       case CHARGING_STATUS_PLUGGED:
-        charging = "on";
+        charging = ParamValue.ON;
         break;
       case CHARGING_STATUS_UNPLUGGED:
-        charging = "off";
+        charging = ParamValue.OFF;
         break;
       default:
         charging = "unknown";
@@ -762,11 +889,11 @@ public enum Statistics
     return network;
   }
 
-  public void trackSponsoredOpenEvent(@Sponsored.SponsoredType int type)
+  public void trackSponsoredOpenEvent(@NonNull Sponsored sponsored)
   {
     Statistics.ParameterBuilder builder = Statistics.params();
     builder.add(NETWORK, getConnectionState())
-           .add(PROVIDER, convertToSponsor(type));
+           .add(PROVIDER, convertToSponsor(sponsored));
     trackEvent(PP_SPONSORED_OPEN, builder.get());
   }
 
@@ -778,7 +905,7 @@ public enum Statistics
                                              .add(PLACEMENT, placement.toString())
                                              .add(STATE, state.toString()));
 
-    if (type == GalleryType.CIAN && state == GalleryState.ONLINE)
+    if (state == GalleryState.ONLINE)
       MyTracker.trackEvent(PP_SPONSORED_SHOWN + "_" + type.getProvider());
   }
 
@@ -811,11 +938,35 @@ public enum Statistics
                                     .get());
   }
 
-  public void trackSponsoredEvent(@NonNull String eventName, @Sponsored.SponsoredType int type)
+  public void trackSponsoredEventForCustomProvider(@NonNull String eventName,
+                                                   @NonNull String provider)
   {
-    String provider = convertToSponsor(type);
     trackEvent(eventName, Statistics.params().add(PROVIDER, provider).get());
     MyTracker.trackEvent(eventName + "_" + provider);
+  }
+
+  public void trackSettingsToggle(boolean value)
+  {
+    trackEvent(EventName.SETTINGS_TRACKING_TOGGLE, Statistics.params()
+                                                             .add(TYPE, ParamValue.CRASH_REPORTS)
+                                                             .add(VALUE, value
+                                                                        ? ParamValue.ON
+                                                                        : ParamValue.OFF).get());
+  }
+
+  public void trackSettingsDetails()
+  {
+    trackEvent(EventName.SETTINGS_TRACKING_DETAILS,
+               Statistics.params().add(TYPE, ParamValue.PERSONAL_ADS).get());
+  }
+
+  @NonNull
+  private static String convertToSponsor(@NonNull Sponsored sponsored)
+  {
+    if (sponsored.getType() == Sponsored.TYPE_PARTNER)
+      return sponsored.getPartnerName();
+
+    return convertToSponsor(sponsored.getType());
   }
 
   @NonNull
@@ -827,14 +978,8 @@ public enum Statistics
         return BOOKING_COM;
       case Sponsored.TYPE_VIATOR:
         return VIATOR;
-      case Sponsored.TYPE_GEOCHAT:
-        return GEOCHAT;
       case Sponsored.TYPE_OPENTABLE:
         return OPENTABLE;
-      case Sponsored.TYPE_CIAN:
-        return CIAN;
-      case Sponsored.TYPE_THOR:
-        return THOR;
       case Sponsored.TYPE_HOLIDAY:
         return HOLIDAY;
       case Sponsored.TYPE_NONE:
@@ -881,6 +1026,46 @@ public enum Statistics
                    .get());
   }
 
+  public void trackRoutingStart(@Framework.RouterType int type,
+                                boolean trafficEnabled)
+  {
+    trackEvent(ROUTING_ROUTE_START, prepareRouteParams(type, trafficEnabled));
+  }
+
+  public void trackRoutingFinish(boolean interrupted, @Framework.RouterType int type,
+                                 boolean trafficEnabled)
+  {
+    ParameterBuilder params = prepareRouteParams(type, trafficEnabled);
+    trackEvent(ROUTING_ROUTE_FINISH, params.add(INTERRUPTED, interrupted ? 1 : 0));
+  }
+
+  @NonNull
+  private static ParameterBuilder prepareRouteParams(@Framework.RouterType int type,
+                                                     boolean trafficEnabled)
+  {
+    return params().add(MODE, toRouterType(type)).add(TRAFFIC, trafficEnabled ? 1 : 0);
+  }
+
+  @NonNull
+  private static String toRouterType(@Framework.RouterType int type)
+  {
+    switch (type)
+    {
+      case Framework.ROUTER_TYPE_VEHICLE:
+        return VEHICLE;
+      case Framework.ROUTER_TYPE_PEDESTRIAN:
+        return PEDESTRIAN;
+      case Framework.ROUTER_TYPE_BICYCLE:
+        return BICYCLE;
+      case Framework.ROUTER_TYPE_TAXI:
+        return TAXI;
+      case Framework.ROUTER_TYPE_TRANSIT:
+        return TRANSIT;
+      default:
+        throw new AssertionError("Unsupported router type: " + type);
+    }
+  }
+
   public void trackRoutingTooltipEvent(@RoutePointInfo.RouteMarkType int type,
                                        boolean isPlanning)
   {
@@ -896,7 +1081,7 @@ public enum Statistics
   {
     // Here we code category by means of rating.
     Statistics.INSTANCE.trackEvent(eventName, LocationHelper.INSTANCE.getLastKnownLocation(),
-        Statistics.params().add(PROVIDER, convertToSponsor(sponsoredObj.getType()))
+        Statistics.params().add(PROVIDER, convertToSponsor(sponsoredObj))
             .add(CATEGORY, sponsoredObj.getRating())
             .add(OBJECT_LAT, mapObject.getLat())
             .add(OBJECT_LON, mapObject.getLon()).get());
@@ -939,19 +1124,174 @@ public enum Statistics
     trackEvent(UGC_AUTH_EXTERNAL_REQUEST_SUCCESS, params().add(EventParam.PROVIDER, provider));
   }
 
-  public void trackUGCAuthFailed(@NonNull String provider, @Nullable String error)
+  public void trackUGCAuthFailed(@Framework.AuthTokenType int type, @Nullable String error)
   {
     trackEvent(UGC_AUTH_ERROR, params()
-        .add(EventParam.PROVIDER, provider)
+        .add(EventParam.PROVIDER, getAuthProvider(type))
         .add(EventParam.ERROR, error)
         .get());
   }
 
-  public void trackDiscoveryOpen()
+  @NonNull
+  public static String getAuthProvider(@Framework.AuthTokenType int type)
   {
-    trackEvent(DISCOVERY_OPEN, params().add(NETWORK, getConnectionState()));
+    switch (type)
+    {
+      case Framework.SOCIAL_TOKEN_FACEBOOK:
+        return FACEBOOK;
+      case Framework.SOCIAL_TOKEN_GOOGLE:
+        return GOOGLE;
+      case Framework.SOCIAL_TOKEN_PHONE:
+        return PHONE;
+      case Framework.TOKEN_MAPSME:
+        return MAPSME;
+      case Framework.SOCIAL_TOKEN_INVALID:
+        return UNKNOWN;
+      default:
+        throw new AssertionError("Unknown social token type: " + type);
+    }
   }
 
+  @NonNull
+  public static String getSynchronizationType(@BookmarkManager.SynchronizationType int type)
+  {
+    return type == 0 ? BACKUP : RESTORE;
+  }
+
+  public void trackFilterEvent(@NonNull String event, @NonNull String category)
+  {
+    trackEvent(event, params()
+              .add(EventParam.CATEGORY, category)
+              .get());
+  }
+
+  public void trackFilterClick(@NonNull String category, @NonNull Pair<String, String> params)
+  {
+    trackEvent(SEARCH_FILTER_CLICK, params()
+              .add(EventParam.CATEGORY, category)
+              .add(params.first, params.second)
+              .get());
+  }
+
+  public void trackBmSyncProposalShown(boolean hasAuth)
+  {
+    trackEvent(BM_SYNC_PROPOSAL_SHOWN, params().add(HAS_AUTH, hasAuth ? 1 : 0).get());
+  }
+
+  public void trackBmSyncProposalApproved(boolean hasAuth)
+  {
+    trackEvent(BM_SYNC_PROPOSAL_APPROVED, params()
+        .add(HAS_AUTH, hasAuth ? 1 : 0)
+        .add(NETWORK, getConnectionState())
+        .get());
+  }
+
+  public void trackBmRestoreProposalClick()
+  {
+    trackEvent(BM_RESTORE_PROPOSAL_CLICK, params()
+        .add(NETWORK, getConnectionState())
+        .get());
+  }
+
+  public void trackBmSyncProposalError(@Framework.AuthTokenType int type, @Nullable String message)
+  {
+    trackEvent(BM_SYNC_PROPOSAL_ERROR, params()
+        .add(PROVIDER, getAuthProvider(type))
+        .add(ERROR, message)
+        .get());
+  }
+
+  public void trackBmSettingsToggle(boolean checked)
+  {
+    trackEvent(BM_SYNC_PROPOSAL_TOGGLE, params()
+        .add(STATE, checked ? 1 : 0)
+        .get());
+  }
+
+  public void trackBmSynchronizationFinish(@BookmarkManager.SynchronizationType int type,
+                                           @BookmarkManager.SynchronizationResult int result,
+                                           @NonNull String errorString)
+  {
+    if (result == BookmarkManager.CLOUD_SUCCESS)
+    {
+      if (type == BookmarkManager.CLOUD_BACKUP)
+        trackEvent(BM_SYNC_SUCCESS);
+      else
+        trackEvent(BM_RESTORE_PROPOSAL_SUCCESS);
+      return;
+    }
+
+    trackEvent(type == BookmarkManager.CLOUD_BACKUP ? BM_SYNC_ERROR : BM_RESTORE_PROPOSAL_ERROR,
+               params().add(TYPE, getTypeForErrorSyncResult(result)).add(ERROR, errorString));
+  }
+
+  public void trackBmRestoringRequestResult(@BookmarkManager.RestoringRequestResult int result)
+  {
+    if (result == BookmarkManager.CLOUD_BACKUP_EXISTS)
+      return;
+
+    trackEvent(BM_RESTORE_PROPOSAL_ERROR, params()
+        .add(TYPE, getTypeForRequestRestoringError(result)));
+  }
+
+  @NonNull
+  private static String getTypeForErrorSyncResult(@BookmarkManager.SynchronizationResult int result)
+  {
+    switch (result)
+    {
+      case BookmarkManager.CLOUD_AUTH_ERROR:
+        return ParamValue.AUTH;
+      case BookmarkManager.CLOUD_NETWORK_ERROR:
+        return ParamValue.NETWORK;
+      case BookmarkManager.CLOUD_DISK_ERROR:
+        return ParamValue.DISK;
+      case BookmarkManager.CLOUD_USER_INTERRUPTED:
+        return ParamValue.USER_INTERRUPTED;
+      case BookmarkManager.CLOUD_INVALID_CALL:
+        return ParamValue.INVALID_CALL;
+      case BookmarkManager.CLOUD_SUCCESS:
+        throw new AssertionError("It's not a error result!");
+      default:
+        throw new AssertionError("Unsupported error type: " + result);
+    }
+  }
+
+  @NonNull
+  private static String getTypeForRequestRestoringError(@BookmarkManager.RestoringRequestResult int result)
+  {
+    switch (result)
+    {
+      case BookmarkManager.CLOUD_BACKUP_EXISTS:
+        throw new AssertionError("It's not a error result!");
+      case BookmarkManager.CLOUD_NOT_ENOUGH_DISK_SPACE:
+        return DISK_NO_SPACE;
+      case BookmarkManager.CLOUD_NO_BACKUP:
+        return NO_BACKUP;
+      default:
+        throw new AssertionError("Unsupported restoring request result: " + result);
+    }
+  }
+
+  public void trackToolbarClick(@NonNull MainMenu.Item button)
+  {
+    trackEvent(TOOLBAR_CLICK, getToolbarParams(button));
+  }
+
+  public void trackToolbarMenu(@NonNull MainMenu.Item button)
+  {
+    trackEvent(TOOLBAR_MENU_CLICK, getToolbarParams(button));
+  }
+
+  public void trackDownloadBookmarkDialog(@NonNull String button)
+  {
+    trackEvent(BM_GUIDES_DOWNLOADDIALOGUE_CLICK, params().add(ACTION, button));
+  }
+
+  @NonNull
+  private static ParameterBuilder getToolbarParams(@NonNull MainMenu.Item button)
+  {
+    return params().add(BUTTON, button.name().toLowerCase());
+  }
 
   public static ParameterBuilder params()
   {

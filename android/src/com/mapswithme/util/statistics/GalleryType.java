@@ -13,15 +13,6 @@ public enum GalleryType
           return Statistics.ParamValue.VIATOR;
         }
       },
-  CIAN
-      {
-        @NonNull
-        @Override
-        public String getProvider()
-        {
-          return Statistics.ParamValue.CIAN;
-        }
-      },
   LOCAL_EXPERTS
       {
         @NonNull
@@ -47,6 +38,15 @@ public enum GalleryType
         public String getProvider()
         {
           return Statistics.ParamValue.SEARCH_ATTRACTIONS;
+        }
+      },
+  SEARCH_HOTELS
+      {
+        @NonNull
+        @Override
+        public String getProvider()
+        {
+          return Statistics.ParamValue.BOOKING_COM;
         }
       };
 

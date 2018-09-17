@@ -1,8 +1,9 @@
 package com.mapswithme.maps.search;
 
+import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.location.Location;
-import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.CallSuper;
 import android.support.annotation.NonNull;
@@ -21,8 +22,8 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import com.google.android.gms.ads.search.SearchAdView;
+import com.mapswithme.maps.Framework;
 import com.mapswithme.maps.MwmActivity;
-import com.mapswithme.maps.MwmApplication;
 import com.mapswithme.maps.R;
 import com.mapswithme.maps.base.BaseMwmFragment;
 import com.mapswithme.maps.base.OnBackPressListener;
@@ -35,16 +36,16 @@ import com.mapswithme.maps.location.LocationListener;
 import com.mapswithme.maps.routing.RoutingController;
 import com.mapswithme.maps.widget.PlaceholderView;
 import com.mapswithme.maps.widget.SearchToolbarController;
-import com.mapswithme.maps.widget.placepage.Sponsored;
 import com.mapswithme.util.ConnectionState;
 import com.mapswithme.util.SharedPropertiesUtils;
 import com.mapswithme.util.UiUtils;
 import com.mapswithme.util.Utils;
 import com.mapswithme.util.concurrency.UiThread;
-import com.mapswithme.util.log.LoggerFactory;
 import com.mapswithme.util.statistics.Statistics;
+import ru.mail.libnotify.debug.NotifyDebugActivity;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -53,9 +54,8 @@ public class SearchFragment extends BaseMwmFragment
                                     NativeSearchListener,
                                     SearchToolbarController.Container,
                                     CategoriesAdapter.OnCategorySelectedListener,
-                                    HotelsFilterHolder
+                                    HotelsFilterHolder, NativeBookingFilterListener
 {
-  public static final String PREFS_SHOW_ENABLE_LOGGING_SETTING = "ShowEnableLoggingSetting";
   private static final int MIN_QUERY_LENGTH_FOR_AD = 3;
   private static final long ADS_DELAY_MS = 200;
   private static final long RESULTS_DELAY_MS = 400;
@@ -70,23 +70,11 @@ public class SearchFragment extends BaseMwmFragment
   @Nullable
   private SearchAdView mGoogleAdView;
   @NonNull
-  private final Runnable mResultsShowingTask = new Runnable()
-  {
-    @Override
-    public void run()
-    {
-      refreshSearchResults();
-    }
-  };
+  private final Runnable mResultsShowingTask = this::refreshSearchResults;
   @NonNull
-  private final Runnable mSearchEndTask = new Runnable()
-  {
-    @Override
-    public void run()
-    {
-      onSearchEnd();
-    }
-  };
+  private final Runnable mSearchEndTask = this::onSearchEnd;
+  @NonNull
+  private final List<HiddenCommand> mHiddenCommands = new ArrayList<>();
 
   private static class LastPosition
   {
@@ -133,7 +121,7 @@ public class SearchFragment extends BaseMwmFragment
         return;
       }
 
-      if (tryRecognizeLoggingCommand(query))
+      if (tryRecognizeHiddenCommand(query))
       {
         mSearchAdapter.clear();
         stopSearch();
@@ -141,10 +129,10 @@ public class SearchFragment extends BaseMwmFragment
         return;
       }
 
-      if (mCianCategorySelected)
+      if (mPromoCategorySelected)
         return;
 
-      if (mAdsLoader != null && !isInteractiveSearch() && query.length() >= MIN_QUERY_LENGTH_FOR_AD)
+      if (mAdsLoader != null && !isTabletSearch() && query.length() >= MIN_QUERY_LENGTH_FOR_AD)
       {
         mAdsRequested = true;
         mAdsLoader.scheduleAdsLoading(getActivity(), query);
@@ -201,12 +189,13 @@ public class SearchFragment extends BaseMwmFragment
   private RecyclerView mResults;
   private AppBarLayout mAppBarLayout;
   private CollapsingToolbarLayout mToolbarLayout;
-  private View mFilterElevation;
   @Nullable
   private SearchFilterController mFilterController;
 
   private SearchToolbarController mToolbarController;
 
+  @SuppressWarnings("NullableProblems")
+  @NonNull
   private SearchAdapter mSearchAdapter;
 
   private final List<RecyclerView> mAttachedRecyclers = new ArrayList<>();
@@ -222,13 +211,15 @@ public class SearchFragment extends BaseMwmFragment
 
   private final LastPosition mLastPosition = new LastPosition();
   private boolean mSearchRunning;
-  private boolean mCianCategorySelected;
+  private boolean mPromoCategorySelected;
   private String mInitialQuery;
   @Nullable
   private String mInitialLocale;
   private boolean mInitialSearchOnMap = false;
   @Nullable
   private HotelsFilter mInitialHotelsFilter;
+  @Nullable
+  private BookingFilterParams mInitialFilterParams;
 
   private boolean mIsHotel;
   @NonNull
@@ -256,8 +247,6 @@ public class SearchFragment extends BaseMwmFragment
 
           boolean show = !(Math.abs(verticalOffset) == appBarLayout.getTotalScrollRange());
           mFilterController.showDivider(show);
-          if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP)
-            UiUtils.showIf(!show, mFilterElevation);
         }
       };
 
@@ -274,6 +263,16 @@ public class SearchFragment extends BaseMwmFragment
       return null;
 
     return mFilterController.getFilter();
+  }
+
+  @Nullable
+  @Override
+  public BookingFilterParams getFilterParams()
+  {
+    if (mFilterController == null)
+      return null;
+
+    return mFilterController.getBookingFilterParams();
   }
 
   private void showDownloadSuggest()
@@ -329,7 +328,7 @@ public class SearchFragment extends BaseMwmFragment
 
     UiUtils.showIf(show, mResultsPlaceholder);
     if (mFilterController != null)
-      mFilterController.showPopulateButton(mSearchAdapter.showPopulateButton());
+      mFilterController.showPopulateButton(mSearchAdapter.showPopulateButton() && !isTabletSearch());
   }
 
   @Override
@@ -343,50 +342,57 @@ public class SearchFragment extends BaseMwmFragment
   public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState)
   {
     super.onViewCreated(view, savedInstanceState);
+    mSearchAdapter = new SearchAdapter(this);
     readArguments();
 
     if (ConnectionState.isWifiConnected() && SharedPropertiesUtils.isShowcaseSwitchedOnLocal())
     {
       mAdsLoader = new GoogleAdsLoader(getContext(), ADS_DELAY_MS);
-      mAdsLoader.attach(new GoogleAdsLoader.AdvertLoadingListener()
-      {
-        @Override
-        public void onLoadingFinished(@NonNull SearchAdView searchAdView)
-        {
-          mGoogleAdView = searchAdView;
-          mAdsRequested = false;
-        }
-      });
+      mAdsLoader.attach(searchAdView ->
+                        {
+                          mGoogleAdView = searchAdView;
+                          mAdsRequested = false;
+                        });
     }
 
     ViewGroup root = (ViewGroup) view;
-    mAppBarLayout = (AppBarLayout) root.findViewById(R.id.app_bar);
-    mToolbarLayout = (CollapsingToolbarLayout) mAppBarLayout.findViewById(R.id.collapsing_toolbar);
+    mAppBarLayout = root.findViewById(R.id.app_bar);
+    mToolbarLayout = mAppBarLayout.findViewById(R.id.collapsing_toolbar);
     mTabFrame = root.findViewById(R.id.tab_frame);
-    ViewPager pager = (ViewPager) mTabFrame.findViewById(R.id.pages);
+    ViewPager pager = mTabFrame.findViewById(R.id.pages);
 
     mToolbarController = new ToolbarController(view);
 
-    TabLayout tabLayout = (TabLayout) root.findViewById(R.id.tabs);
+    TabLayout tabLayout = root.findViewById(R.id.tabs);
     final TabAdapter tabAdapter = new TabAdapter(getChildFragmentManager(), pager, tabLayout);
 
     mResultsFrame = root.findViewById(R.id.results_frame);
-    mResults = (RecyclerView) mResultsFrame.findViewById(R.id.recycler);
+    mResults = mResultsFrame.findViewById(R.id.recycler);
     setRecyclerScrollListener(mResults);
-    mResultsPlaceholder = (PlaceholderView) mResultsFrame.findViewById(R.id.placeholder);
-    mResultsPlaceholder.setContent(R.drawable.img_mappyny,
+    mResultsPlaceholder = mResultsFrame.findViewById(R.id.placeholder);
+    mResultsPlaceholder.setContent(R.drawable.img_search_nothing_found_light,
                                    R.string.search_not_found, R.string.search_not_found_query);
-
-    mFilterElevation = view.findViewById(R.id.filter_elevation);
-
     mFilterController = new SearchFilterController(root.findViewById(R.id.filter_frame),
-                                                   (HotelsFilterView) view.findViewById(R.id.filter),
                                                    new SearchFilterController.DefaultFilterListener()
     {
       @Override
-      public void onViewClick()
+      public void onShowOnMapClick()
       {
         showAllResultsOnMap();
+      }
+
+      @Override
+      public void onFilterClick()
+      {
+        HotelsFilter filter = null;
+        BookingFilterParams params = null;
+        if (mFilterController != null)
+        {
+          filter = mFilterController.getFilter();
+          params = mFilterController.getBookingFilterParams();
+        }
+        FilterActivity.startForResult(SearchFragment.this, filter, params,
+                                      FilterActivity.REQ_CODE_FILTER);
       }
 
       @Override
@@ -394,31 +400,21 @@ public class SearchFragment extends BaseMwmFragment
       {
         runSearch();
       }
-
-      @Override
-      public void onFilterDone()
-      {
-        runSearch();
-      }
     });
     if (savedInstanceState != null)
       mFilterController.onRestoreState(savedInstanceState);
-    if (mInitialHotelsFilter != null)
-      mFilterController.setFilter(mInitialHotelsFilter);
-    mFilterController.updateFilterButtonVisibility(false);
+    if (mInitialHotelsFilter != null || mInitialFilterParams != null)
+      mFilterController.setFilterAndParams(mInitialHotelsFilter, mInitialFilterParams);
+    mFilterController.updateFilterButtonVisibility(mInitialFilterParams != null);
 
-    if (mSearchAdapter == null)
+    mSearchAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver()
     {
-      mSearchAdapter = new SearchAdapter(this);
-      mSearchAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver()
+      @Override
+      public void onChanged()
       {
-        @Override
-        public void onChanged()
-        {
-          updateResultsPlaceholder();
-        }
-      });
-    }
+        updateResultsPlaceholder();
+      }
+    });
 
     mResults.setLayoutManager(new LinearLayoutManager(view.getContext()));
     mResults.setAdapter(mSearchAdapter);
@@ -437,15 +433,11 @@ public class SearchFragment extends BaseMwmFragment
     if (SearchRecents.getSize() == 0)
       pager.setCurrentItem(TabAdapter.Tab.CATEGORIES.ordinal());
 
-    tabAdapter.setTabSelectedListener(new TabAdapter.OnTabSelectedListener()
-    {
-      @Override
-      public void onTabSelected(@NonNull TabAdapter.Tab tab)
-      {
-        Statistics.INSTANCE.trackSearchTabSelected(tab.name());
-        mToolbarController.deactivate();
-      }
-    });
+    tabAdapter.setTabSelectedListener(tab ->
+                                      {
+                                        Statistics.INSTANCE.trackSearchTabSelected(tab.name());
+                                        mToolbarController.deactivate();
+                                      });
 
     if (mInitialSearchOnMap)
       showAllResultsOnMap();
@@ -462,6 +454,7 @@ public class SearchFragment extends BaseMwmFragment
   {
     super.onResume();
     LocationHelper.INSTANCE.addListener(mLocationListener, true);
+    SearchEngine.INSTANCE.addHotelListener(this);
     mAppBarLayout.addOnOffsetChangedListener(mOffsetListener);
   }
 
@@ -469,6 +462,7 @@ public class SearchFragment extends BaseMwmFragment
   public void onPause()
   {
     LocationHelper.INSTANCE.removeListener(mLocationListener);
+    SearchEngine.INSTANCE.removeHotelListener(this);
     super.onPause();
     mAppBarLayout.removeOnOffsetChangedListener(mOffsetListener);
   }
@@ -511,31 +505,33 @@ public class SearchFragment extends BaseMwmFragment
     mInitialQuery = arguments.getString(SearchActivity.EXTRA_QUERY);
     mInitialLocale = arguments.getString(SearchActivity.EXTRA_LOCALE);
     mInitialSearchOnMap = arguments.getBoolean(SearchActivity.EXTRA_SEARCH_ON_MAP);
-    mInitialHotelsFilter = arguments.getParcelable(SearchActivity.EXTRA_HOTELS_FILTER);
+    mInitialHotelsFilter = arguments.getParcelable(FilterActivity.EXTRA_FILTER);
+    mInitialFilterParams = arguments.getParcelable(FilterActivity.EXTRA_FILTER_PARAMS);
   }
 
-  private boolean tryRecognizeLoggingCommand(@NonNull String str)
+  private boolean tryRecognizeHiddenCommand(@NonNull String query)
   {
-    if (str.equals("?enableLogging"))
+    for(HiddenCommand command: getHiddenCommands())
     {
-      MwmApplication.prefs().edit().putBoolean(PREFS_SHOW_ENABLE_LOGGING_SETTING, true).apply();
-      return true;
-    }
-
-    if (str.equals("?disableLogging"))
-    {
-      LoggerFactory.INSTANCE.setFileLoggingEnabled(false);
-      MwmApplication.prefs().edit().putBoolean(PREFS_SHOW_ENABLE_LOGGING_SETTING, false).apply();
-      return true;
-    }
-
-    if (str.equals("?emulateBadStorage"))
-    {
-      SharedPropertiesUtils.setShouldShowEmulateBadStorageSetting(true);
-      return true;
+      if (command.execute(query))
+        return true;
     }
 
     return false;
+  }
+
+  @NonNull
+  private List<HiddenCommand> getHiddenCommands()
+  {
+    if (mHiddenCommands.isEmpty())
+    {
+      mHiddenCommands.addAll(Arrays.asList(new BadStorageCommand("?emulateBadStorage"),
+                                           new LibnotifyIdCommand(getActivity(), "?libnotifyId"),
+                                           new JavaCrashCommand("?emulateJavaCrash"),
+                                           new NativeCrashCommand("?emulateNativeCrash")));
+    }
+
+    return mHiddenCommands;
   }
 
   private void processSelected(@NonNull SearchResult result)
@@ -562,10 +558,10 @@ public class SearchFragment extends BaseMwmFragment
   {
     final String query = getQuery();
     SearchRecents.add(query);
-    SearchEngine.cancelApiCall();
+    SearchEngine.INSTANCE.cancel();
 
     if (!RoutingController.get().isWaitingPoiPick())
-      SearchEngine.showResult(resultIndex);
+      SearchEngine.INSTANCE.showResult(resultIndex);
 
     processSelected(result);
 
@@ -574,6 +570,10 @@ public class SearchFragment extends BaseMwmFragment
 
   void showAllResultsOnMap()
   {
+    // The previous search should be cancelled before the new one is started, since previous search
+    // results are no longer needed.
+    SearchEngine.INSTANCE.cancel();
+
     final String query = getQuery();
     SearchRecents.add(query);
     mLastQueryTimestamp = System.nanoTime();
@@ -586,12 +586,12 @@ public class SearchFragment extends BaseMwmFragment
       bookingFilterParams = mFilterController.getBookingFilterParams();
     }
 
-    SearchEngine.searchInteractive(
+    SearchEngine.INSTANCE.searchInteractive(
         query, !TextUtils.isEmpty(mInitialLocale)
                ? mInitialLocale : com.mapswithme.util.Language.getKeyboardLocale(),
         mLastQueryTimestamp, false /* isMapAndTable */,
         hotelsFilter, bookingFilterParams);
-    SearchEngine.showAllResults(query);
+    SearchEngine.INSTANCE.setQuery(query);
     Utils.navigateToParent(getActivity());
 
     Statistics.INSTANCE.trackEvent(Statistics.EventName.SEARCH_ON_MAP_CLICKED);
@@ -613,12 +613,11 @@ public class SearchFragment extends BaseMwmFragment
 
   private void stopSearch()
   {
-    SearchEngine.cancelApiCall();
-    SearchEngine.cancelAllSearches();
+    SearchEngine.INSTANCE.cancel();
     updateSearchView();
   }
 
-  private boolean isInteractiveSearch()
+  private boolean isTabletSearch()
   {
     // TODO @yunitsky Implement more elegant solution.
     return getActivity() instanceof MwmActivity;
@@ -626,6 +625,10 @@ public class SearchFragment extends BaseMwmFragment
 
   private void runSearch()
   {
+    // The previous search should be cancelled before the new one is started, since previous search
+    // results are no longer needed.
+    SearchEngine.INSTANCE.cancel();
+
     HotelsFilter hotelsFilter = null;
     BookingFilterParams bookingFilterParams = null;
     if (mFilterController != null)
@@ -635,14 +638,14 @@ public class SearchFragment extends BaseMwmFragment
     }
 
     mLastQueryTimestamp = System.nanoTime();
-    if (isInteractiveSearch())
+    if (isTabletSearch())
     {
-      SearchEngine.searchInteractive(getQuery(), mLastQueryTimestamp, true /* isMapAndTable */,
+      SearchEngine.INSTANCE.searchInteractive(getQuery(), mLastQueryTimestamp, true /* isMapAndTable */,
                                      hotelsFilter, bookingFilterParams);
     }
     else
     {
-      if (!SearchEngine.search(getQuery(), mLastQueryTimestamp, mLastPosition.valid,
+      if (!SearchEngine.INSTANCE.search(getQuery(), mLastQueryTimestamp, mLastPosition.valid,
                                mLastPosition.lat, mLastPosition.lon,
                                hotelsFilter, bookingFilterParams))
       {
@@ -691,17 +694,28 @@ public class SearchFragment extends BaseMwmFragment
   }
 
   @Override
-  public void onCategorySelected(String category)
+  public void onFilterHotels(@BookingFilter.Type int type, @Nullable FeatureId[] hotels)
   {
-    if (!TextUtils.isEmpty(category) && category.equals("cian "))
-    {
-      mCianCategorySelected = true;
-      mToolbarController.setQuery(category);
+    if (hotels == null)
+      return;
 
-      Statistics.INSTANCE.trackSponsoredEvent(Statistics.EventName.SEARCH_SPONSOR_CATEGORY_SELECTED,
-                                              Sponsored.TYPE_CIAN);
+    mSearchAdapter.setFilteredHotels(type, hotels);
+  }
+
+  @Override
+  public void onCategorySelected(@Nullable String category)
+  {
+    PromoCategory promoCategory = PromoCategory.findByKey(category);
+    if (promoCategory != null)
+    {
+      mPromoCategorySelected = true;
+      mToolbarController.setQuery(category + " ");
+
+      Statistics.INSTANCE.trackSponsoredEventForCustomProvider(
+          Statistics.EventName.SEARCH_SPONSOR_CATEGORY_SELECTED,
+          promoCategory.getStatisticValue());
       showAllResultsOnMap();
-      mCianCategorySelected = false;
+      mPromoCategorySelected = false;
     }
     else
     {
@@ -747,7 +761,7 @@ public class SearchFragment extends BaseMwmFragment
     {
       mFilterController.updateFilterButtonVisibility(isHotel);
       if (!isHotel)
-        mFilterController.setFilter(null);
+        mFilterController.setFilterAndParams(null, null);
     }
   }
 
@@ -756,13 +770,29 @@ public class SearchFragment extends BaseMwmFragment
   {
     super.onActivityResult(requestCode, resultCode, data);
     mToolbarController.onActivityResult(requestCode, resultCode, data);
+
+    if (resultCode != Activity.RESULT_OK)
+      return;
+
+    switch (requestCode)
+    {
+      case FilterActivity.REQ_CODE_FILTER:
+        if (data == null)
+          break;
+
+        if (mFilterController == null)
+          return;
+
+        mFilterController.setFilterAndParams(data.getParcelableExtra(FilterActivity.EXTRA_FILTER),
+                                             data.getParcelableExtra(FilterActivity.EXTRA_FILTER_PARAMS));
+        runSearch();
+        break;
+    }
   }
 
   @Override
   public boolean onBackPressed()
   {
-    if (mFilterController != null && mFilterController.onBackPressed())
-      return true;
     if (mToolbarController.hasQuery())
     {
       mToolbarController.clear();
@@ -809,5 +839,65 @@ public class SearchFragment extends BaseMwmFragment
 
     mAdsLoader.cancelAdsLoading();
     mAdsRequested = false;
+  }
+
+  private static class BadStorageCommand extends HiddenCommand.BaseHiddenCommand
+  {
+    protected BadStorageCommand(@NonNull String command)
+    {
+      super(command);
+    }
+
+    @Override
+    void executeInternal()
+    {
+      SharedPropertiesUtils.setShouldShowEmulateBadStorageSetting(true);
+    }
+  }
+
+  private static class LibnotifyIdCommand extends HiddenCommand.BaseHiddenCommand
+  {
+    @NonNull
+    private final Context mContext;
+
+    protected LibnotifyIdCommand(@NonNull Context context, @NonNull String command)
+    {
+      super(command);
+      mContext = context;
+    }
+
+    @Override
+    void executeInternal()
+    {
+      mContext.startActivity(new Intent(mContext, NotifyDebugActivity.class));
+    }
+  }
+
+  private static class JavaCrashCommand extends HiddenCommand.BaseHiddenCommand
+  {
+    protected JavaCrashCommand(@NonNull String command)
+    {
+      super(command);
+    }
+
+    @Override
+    void executeInternal()
+    {
+      throw new RuntimeException("Diagnostic java crash!");
+    }
+  }
+
+  private static class NativeCrashCommand extends HiddenCommand.BaseHiddenCommand
+  {
+    protected NativeCrashCommand(@NonNull String command)
+    {
+      super(command);
+    }
+
+    @Override
+    void executeInternal()
+    {
+      Framework.nativeMakeCrash();
+    }
   }
 }

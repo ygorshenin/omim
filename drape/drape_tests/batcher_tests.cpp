@@ -4,11 +4,10 @@
 #include "drape/drape_tests/glmock_functions.hpp"
 #include "drape/drape_tests/memory_comparer.hpp"
 #include "drape/glconstants.hpp"
-#include "drape/gpu_program_manager.hpp"
 #include "drape/index_storage.hpp"
 #include "drape/vertex_array_buffer.hpp"
 
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <cstring>
 #include <functional>
@@ -29,7 +28,7 @@ namespace
 {
 struct VAOAcceptor
 {
-  virtual void FlushFullBucket(GLState const & /*state*/, drape_ptr<RenderBucket> && bucket)
+  virtual void FlushFullBucket(RenderState const & /*state*/, drape_ptr<RenderBucket> && bucket)
   {
     m_vao.push_back(move(bucket));
   }
@@ -37,11 +36,11 @@ struct VAOAcceptor
   std::vector<drape_ptr<RenderBucket>> m_vao;
 };
 
-class TestRenderState : public dp::BaseRenderState
+class TestExtension : public dp::BaseRenderStateExtension
 {
 public:
-  bool Less(ref_ptr<dp::BaseRenderState> other) const override { return false; }
-  bool Equal(ref_ptr<dp::BaseRenderState> other) const override { return true; }
+  bool Less(ref_ptr<dp::BaseRenderStateExtension> other) const override { return false; }
+  bool Equal(ref_ptr<dp::BaseRenderStateExtension> other) const override { return true; }
 };
 
 class BatcherExpectations
@@ -63,8 +62,8 @@ public:
 
     ExpectBufferCreation(vertexSize, indexCount, indexCmp, dataCmp);
 
-    auto renderState = make_unique_dp<TestRenderState>();
-    auto state = GLState(0, make_ref(renderState));
+    auto renderState = make_unique_dp<TestExtension>();
+    auto state = RenderState(0, make_ref(renderState));
 
     BindingInfo binding(1);
     BindingDecl & decl = binding.GetBindingDecl(0);
@@ -142,7 +141,7 @@ UNIT_TEST(BatchLists_Test)
   dp::IndexStorage indexes(std::move(indexesRaw));
 
   BatcherExpectations expectations;
-  auto fn = [](Batcher * batcher, GLState const & state, ref_ptr<AttributeProvider> p)
+  auto fn = [](Batcher * batcher, RenderState const & state, ref_ptr<AttributeProvider> p)
   {
     batcher->InsertTriangleList(state, p);
   };
@@ -162,7 +161,7 @@ UNIT_TEST(BatchListOfStript_4stride)
   dp::IndexStorage indexes(std::move(indexesRaw));
 
   BatcherExpectations expectations;
-  auto fn = [](Batcher * batcher, GLState const & state, ref_ptr<AttributeProvider> p)
+  auto fn = [](Batcher * batcher, RenderState const & state, ref_ptr<AttributeProvider> p)
   {
     batcher->InsertListOfStrip(state, p, dp::Batcher::VertexPerQuad);
   };
@@ -193,7 +192,7 @@ UNIT_TEST(BatchListOfStript_5stride)
   dp::IndexStorage indexes(std::move(indexesRaw));
 
   BatcherExpectations expectations;
-  auto fn = [](Batcher * batcher, GLState const & state, ref_ptr<AttributeProvider> p)
+  auto fn = [](Batcher * batcher, RenderState const & state, ref_ptr<AttributeProvider> p)
   {
     batcher->InsertListOfStrip(state, p, 5);
   };
@@ -227,7 +226,7 @@ UNIT_TEST(BatchListOfStript_6stride)
   dp::IndexStorage indexes(std::move(indexesRaw));
 
   BatcherExpectations expectations;
-  auto fn = [](Batcher * batcher, GLState const & state, ref_ptr<AttributeProvider> p)
+  auto fn = [](Batcher * batcher, RenderState const & state, ref_ptr<AttributeProvider> p)
   {
     batcher->InsertListOfStrip(state, p, 6);
   };
@@ -263,7 +262,7 @@ public:
 
   ~PartialBatcherTest()
   {
-    std::for_each(m_comparators.begin(), m_comparators.end(), DeleteFunctor());
+    std::for_each(m_comparators.begin(), m_comparators.end(), base::DeleteFunctor());
   }
 
   void AddBufferNode(BufferNode const & node)
@@ -372,8 +371,8 @@ UNIT_TEST(BatchListOfStript_partial)
     test.AddBufferNode(node2);
     test.CloseExpection();
 
-    auto renderState = make_unique_dp<TestRenderState>();
-    auto state = GLState(0, make_ref(renderState));
+    auto renderState = make_unique_dp<TestExtension>();
+    auto state = RenderState(0, make_ref(renderState));
 
     BindingInfo binding(1);
     BindingDecl & decl = binding.GetBindingDecl(0);

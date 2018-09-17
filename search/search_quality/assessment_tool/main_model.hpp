@@ -14,8 +14,10 @@
 #include <vector>
 #include <memory>
 
+#include <boost/optional.hpp>
+
 class Framework;
-class Index;
+class DataSource;
 
 namespace search
 {
@@ -37,6 +39,8 @@ public:
   void OnNonFoundResultSelected(int index) override;
   void OnShowViewportClicked() override;
   void OnShowPositionClicked() override;
+  void OnMarkAllAsRelevantClicked() override;
+  void OnMarkAllAsIrrelevantClicked() override;
   bool HasChanges() override;
   bool AlreadyInSamples(FeatureID const & id) override;
   void AddNonFoundResult(FeatureID const & id) override;
@@ -47,18 +51,20 @@ private:
   void OnUpdate(View::ResultType type, size_t sampleIndex, Edits::Update const & update);
 
   void OnResults(uint64_t timestamp, size_t sampleIndex, search::Results const & results,
-                 std::vector<Edits::MaybeRelevance> const & relevances,
+                 std::vector<boost::optional<Edits::Relevance>> const & relevances,
                  std::vector<size_t> const & goldenMatching,
                  std::vector<size_t> const & actualMatching);
 
   void ResetSearch();
   void ShowMarks(Context const & context);
 
+  void OnChangeAllRelevancesClicked(Edits::Relevance relevance);
+
   template <typename Fn>
   void ForAnyMatchingEntry(Context & context, FeatureID const & id, Fn && fn);
 
   Framework & m_framework;
-  Index const & m_index;
+  DataSource const & m_dataSource;
   search::FeatureLoader m_loader;
 
   ContextList m_contexts;

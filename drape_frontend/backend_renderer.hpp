@@ -9,14 +9,17 @@
 #include "drape_frontend/overlay_batcher.hpp"
 #include "drape_frontend/requested_tiles.hpp"
 #include "drape_frontend/traffic_generator.hpp"
+#include "drape_frontend/transit_scheme_builder.hpp"
 #include "drape_frontend/user_mark_generator.hpp"
 
 #include "drape/pointers.hpp"
 #include "drape/viewport.hpp"
 
+#include <functional>
+
 namespace dp
 {
-class OGLContextFactory;
+class GraphicsContextFactory;
 class TextureManager;
 }  // namespace dp
 
@@ -27,6 +30,8 @@ class ReadManager;
 class RouteBuilder;
 class MetalineManager;
 
+using TIsUGCFn = std::function<bool(FeatureID const &)>;
+
 class BackendRenderer : public BaseRenderer
 {
 public:
@@ -35,10 +40,10 @@ public:
   struct Params : BaseRenderer::Params
   {
     Params(dp::ApiVersion apiVersion, ref_ptr<ThreadsCommutator> commutator,
-           ref_ptr<dp::OGLContextFactory> factory, ref_ptr<dp::TextureManager> texMng,
+           ref_ptr<dp::GraphicsContextFactory> factory, ref_ptr<dp::TextureManager> texMng,
            MapDataProvider const & model, TUpdateCurrentCountryFn const & updateCurrentCountryFn,
            ref_ptr<RequestedTiles> requestedTiles, bool allow3dBuildings, bool trafficEnabled,
-           bool simplifiedTrafficColors)
+           bool simplifiedTrafficColors, TIsUGCFn && isUGCFn)
       : BaseRenderer::Params(apiVersion, commutator, factory, texMng)
       , m_model(model)
       , m_updateCurrentCountryFn(updateCurrentCountryFn)
@@ -46,8 +51,8 @@ public:
       , m_allow3dBuildings(allow3dBuildings)
       , m_trafficEnabled(trafficEnabled)
       , m_simplifiedTrafficColors(simplifiedTrafficColors)
-    {
-    }
+      , m_isUGCFn(std::move(isUGCFn))
+    {}
 
     MapDataProvider const & m_model;
     TUpdateCurrentCountryFn m_updateCurrentCountryFn;
@@ -55,9 +60,10 @@ public:
     bool m_allow3dBuildings;
     bool m_trafficEnabled;
     bool m_simplifiedTrafficColors;
+    TIsUGCFn m_isUGCFn;
   };
 
-  BackendRenderer(Params && params);
+  explicit BackendRenderer(Params && params);
   ~BackendRenderer() override;
 
   void Teardown();
@@ -73,7 +79,7 @@ private:
   void RecacheChoosePositionMark();
   void RecacheMapShapes();
 
-#ifdef RENRER_DEBUG_INFO_LABELS
+#ifdef RENDER_DEBUG_INFO_LABELS
   void RecacheDebugLabels();
 #endif
 
@@ -82,7 +88,7 @@ private:
   class Routine : public threads::IRoutine
   {
   public:
-    Routine(BackendRenderer & renderer);
+    explicit Routine(BackendRenderer & renderer);
 
     void Do() override;
 
@@ -93,8 +99,9 @@ private:
   void ReleaseResources();
 
   void InitGLDependentResource();
-  void FlushGeometry(TileKey const & key, dp::GLState const & state, drape_ptr<dp::RenderBucket> && buffer);
+  void FlushGeometry(TileKey const & key, dp::RenderState const & state, drape_ptr<dp::RenderBucket> && buffer);
 
+  void FlushTransitRenderData(TransitRenderData && renderData);
   void FlushTrafficRenderData(TrafficRenderData && renderData);
   void FlushUserMarksRenderData(TUserMarksRenderData && renderData);
 
@@ -104,6 +111,7 @@ private:
   drape_ptr<BatchersPool<TileKey, TileKeyStrictComparator>> m_batchersPool;
   drape_ptr<ReadManager> m_readManager;
   drape_ptr<RouteBuilder> m_routeBuilder;
+  drape_ptr<TransitSchemeBuilder> m_transitBuilder;
   drape_ptr<TrafficGenerator> m_trafficGenerator;
   drape_ptr<UserMarkGenerator> m_userMarkGenerator;
   drape_ptr<DrapeApiBuilder> m_drapeApiBuilder;
@@ -116,6 +124,8 @@ private:
   TUpdateCurrentCountryFn m_updateCurrentCountryFn;
 
   drape_ptr<MetalineManager> m_metalineManager;
+
+  gui::TWidgetsInitInfo m_lastWidgetsInfo;
 
 #ifdef DEBUG
   bool m_isTeardowned;

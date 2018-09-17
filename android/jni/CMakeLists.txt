@@ -40,8 +40,6 @@ set(
   com/mapswithme/core/logging.cpp
   com/mapswithme/maps/bookmarks/data/Bookmark.cpp
   com/mapswithme/maps/bookmarks/data/BookmarkManager.cpp
-  com/mapswithme/maps/bookmarks/data/BookmarkCategory.cpp
-  com/mapswithme/maps/cian/Cian.cpp
   com/mapswithme/maps/discovery/DiscoveryManager.cpp
   com/mapswithme/maps/discovery/Locals.cpp
   com/mapswithme/maps/DisplayedCategories.cpp
@@ -50,6 +48,7 @@ set(
   com/mapswithme/maps/editor/Editor.cpp
   com/mapswithme/maps/editor/OsmOAuth.cpp
   com/mapswithme/maps/Framework.cpp
+  com/mapswithme/maps/LightFramework.cpp
   com/mapswithme/maps/LocationState.cpp
   com/mapswithme/maps/LocationHelper.cpp
   com/mapswithme/maps/MapFragment.cpp
@@ -64,6 +63,7 @@ set(
   com/mapswithme/maps/taxi/TaxiManager.cpp
   com/mapswithme/maps/TrackRecorder.cpp
   com/mapswithme/maps/TrafficState.cpp
+  com/mapswithme/maps/subway/SubwayManager.cpp
   com/mapswithme/maps/ugc/UGC.cpp
   com/mapswithme/maps/UserMarkHelper.cpp
   com/mapswithme/maps/viator/Viator.cpp
@@ -72,6 +72,8 @@ set(
   com/mapswithme/opengl/androidoglcontextfactory.cpp
   com/mapswithme/opengl/gl3stub.c
   com/mapswithme/platform/HttpThread.cpp
+  com/mapswithme/platform/HttpUploader.cpp
+  com/mapswithme/platform/HttpUserAgent.cpp
   com/mapswithme/platform/GuiThread.cpp
   com/mapswithme/platform/Language.cpp
   com/mapswithme/platform/MarketingService.cpp
@@ -81,13 +83,14 @@ set(
   com/mapswithme/platform/SocketImpl.cpp
   com/mapswithme/util/Config.cpp
   com/mapswithme/util/HttpClient.cpp
+  com/mapswithme/util/Language.cpp
   com/mapswithme/util/LoggerFactory.cpp
   com/mapswithme/util/NetworkPolicy.cpp
   com/mapswithme/util/StringUtils.cpp
   com/mapswithme/util/statistics/PushwooshHelper.cpp
 )
 
-add_library(mapswithme SHARED ${SRC})
+omim_add_library(mapswithme SHARED ${SRC})
 
 target_link_libraries(
   mapswithme
@@ -106,13 +109,16 @@ target_link_libraries(
   routing_common
   transit
   drape_frontend
+  shaders
   search
   storage
   ugc
-  indexer
   drape
-  platform
+  kml
   editor
+  indexer
+  metrics
+  platform
   partners_api
   local_ads
   mwm_diff

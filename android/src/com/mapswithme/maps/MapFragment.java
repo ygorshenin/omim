@@ -42,7 +42,8 @@ public class MapFragment extends BaseMwmFragment
   private static final int WIDGET_RULER = 0x01;
   private static final int WIDGET_COMPASS = 0x02;
   private static final int WIDGET_COPYRIGHT = 0x04;
-  private static final int WIDGET_SCALE_LABEL = 0x08;
+  private static final int WIDGET_SCALE_FPS_LABEL = 0x08;
+  private static final int WIDGET_WATERMARK = 0x10;
 
   // Should correspond to dp::Anchor from drape_global.hpp
   private static final int ANCHOR_CENTER = 0x00;
@@ -91,18 +92,13 @@ public class MapFragment extends BaseMwmFragment
       sWasCopyrightDisplayed = true;
     }
 
-    nativeSetupWidget(WIDGET_RULER,
-                      UiUtils.dimen(R.dimen.margin_ruler_left),
-                      mHeight - UiUtils.dimen(R.dimen.margin_ruler_bottom),
-                      ANCHOR_LEFT_BOTTOM);
+    setupRuler(0, false);
+    setupWatermark(0, false);
 
-    if (BuildConfig.DEBUG)
-    {
-      nativeSetupWidget(WIDGET_SCALE_LABEL,
-                        UiUtils.dimen(R.dimen.margin_base),
-                        UiUtils.dimen(R.dimen.margin_base),
-                        ANCHOR_LEFT_TOP);
-    }
+    nativeSetupWidget(WIDGET_SCALE_FPS_LABEL,
+                      UiUtils.dimen(R.dimen.margin_base),
+                      UiUtils.dimen(R.dimen.margin_base),
+                      ANCHOR_LEFT_TOP);
 
     setupCompass(UiUtils.getCompassYOffset(getContext()), false);
   }
@@ -120,12 +116,22 @@ public class MapFragment extends BaseMwmFragment
       nativeApplyWidgets();
   }
 
-  void setupRuler(int offsetX, int offsetY, boolean forceRedraw)
+  void setupRuler(int offsetY, boolean forceRedraw)
   {
     nativeSetupWidget(WIDGET_RULER,
-                      UiUtils.dimen(R.dimen.margin_ruler_left) + offsetX,
+                      UiUtils.dimen(R.dimen.margin_ruler_left),
                       mHeight - UiUtils.dimen(R.dimen.margin_ruler_bottom) + offsetY,
                       ANCHOR_LEFT_BOTTOM);
+    if (forceRedraw && mContextCreated)
+      nativeApplyWidgets();
+  }
+
+  void setupWatermark(int offsetY, boolean forceRedraw)
+  {
+    nativeSetupWidget(WIDGET_WATERMARK,
+                      mWidth - UiUtils.dimen(R.dimen.margin_watermark_right),
+                      mHeight - UiUtils.dimen(R.dimen.margin_watermark_bottom) + offsetY,
+                      ANCHOR_RIGHT_BOTTOM);
     if (forceRedraw && mContextCreated)
       nativeApplyWidgets();
   }
@@ -279,7 +285,15 @@ public class MapFragment extends BaseMwmFragment
   public void onPause()
   {
     mUiThemeOnPause = Config.getCurrentUiTheme();
+    nativePauseSurfaceRendering();
     super.onPause();
+  }
+
+  @Override
+  public void onResume()
+  {
+    super.onResume();
+    nativeResumeSurfaceRendering();
   }
 
   @Override
@@ -354,6 +368,8 @@ public class MapFragment extends BaseMwmFragment
                                                    boolean isLaunchByDeepLink);
   private static native boolean nativeAttachSurface(Surface surface);
   private static native void nativeDetachSurface(boolean destroyContext);
+  private static native void nativePauseSurfaceRendering();
+  private static native void nativeResumeSurfaceRendering();
   private static native void nativeSurfaceChanged(int w, int h);
   private static native void nativeOnTouch(int actionType, int id1, float x1, float y1, int id2, float x2, float y2, int maskedPointer);
   private static native void nativeSetupWidget(int widget, float x, float y, int anchor);

@@ -9,9 +9,6 @@ import android.support.v7.widget.RecyclerView;
 import android.view.View;
 import android.view.WindowManager;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import com.mapswithme.maps.R;
 import com.mapswithme.maps.base.BaseMwmRecyclerFragment;
 import com.mapswithme.maps.base.OnBackPressListener;
@@ -19,7 +16,10 @@ import com.mapswithme.maps.search.NativeMapSearchListener;
 import com.mapswithme.maps.search.SearchEngine;
 import com.mapswithme.maps.widget.PlaceholderView;
 
-public class DownloaderFragment extends BaseMwmRecyclerFragment
+import java.util.ArrayList;
+import java.util.List;
+
+public class DownloaderFragment extends BaseMwmRecyclerFragment<DownloaderAdapter>
                              implements OnBackPressListener
 {
   private DownloaderToolbarController mToolbarController;
@@ -190,8 +190,9 @@ public class DownloaderFragment extends BaseMwmRecyclerFragment
     return R.layout.fragment_downloader;
   }
 
+  @NonNull
   @Override
-  protected RecyclerView.Adapter createAdapter()
+  protected DownloaderAdapter createAdapter()
   {
     if (mAdapter == null)
       mAdapter = new DownloaderAdapter(this);
@@ -206,8 +207,8 @@ public class DownloaderFragment extends BaseMwmRecyclerFragment
     mToolbarController.onActivityResult(requestCode, resultCode, data);
   }
 
+  @NonNull
   @Override
-  @Nullable
   public DownloaderAdapter getAdapter()
   {
     return mAdapter;
@@ -220,10 +221,13 @@ public class DownloaderFragment extends BaseMwmRecyclerFragment
   }
 
   @Override
-  protected void setupPlaceholder(@NonNull PlaceholderView placeholder)
+  protected void setupPlaceholder(@Nullable PlaceholderView placeholder)
   {
+    if (placeholder == null)
+      return;
+
     if (mAdapter != null && mAdapter.isSearchResultsMode())
-      placeholder.setContent(R.drawable.img_mappyny,
+      placeholder.setContent(R.drawable.img_search_nothing_found_light,
                              R.string.search_not_found, R.string.search_not_found_query);
     else
       placeholder.setContent(R.drawable.img_search_no_maps,

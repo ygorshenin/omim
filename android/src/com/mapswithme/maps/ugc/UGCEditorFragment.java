@@ -10,11 +10,13 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
 
+import com.mapswithme.maps.Framework;
 import com.mapswithme.maps.R;
 import com.mapswithme.maps.auth.BaseMwmAuthorizationFragment;
+import com.mapswithme.maps.background.Notifier;
 import com.mapswithme.maps.bookmarks.data.FeatureId;
 import com.mapswithme.maps.widget.ToolbarController;
-import com.mapswithme.util.CrashlyticsUtils;
+import com.mapswithme.util.ConnectionState;
 import com.mapswithme.util.Language;
 import com.mapswithme.util.UiUtils;
 import com.mapswithme.util.statistics.Statistics;
@@ -39,12 +41,13 @@ public class UGCEditorFragment extends BaseMwmAuthorizationFragment
 
   @Nullable
   @Override
-  public View onCreateView(LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState)
+  public View onCreateView(LayoutInflater inflater, @Nullable ViewGroup container,
+                           @Nullable Bundle savedInstanceState)
   {
     View root = inflater.inflate(R.layout.fragment_ugc_editor, container, false);
-    mReviewEditText = (EditText) root.findViewById(R.id.review);
+    mReviewEditText = root.findViewById(R.id.review);
 
-    RecyclerView rvRatingView = (RecyclerView) root.findViewById(R.id.ratings);
+    RecyclerView rvRatingView = root.findViewById(R.id.ratings);
     rvRatingView.setLayoutManager(new LinearLayoutManager(getContext()));
     rvRatingView.getLayoutManager().setAutoMeasureEnabled(true);
     rvRatingView.setNestedScrollingEnabled(false);
@@ -74,6 +77,17 @@ public class UGCEditorFragment extends BaseMwmAuthorizationFragment
   {
     super.onViewCreated(view, savedInstanceState);
     mToolbarController.setTitle(getArguments().getString(ARG_TITLE));
+    View submitButton = mToolbarController.findViewById(R.id.submit);
+    submitButton.setOnClickListener(v ->
+                                    {
+                                      onSubmitButtonClick();
+                                      if (!ConnectionState.isConnected())
+                                      {
+                                        finishActivity();
+                                        return;
+                                      }
+                                      authorize();
+                                    });
   }
 
   @Override
@@ -91,7 +105,44 @@ public class UGCEditorFragment extends BaseMwmAuthorizationFragment
   }
 
   @Override
-  protected void onSubmitButtonClick()
+  public void onAuthorizationFinish(boolean success)
+  {
+    if (success)
+    {
+      final Notifier notifier = Notifier.from(getActivity().getApplication());
+      notifier.cancelNotification(Notifier.ID_IS_NOT_AUTHENTICATED);
+    }
+
+    finishActivity();
+  }
+
+  private void finishActivity()
+  {
+    if (isAdded())
+      getActivity().finish();
+  }
+
+  @Override
+  public void onAuthorizationStart()
+  {
+    finishActivity();
+  }
+
+  @Override
+  public void onSocialAuthenticationCancel(@Framework.AuthTokenType int type)
+  {
+    Statistics.INSTANCE.trackEvent(Statistics.EventName.UGC_AUTH_DECLINED);
+    finishActivity();
+  }
+
+  @Override
+  public void onSocialAuthenticationError(int type, @Nullable String error)
+  {
+    Statistics.INSTANCE.trackUGCAuthFailed(type, error);
+    finishActivity();
+  }
+
+  private void onSubmitButtonClick()
   {
     List<UGC.Rating> modifiedRatings = mUGCRatingAdapter.getItems();
     UGC.Rating[] ratings = new UGC.Rating[modifiedRatings.size()];

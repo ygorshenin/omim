@@ -57,6 +57,8 @@ public final class HttpClient
   // TODO(AlexZ): tune for larger files
   private final static int STREAM_BUFFER_SIZE = 1024 * 64;
   private static final Logger LOGGER = LoggerFactory.INSTANCE.getLogger(LoggerFactory.Type.NETWORK);
+  public static final String USER_AGENT = "User-Agent";
+
 
   public static Params run(@NonNull final Params p) throws IOException, NullPointerException
   {
@@ -65,7 +67,7 @@ public final class HttpClient
 
     HttpURLConnection connection = null;
 
-    LOGGER.d(TAG, "Connecting to " + makeUrlSafe(p.url));
+    LOGGER.d(TAG, "Connecting to " + Utils.makeUrlSafe(p.url));
 
     try
     {
@@ -97,9 +99,9 @@ public final class HttpClient
       if (!TextUtils.isEmpty(p.cookies))
         connection.setRequestProperty("Cookie", p.cookies);
 
-      for (HttpHeader header : p.headers)
+      for (KeyValue header : p.headers)
       {
-        connection.setRequestProperty(header.key, header.value);
+        connection.setRequestProperty(header.mKey, header.mValue);
       }
 
       if (!TextUtils.isEmpty(p.inputFilePath) || p.data != null)
@@ -147,7 +149,7 @@ public final class HttpClient
       // GET data from the server or receive response body
       p.httpResponseCode = connection.getResponseCode();
       LOGGER.d(TAG, "Received HTTP " + p.httpResponseCode + " from server, content encoding = "
-                    + connection.getContentEncoding() + ", for request = " + makeUrlSafe(p.url));
+                    + connection.getContentEncoding() + ", for request = " + Utils.makeUrlSafe(p.url));
 
       if (p.httpResponseCode >= 300 && p.httpResponseCode < 400)
         p.receivedUrl = connection.getHeaderField("Location");
@@ -163,14 +165,14 @@ public final class HttpClient
           if (header.getKey() == null || header.getValue() == null)
             continue;
 
-          p.headers.add(new HttpHeader(header.getKey().toLowerCase(), TextUtils.join(", ", header.getValue())));
+          p.headers.add(new KeyValue(header.getKey().toLowerCase(), TextUtils.join(", ", header.getValue())));
         }
       }
       else
       {
         List<String> cookies = connection.getHeaderFields().get("Set-Cookie");
         if (cookies != null)
-          p.headers.add(new HttpHeader("Set-Cookie", TextUtils.join(", ", cookies)));
+          p.headers.add(new KeyValue("Set-Cookie", TextUtils.join(", ", cookies)));
       }
 
       OutputStream ostream;
@@ -239,26 +241,9 @@ public final class HttpClient
     return in;
   }
 
-  private static String makeUrlSafe(@NonNull final String url)
-  {
-    return url.replaceAll("(token|password|key)=([^&]+)", "***");
-  }
-
-  private static class HttpHeader
-  {
-    HttpHeader(@NonNull String key, @NonNull String value)
-    {
-      this.key = key;
-      this.value = value;
-    }
-
-    public String key;
-    public String value;
-  }
-
   private static class Params
   {
-    public void setHeaders(@NonNull HttpHeader[] array)
+    public void setHeaders(@NonNull KeyValue[] array)
     {
       headers = new ArrayList<>(Arrays.asList(array));
     }
@@ -282,11 +267,11 @@ public final class HttpClient
     // Received data is stored here if not null or in data otherwise.
     String outputFilePath;
     String cookies;
-    ArrayList<HttpHeader> headers = new ArrayList<>();
+    ArrayList<KeyValue> headers = new ArrayList<>();
     int httpResponseCode = -1;
     boolean followRedirects = true;
     boolean loadHeaders;
-    int timeoutMillisec = 30000;
+    int timeoutMillisec = Constants.READ_TIMEOUT_MS;
 
     // Simple GET request constructor.
     public Params(String url)

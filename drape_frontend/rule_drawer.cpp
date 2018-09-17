@@ -22,6 +22,7 @@
 #include "base/assert.hpp"
 #include "base/logging.hpp"
 
+#include "drape_frontend/text_shape.hpp"
 #ifdef DRAW_TILE_NET
 #include "drape_frontend/line_shape.hpp"
 #include "drape_frontend/text_shape.hpp"
@@ -45,7 +46,7 @@ std::vector<size_t> const kAverageSegmentsCount =
   10000, 5000, 10000, 5000, 2500, 5000, 2000, 1000, 500, 500
 };
 
-double GetBuildingHeightInMeters(FeatureType const & f)
+double GetBuildingHeightInMeters(FeatureType & f)
 {
   double constexpr kDefaultHeightInMeters = 3.0;
   double constexpr kMetersPerLevel = 3.0;
@@ -71,7 +72,7 @@ double GetBuildingHeightInMeters(FeatureType const & f)
   return heightInMeters;
 }
 
-double GetBuildingMinHeightInMeters(FeatureType const & f)
+double GetBuildingMinHeightInMeters(FeatureType & f)
 {
   feature::Metadata const & md = f.GetMetadata();
   std::string value = md.Get(feature::Metadata::FMD_MIN_HEIGHT);
@@ -85,7 +86,7 @@ double GetBuildingMinHeightInMeters(FeatureType const & f)
   return minHeightInMeters;
 }
 
-df::BaseApplyFeature::HotelData ExtractHotelData(FeatureType const & f)
+df::BaseApplyFeature::HotelData ExtractHotelData(FeatureType & f)
 {
   df::BaseApplyFeature::HotelData result;
   if (ftypes::IsBookingChecker::Instance()(f))
@@ -161,24 +162,33 @@ void ExtractTrafficGeometry(FeatureType const & f, df::RoadClass const & roadCla
   }
 }
 
-} //  namespace
+bool UsePreciseFeatureCenter(FeatureType & f)
+{
+  // Add here types for which we want to calculate precise feature center (by best geometry).
+  // Warning! Large amount of such objects can reduce performance.
+  UNUSED_VALUE(f);
+  return false;
+}
+}  // namespace
 
 namespace df
 {
-
 RuleDrawer::RuleDrawer(TDrawerCallback const & drawerFn,
                        TCheckCancelledCallback const & checkCancelled,
                        TIsCountryLoadedByNameFn const & isLoadedFn,
+                       TFilterFeatureFn const & filterFn,
                        ref_ptr<EngineContext> engineContext)
   : m_callback(drawerFn)
   , m_checkCancelled(checkCancelled)
   , m_isLoadedFn(isLoadedFn)
+  , m_filter(filterFn)
   , m_context(engineContext)
   , m_customFeaturesContext(engineContext->GetCustomFeaturesContext().lock())
   , m_wasCancelled(false)
 {
   ASSERT(m_callback != nullptr, ());
   ASSERT(m_checkCancelled != nullptr, ());
+  ASSERT(m_filter != nullptr, ());
 
   m_globalRect = m_context->GetTileKey().GetGlobalRect();
 
@@ -225,7 +235,7 @@ bool RuleDrawer::CheckCancelled()
   return m_wasCancelled;
 }
 
-bool RuleDrawer::CheckCoastlines(FeatureType const & f, Stylist const & s)
+bool RuleDrawer::CheckCoastlines(FeatureType & f, Stylist const & s)
 {
   int const zoomLevel = m_context->GetTileKey().m_zoomLevel;
 
@@ -249,9 +259,8 @@ bool RuleDrawer::CheckCoastlines(FeatureType const & f, Stylist const & s)
   return true;
 }
 
-void RuleDrawer::ProcessAreaStyle(FeatureType const & f, Stylist const & s,
-                                  TInsertShapeFn const & insertShape,
-                                  int & minVisibleScale)
+void RuleDrawer::ProcessAreaStyle(FeatureType & f, Stylist const & s,
+                                  TInsertShapeFn const & insertShape, int & minVisibleScale)
 {
   bool isBuilding = false;
   bool is3dBuilding = false;
@@ -317,20 +326,27 @@ void RuleDrawer::ProcessAreaStyle(FeatureType const & f, Stylist const & s,
   f.ForEachTriangle(apply, zoomLevel);
   apply.SetHotelData(ExtractHotelData(f));
   if (applyPointStyle)
-    apply(featureCenter, true /* hasArea */);
+  {
+    if (UsePreciseFeatureCenter(f))
+    {
+      f.ResetGeometry();
+      featureCenter = feature::GetCenter(f, FeatureType::BEST_GEOMETRY);
+    }
+    bool const isUGC = m_context->IsUGC(f.GetID());
+    apply(featureCenter, true /* hasArea */, isUGC);
+  }
 
   if (CheckCancelled())
     return;
 
   s.ForEachRule(std::bind(&ApplyAreaFeature::ProcessAreaRule, &apply, _1));
 
-  if (!m_customFeaturesContext || !m_customFeaturesContext->Contains(f.GetID()))
+  if (!m_customFeaturesContext || !m_customFeaturesContext->NeedDiscardGeometry(f.GetID()))
     apply.Finish(m_context->GetTextureManager());
 }
 
-void RuleDrawer::ProcessLineStyle(FeatureType const & f, Stylist const & s,
-                                  TInsertShapeFn const & insertShape,
-                                  int & minVisibleScale)
+void RuleDrawer::ProcessLineStyle(FeatureType & f, Stylist const & s,
+                                  TInsertShapeFn const & insertShape, int & minVisibleScale)
 {
   int const zoomLevel = m_context->GetTileKey().m_zoomLevel;
 
@@ -397,7 +413,7 @@ void RuleDrawer::ProcessLineStyle(FeatureType const & f, Stylist const & s,
     };
 
     bool const oneWay = ftypes::IsOneWayChecker::Instance()(f);
-    auto const highwayClass = ftypes::GetHighwayClass(f);
+    auto const highwayClass = ftypes::GetHighwayClass(feature::TypesHolder(f));
     for (size_t i = 0; i < ARRAY_SIZE(checkers); ++i)
     {
       auto const & classes = checkers[i].m_highwayClasses;
@@ -417,10 +433,10 @@ void RuleDrawer::ProcessLineStyle(FeatureType const & f, Stylist const & s,
   }
 }
 
-void RuleDrawer::ProcessPointStyle(FeatureType const & f, Stylist const & s, TInsertShapeFn const & insertShape,
-                                   int & minVisibleScale)
+void RuleDrawer::ProcessPointStyle(FeatureType & f, Stylist const & s,
+                                   TInsertShapeFn const & insertShape, int & minVisibleScale)
 {
-  if (m_customFeaturesContext && m_customFeaturesContext->Contains(f.GetID()))
+  if (m_customFeaturesContext && m_customFeaturesContext->NeedDiscardGeometry(f.GetID()))
     return;
 
   int const zoomLevel = m_context->GetTileKey().m_zoomLevel;
@@ -428,16 +444,17 @@ void RuleDrawer::ProcessPointStyle(FeatureType const & f, Stylist const & s, TIn
   if (isSpeedCamera && !GetStyleReader().IsCarNavigationStyle())
     return;
 
-  RenderState::DepthLayer depthLayer = RenderState::OverlayLayer;
+  DepthLayer depthLayer = DepthLayer::OverlayLayer;
   if (isSpeedCamera)
-    depthLayer = RenderState::NavigationLayer;
+    depthLayer = DepthLayer::NavigationLayer;
 
   minVisibleScale = feature::GetMinDrawableScale(f);
   ApplyPointFeature apply(m_context->GetTileKey(), insertShape, f.GetID(), minVisibleScale, f.GetRank(),
                           s.GetCaptionDescription(), 0.0f /* posZ */, m_context->GetDisplacementMode(),
                           depthLayer);
   apply.SetHotelData(ExtractHotelData(f));
-  f.ForEachPoint([&apply](m2::PointD const & pt) { apply(pt, false /* hasArea */); }, zoomLevel);
+  bool const isUGC = m_context->IsUGC(f.GetID());
+  f.ForEachPoint([&apply, isUGC](m2::PointD const & pt) { apply(pt, false /* hasArea */, isUGC); }, zoomLevel);
 
   if (CheckCancelled())
     return;
@@ -446,9 +463,12 @@ void RuleDrawer::ProcessPointStyle(FeatureType const & f, Stylist const & s, TIn
   apply.Finish(m_context->GetTextureManager());
 }
 
-void RuleDrawer::operator()(FeatureType const & f)
+void RuleDrawer::operator()(FeatureType & f)
 {
   if (CheckCancelled())
+    return;
+
+  if (m_filter(f))
     return;
 
   Stylist s;
@@ -539,7 +559,7 @@ void RuleDrawer::DrawTileNet(TInsertShapeFn const & insertShape)
   p.m_cap = dp::ButtCap;
   p.m_color = dp::Color::Red();
   p.m_depth = 20000;
-  p.m_depthLayer = RenderState::GeometryLayer;
+  p.m_depthLayer = DepthLayer::GeometryLayer;
   p.m_width = 5;
   p.m_join = dp::RoundJoin;
 
@@ -549,15 +569,16 @@ void RuleDrawer::DrawTileNet(TInsertShapeFn const & insertShape)
   tp.m_tileCenter = m_globalRect.Center();
   tp.m_titleDecl.m_anchor = dp::Center;
   tp.m_depth = 20000;
-  tp.m_depthLayer = RenderState::OverlayLayer;
+  tp.m_depthLayer = DepthLayer::OverlayLayer;
   tp.m_titleDecl.m_primaryText = strings::to_string(key.m_x) + " " +
                                  strings::to_string(key.m_y) + " " +
                                  strings::to_string(key.m_zoomLevel);
 
   tp.m_titleDecl.m_primaryTextFont = dp::FontDecl(dp::Color::Red(), 30);
-  tp.m_titleDecl.m_primaryOffset = {0.f, 0.f};
+  tp.m_titleDecl.m_primaryOffset = {0.0f, 0.0f};
   drape_ptr<TextShape> textShape = make_unique_dp<TextShape>(r.Center(), tp, key,
-                                                             m2::PointF(0.0, 0.0) /* symbolSize */,
+                                                             m2::PointF(0.0f, 0.0f) /* symbolSize */,
+                                                             m2::PointF(0.0f, 0.0f) /* symbolOffset */,
                                                              dp::Anchor::Center,
                                                              0 /* textIndex */);
   textShape->DisableDisplacing();

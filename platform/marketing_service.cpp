@@ -4,7 +4,8 @@ namespace marketing
 {
 
 // Tags.
-char const * const kMapVersion = "map_version";
+char const * const kMapVersionMin = "map_version_min";
+char const * const kMapVersionMax = "map_version_max";
 char const * const kMapListing = "map_listing";
 char const * const kMapDownloadDiscovered = "map_download_discovered";
 char const * const kMapLastDownloaded = "last_map_downloaded";
@@ -22,7 +23,8 @@ char const * const kRoutingTransitDiscovered = "routing_transit_discovered";
 char const * const kEditorAddDiscovered = "editor_add_discovered";
 char const * const kEditorEditDiscovered = "editor_edit_discovered";
 char const * const kTrafficDiscovered = "traffic_discovered";
-char const * const kSponsoredThorDiscovered = "sponsored_thor_discovered";
+char const * const kDiscoveryButtonDiscovered = "discovery_button_discovered";
+char const * const kBookHotelOnBookingComDiscovered = "hotel_book_bcom_discovered";
 
 // Events.
 char const * const kDownloaderMapActionFinished = "Downloader_Map_action_finished";
@@ -54,10 +56,13 @@ void MarketingService::ProcessFirstLaunch()
     kRoutingP2PBicycleDiscovered, kRoutingP2PTaxiDiscovered,
     kRoutingVehicleDiscovered, kRoutingPedestrianDiscovered,
     kRoutingBicycleDiscovered, kRoutingTaxiDiscovered,
+    kRoutingP2PTransitDiscovered, kRoutingTransitDiscovered,
 
     kEditorAddDiscovered, kEditorEditDiscovered,
 
-    kTrafficDiscovered, kSponsoredThorDiscovered
+    kTrafficDiscovered,
+    kDiscoveryButtonDiscovered,
+    kBookHotelOnBookingComDiscovered
   };
 
   for (auto const & tag : tags)

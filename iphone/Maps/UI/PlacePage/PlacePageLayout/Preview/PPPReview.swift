@@ -23,15 +23,45 @@ final class PPPReview: MWMTableViewCell {
     }
   }
 
-  private var onAddReview: (() -> Void)!
+  @IBOutlet private weak var discountView: UIView!
+  @IBOutlet private weak var discountLabel: UILabel!
+  @IBOutlet private weak var priceConstraint: NSLayoutConstraint!
 
-  @objc func config(rating: UGCRatingValueType, canAddReview: Bool, reviewsCount: UInt, priceSetter: (UILabel) -> Void, onAddReview: @escaping () -> Void) {
+  typealias OnAddReview = () -> ()
+  private var onAddReview: OnAddReview?
+
+  @objc func config(rating: UGCRatingValueType,
+                    canAddReview: Bool,
+                    reviewsCount: UInt,
+                    price: String,
+                    discount: Int,
+                    smartDeal: Bool,
+                    onAddReview: OnAddReview?) {
     self.onAddReview = onAddReview
+    pricingLabel.text = price
+    if discount > 0 {
+      priceConstraint.priority = .defaultLow
+      discountView.isHidden = false
+      discountLabel.text = "-\(discount)%"
+    } else if smartDeal {
+      priceConstraint.priority = .defaultLow
+      discountView.isHidden = false
+      discountLabel.text = "%"
+    } else {
+      priceConstraint.priority = .defaultHigh
+      discountView.isHidden = true
+    }
+    
     ratingSummaryView.textFont = UIFont.bold12()
     ratingSummaryView.value = rating.value
     ratingSummaryView.type = rating.type
     ratingSummaryView.backgroundOpacity = 0.05
-    addReviewButton.isHidden = true
+    if canAddReview {
+      addReviewButton.isHidden = false
+      addReviewButton.layer.cornerRadius = addReviewButton.height / 2
+    } else {
+      addReviewButton.isHidden = true
+    }
     pricingLabel.isHidden = true
     reviewsLabel.isHidden = false
     if rating.type == .noValue {
@@ -39,31 +69,33 @@ final class PPPReview: MWMTableViewCell {
         ratingSummaryView.noValueImage = #imageLiteral(resourceName: "ic_12px_rating_normal")
         ratingSummaryView.noValueColor = UIColor.blackSecondaryText()
         reviewsLabel.text = L("placepage_no_reviews")
-        addReviewButton.isHidden = false
-        addReviewButton.layer.cornerRadius = addReviewButton.height / 2
       } else {
         ratingSummaryView.noValueImage = #imageLiteral(resourceName: "ic_12px_radio_on")
         ratingSummaryView.noValueColor = UIColor.linkBlue()
         reviewsLabel.text = L("placepage_reviewed")
         pricingLabel.isHidden = false
-        priceSetter(pricingLabel)
       }
     } else {
       ratingSummaryView.defaultConfig()
 
       if reviewsCount > 0 {
-        reviewsLabel.text = String(coreFormat: L("placepage_summary_rating_description"), arguments: [reviewsCount])
+        reviewsLabel.text = String(format:L("placepage_summary_rating_description"), reviewsCount)
         reviewsLabel.isHidden = false
       } else {
         reviewsLabel.text = ""
         reviewsLabel.isHidden = true
       }
       pricingLabel.isHidden = false
-      priceSetter(pricingLabel)
     }
   }
 
   @IBAction private func addReview() {
-    onAddReview()
+    onAddReview?()
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    let inset = width / 2
+    separatorInset = UIEdgeInsetsMake(0, inset, 0, inset)
   }
 }

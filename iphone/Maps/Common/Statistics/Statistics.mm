@@ -1,5 +1,4 @@
 #import "Statistics.h"
-#import "Statistics+ConnectionTypeLogging.h"
 #import "AppInfo.h"
 #import "MWMCustomFacebookEvents.h"
 #import "MWMSettings.h"
@@ -10,6 +9,7 @@
 #import <MyTrackerSDK/MRMyTrackerParams.h>
 #import <FBSDKCoreKit/FBSDKCoreKit.h>
 
+#include "platform/platform.hpp"
 #include "platform/settings.hpp"
 
 #include "base/macros.hpp"
@@ -57,25 +57,15 @@ void checkFlurryLogStatus(FlurryEventRecordStatus status)
   return [[FBSDKApplicationDelegate sharedInstance] application:application didFinishLaunchingWithOptions:launchOptions];
 }
 
-- (void)logLocation:(CLLocation *)location
-{
-  if (![MWMSettings statisticsEnabled])
-    return;
-  if (!_lastLocationLogTimestamp || [[NSDate date] timeIntervalSinceDate:_lastLocationLogTimestamp] > (60 * 60 * 3))
-  {
-    _lastLocationLogTimestamp = [NSDate date];
-    CLLocationCoordinate2D const coord = location.coordinate;
-    [Flurry setLatitude:coord.latitude longitude:coord.longitude horizontalAccuracy:location.horizontalAccuracy verticalAccuracy:location.verticalAccuracy];
-  }
-}
-
 - (void)logEvent:(NSString *)eventName withParameters:(NSDictionary *)parameters
 {
   if (![MWMSettings statisticsEnabled])
     return;
   NSMutableDictionary * params = [self addDefaultAttributesToParameters:parameters];
   [Alohalytics logEvent:eventName withDictionary:params];
-  checkFlurryLogStatus([Flurry logEvent:eventName withParameters:params]);
+  dispatch_async(dispatch_get_main_queue(), ^{
+    checkFlurryLogStatus([Flurry logEvent:eventName withParameters:params]);
+  });
 }
 
 - (void)logEvent:(NSString *)eventName withParameters:(NSDictionary *)parameters atLocation:(CLLocation *)location
@@ -86,7 +76,9 @@ void checkFlurryLogStatus(FlurryEventRecordStatus status)
   [Alohalytics logEvent:eventName withDictionary:params atLocation:location];
   auto const & coordinate = location ? location.coordinate : kCLLocationCoordinate2DInvalid;
   params[kStatLocation] = makeLocationEventValue(coordinate.latitude, coordinate.longitude);
-  checkFlurryLogStatus([Flurry logEvent:eventName withParameters:params]);
+  dispatch_async(dispatch_get_main_queue(), ^{
+    checkFlurryLogStatus([Flurry logEvent:eventName withParameters:params]);
+  });
 }
 
 - (NSMutableDictionary *)addDefaultAttributesToParameters:(NSDictionary *)parameters
@@ -151,16 +143,12 @@ void checkFlurryLogStatus(FlurryEventRecordStatus status)
   [[self instance] logEvent:eventName withParameters:parameters atLocation:location];
 }
 
-@end
-
-@implementation Statistics (ConnectionTypeLogging)
-
-+ (NSString *)connectionTypeToString:(Platform::EConnectionType)type
++ (NSString *)connectionTypeString
 {
-  switch (type)
+  switch (Platform::ConnectionStatus())
   {
   case Platform::EConnectionType::CONNECTION_WWAN:
-    return kStatOffline;
+    return kStatMobile;
   case Platform::EConnectionType::CONNECTION_WIFI:
     return kStatWifi;
   case Platform::EConnectionType::CONNECTION_NONE:

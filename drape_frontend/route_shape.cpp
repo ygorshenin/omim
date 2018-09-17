@@ -1,9 +1,10 @@
 #include "drape_frontend/route_shape.hpp"
 #include "drape_frontend/line_shape_helper.hpp"
-#include "drape_frontend/shader_def.hpp"
 #include "drape_frontend/shape_view_params.hpp"
 #include "drape_frontend/tile_utils.hpp"
 #include "drape_frontend/traffic_generator.hpp"
+
+#include "shaders/programs.hpp"
 
 #include "drape/attribute_provider.hpp"
 #include "drape/batcher.hpp"
@@ -18,25 +19,25 @@ namespace df
 std::vector<float> const kRouteHalfWidthInPixelCar =
 {
   // 1   2     3     4     5     6     7     8     9     10
-  1.0f, 1.0f, 1.5f, 1.5f, 1.5f, 2.0f, 2.0f, 2.0f, 2.5f, 2.5f,
+  1.0f, 1.2f, 1.5f, 1.5f, 1.7f, 2.0f, 2.0f, 2.3f, 2.5f, 2.7f,
   //11   12    13    14    15   16    17    18    19     20
-  3.0f, 3.0f, 4.0f, 5.0f, 6.0, 8.0f, 10.0f, 10.0f, 18.0f, 27.0f
+  3.0f, 3.5f, 4.5f, 5.5f, 7.0, 9.0f, 10.0f, 14.0f, 22.0f, 27.0f
 };
 
 std::vector<float> const kRouteHalfWidthInPixelTransit =
 {
   // 1   2     3     4     5     6     7     8     9     10
-  1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.2f, 1.2f, 1.4f, 1.6f,
+  1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f, 1.7f,
   //11   12    13    14    15   16    17    18    19     20
-  1.8f, 1.8f, 2.4f, 2.6f, 3.0, 4.0f, 5.0f, 5.0f, 9.0f, 13.0f
+  1.8f, 2.1f, 2.5f, 2.8f, 3.5, 4.5f, 5.0f, 7.0f, 11.0f, 13.0f
 };
 
 std::vector<float> const kRouteHalfWidthInPixelOthers =
 {
   // 1   2     3     4     5     6     7     8     9     10
-  1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.2f, 1.2f,
+  1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.1f, 1.2f, 1.3f,
   //11   12    13    14    15   16    17    18    19     20
-  1.5f, 1.5f, 2.0f, 2.5f, 3.0, 4.0f, 5.0f, 5.0f, 9.0f, 13.0f
+  1.5f, 1.7f, 2.3f, 2.7f, 3.5, 4.5f, 5.0f, 7.0f, 11.0f, 13.0f
 };
 
 namespace
@@ -489,7 +490,7 @@ void RouteShape::CacheRouteArrows(ref_ptr<dp::TextureManager> mng, m2::PolylineD
   TArrowGeometryBuffer joinsGeometry;
   dp::TextureManager::SymbolRegion region;
   GetArrowTextureRegion(mng, region);
-  auto state = CreateGLState(gpu::ROUTE_ARROW_PROGRAM, RenderState::GeometryLayer);
+  auto state = CreateRenderState(gpu::Program::RouteArrow, DepthLayer::GeometryLayer);
   state.SetColorTexture(region.GetTexture());
 
   // Generate arrow geometry.
@@ -565,8 +566,8 @@ drape_ptr<df::SubrouteData> RouteShape::CacheRoute(dp::DrapeID subrouteId, Subro
                   static_cast<float>(subroute->m_baseDepthIndex * kDepthPerSubroute),
                   geometry, joinsGeometry);
 
-  auto state = CreateGLState(subroute->m_style[styleIndex].m_pattern.m_isDashed ?
-                             gpu::ROUTE_DASH_PROGRAM : gpu::ROUTE_PROGRAM, RenderState::GeometryLayer);
+  auto state = CreateRenderState(subroute->m_style[styleIndex].m_pattern.m_isDashed ?
+                                 gpu::Program::RouteDash : gpu::Program::Route, DepthLayer::GeometryLayer);
   state.SetColorTexture(textures->GetSymbolsTexture());
 
   BatchGeometry(state, make_ref(geometry.data()), static_cast<uint32_t>(geometry.size()),
@@ -594,14 +595,14 @@ drape_ptr<df::SubrouteMarkersData> RouteShape::CacheMarkers(dp::DrapeID subroute
   if (geometry.empty())
     return nullptr;
 
-  auto state = CreateGLState(gpu::ROUTE_MARKER_PROGRAM, RenderState::GeometryLayer);
+  auto state = CreateRenderState(gpu::Program::RouteMarker, DepthLayer::GeometryLayer);
   state.SetColorTexture(textures->GetSymbolsTexture());
 
   // Batching.
   {
     uint32_t const kBatchSize = 200;
     dp::Batcher batcher(kBatchSize, kBatchSize);
-    dp::SessionGuard guard(batcher, [&markersData](dp::GLState const & state,
+    dp::SessionGuard guard(batcher, [&markersData](dp::RenderState const & state,
                                                    drape_ptr<dp::RenderBucket> &&b)
     {
       markersData->m_renderProperty.m_buckets.push_back(std::move(b));
@@ -616,7 +617,7 @@ drape_ptr<df::SubrouteMarkersData> RouteShape::CacheMarkers(dp::DrapeID subroute
   return markersData;
 }
 
-void RouteShape::BatchGeometry(dp::GLState const & state, ref_ptr<void> geometry, uint32_t geomSize,
+void RouteShape::BatchGeometry(dp::RenderState const & state, ref_ptr<void> geometry, uint32_t geomSize,
                                ref_ptr<void> joinsGeometry, uint32_t joinsGeomSize,
                                dp::BindingInfo const & bindingInfo, RouteRenderProperty & property)
 {
@@ -626,7 +627,7 @@ void RouteShape::BatchGeometry(dp::GLState const & state, ref_ptr<void> geometry
 
   uint32_t const kBatchSize = 5000;
   dp::Batcher batcher(kBatchSize, kBatchSize);
-  dp::SessionGuard guard(batcher, [&property](dp::GLState const & state, drape_ptr<dp::RenderBucket> && b)
+  dp::SessionGuard guard(batcher, [&property](dp::RenderState const & state, drape_ptr<dp::RenderBucket> && b)
   {
     property.m_buckets.push_back(std::move(b));
     property.m_state = state;

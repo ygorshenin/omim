@@ -1,3 +1,4 @@
+#import <SafariServices/SafariServices.h>
 #import "MWMMapDownloadDialog.h"
 #import "CLLocation+Mercator.h"
 #import "MWMAlertViewController.h"
@@ -19,6 +20,8 @@
 
 #include "platform/local_country_file_utils.hpp"
 
+#include "partners_api/megafon_countries.hpp"
+
 namespace
 {
 CGSize constexpr kInitialDialogSize = {200, 200};
@@ -37,6 +40,19 @@ BOOL canAutoDownload(storage::TCountryId const & countryId)
     return NO;
   return !platform::migrate::NeedMigrate();
 }
+
+BOOL shouldShowBanner(std::string const & mwmId)
+{
+  auto const & purchase = GetFramework().GetPurchase();
+  if (purchase && purchase->IsSubscriptionActive(SubscriptionType::RemoveAds))
+    return NO;
+  return ads::HasMegafonDownloaderBanner(GetFramework().GetStorage(), mwmId, languages::GetCurrentNorm());
+}
+
+NSString * getBannerURL()
+{
+  return @(ads::GetMegafonDownloaderBannerUrl().c_str());
+}
 }  // namespace
 
 using namespace storage;
@@ -48,6 +64,9 @@ using namespace storage;
 @property(weak, nonatomic) IBOutlet NSLayoutConstraint * nodeTopOffset;
 @property(weak, nonatomic) IBOutlet UIButton * downloadButton;
 @property(weak, nonatomic) IBOutlet UIView * progressWrapper;
+@property(weak, nonatomic) IBOutlet UIView * bannerView;
+@property(weak, nonatomic) IBOutlet NSLayoutConstraint * bannerHiddenConstraint;
+@property(weak, nonatomic) IBOutlet NSLayoutConstraint * bannerVisibleConstraint;
 
 @property(weak, nonatomic) MapViewController * controller;
 
@@ -79,16 +98,10 @@ using namespace storage;
 {
   UIView * superview = self.superview;
   self.center = {superview.midX, superview.midY};
-  [UIView animateWithDuration:kDefaultAnimationDuration
-                   animations:^{
-                     CGSize const newSize =
-                         [self systemLayoutSizeFittingSize:UILayoutFittingCompressedSize];
-                     if (CGSizeEqualToSize(newSize, self.size))
-                       return;
-                     self.size = newSize;
-                     self.center = {superview.midX, superview.midY};
-                     [self layoutIfNeeded];
-                   }];
+  CGSize const newSize = [self systemLayoutSizeFittingSize:UILayoutFittingCompressedSize];
+  if (CGSizeEqualToSize(newSize, self.size)) return;
+  self.size = newSize;
+  self.center = {superview.midX, superview.midY};
   [super layoutSubviews];
 }
 
@@ -132,10 +145,10 @@ using namespace storage;
       {
         [Statistics logEvent:kStatDownloaderMapAction
               withParameters:@{
-                kStatAction : kStatDownload,
-                kStatIsAuto : kStatYes,
-                kStatFrom : kStatMap,
-                kStatScenario : kStatDownload
+                kStatAction: kStatDownload,
+                kStatIsAuto: kStatYes,
+                kStatFrom: kStatMap,
+                kStatScenario: kStatDownload
               }];
         m_autoDownloadCountryId = m_countryId;
         [MWMStorage downloadNode:m_countryId
@@ -149,20 +162,22 @@ using namespace storage;
         [self showDownloadRequest];
       }
       break;
-    }
-    case NodeStatus::Downloading:
-      if (nodeAttrs.m_downloadingProgress.second != 0)
-        [self showDownloading:static_cast<CGFloat>(nodeAttrs.m_downloadingProgress.first) /
-                              nodeAttrs.m_downloadingProgress.second];
-      break;
-    case NodeStatus::InQueue: [self showInQueue]; break;
-    case NodeStatus::Undefined:
-    case NodeStatus::Error:
-      if (p.IsAutoRetryDownloadFailed())
-        [self showError:nodeAttrs.m_error];
-      break;
-    case NodeStatus::OnDisk:
-    case NodeStatus::OnDiskOutOfDate: [self removeFromSuperview]; break;
+      }
+      case NodeStatus::Downloading:
+        if (nodeAttrs.m_downloadingProgress.second != 0)
+          [self showDownloading:static_cast<CGFloat>(nodeAttrs.m_downloadingProgress.first) /
+                                nodeAttrs.m_downloadingProgress.second];
+        [self showBannerIfNeeded];
+        break;
+      case NodeStatus::Applying:
+      case NodeStatus::InQueue: [self showInQueue]; break;
+      case NodeStatus::Undefined:
+      case NodeStatus::Error:
+        if (p.IsAutoRetryDownloadFailed())
+          [self showError:nodeAttrs.m_error];
+        break;
+      case NodeStatus::OnDisk:
+      case NodeStatus::OnDiskOutOfDate: [self removeFromSuperview]; break;
     }
   }
   else
@@ -208,10 +223,10 @@ using namespace storage;
   auto const retryBlock = ^{
     [Statistics logEvent:kStatDownloaderMapAction
           withParameters:@{
-            kStatAction : kStatRetry,
-            kStatIsAuto : kStatNo,
-            kStatFrom : kStatMap,
-            kStatScenario : kStatDownload
+            kStatAction: kStatRetry,
+            kStatIsAuto: kStatNo,
+            kStatFrom: kStatMap,
+            kStatScenario: kStatDownload
           }];
     [self showInQueue];
     [MWMStorage retryDownloadNode:self->m_countryId];
@@ -235,6 +250,7 @@ using namespace storage;
 
 - (void)showDownloadRequest
 {
+  [self hideBanner];
   self.downloadButton.hidden = NO;
   self.progressWrapper.hidden = YES;
   [self addToSuperview];
@@ -253,6 +269,7 @@ using namespace storage;
 
 - (void)showInQueue
 {
+  [self showBannerIfNeeded];
   self.nodeSize.textColor = [UIColor blackSecondaryText];
   self.nodeSize.text = L(@"downloader_queued");
   self.downloadButton.hidden = YES;
@@ -268,6 +285,29 @@ using namespace storage;
     [self removeFromSuperview];
   else
     [self configDialog];
+}
+
+- (void)showBannerIfNeeded
+{
+  if (shouldShowBanner(m_countryId) && self.bannerView.hidden)
+  {
+    [self layoutIfNeeded];
+    self.bannerVisibleConstraint.priority = UILayoutPriorityDefaultHigh;
+    self.bannerView.hidden = NO;
+    [UIView animateWithDuration:kDefaultAnimationDuration animations:^{
+      [self layoutIfNeeded];
+    }];
+  }
+}
+
+- (void)hideBanner
+{
+  [self layoutIfNeeded];
+  self.bannerVisibleConstraint.priority = UILayoutPriorityDefaultLow;
+  self.bannerView.hidden = YES;
+  [UIView animateWithDuration:kDefaultAnimationDuration animations:^{
+    [self layoutIfNeeded];
+  }];
 }
 
 #pragma mark - MWMFrameworkStorageObserver
@@ -297,10 +337,10 @@ using namespace storage;
   {
     [Statistics logEvent:kStatDownloaderMapAction
           withParameters:@{
-            kStatAction : kStatRetry,
-            kStatIsAuto : kStatNo,
-            kStatFrom : kStatMap,
-            kStatScenario : kStatDownload
+            kStatAction: kStatRetry,
+            kStatIsAuto: kStatNo,
+            kStatFrom: kStatMap,
+            kStatScenario: kStatDownload
           }];
     [self showInQueue];
     [MWMStorage retryDownloadNode:m_countryId];
@@ -316,6 +356,13 @@ using namespace storage;
 
 #pragma mark - Actions
 
+- (IBAction)bannerAction
+{
+  NSURL * bannerURL = [NSURL URLWithString:getBannerURL()];
+  SFSafariViewController * safari = [[SFSafariViewController alloc] initWithURL:bannerURL];
+  [self.controller presentViewController:safari animated:YES completion:nil];
+}
+
 - (IBAction)downloadAction
 {
   MapViewController * controller = self.controller;
@@ -328,10 +375,10 @@ using namespace storage;
   {
     [Statistics logEvent:kStatDownloaderMapAction
           withParameters:@{
-            kStatAction : kStatDownload,
-            kStatIsAuto : kStatNo,
-            kStatFrom : kStatMap,
-            kStatScenario : kStatDownload
+            kStatAction: kStatDownload,
+            kStatIsAuto: kStatNo,
+            kStatFrom: kStatMap,
+            kStatScenario: kStatDownload
           }];
     [MWMStorage downloadNode:m_countryId
                    onSuccess:^{

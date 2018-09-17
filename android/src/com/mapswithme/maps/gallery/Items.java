@@ -5,10 +5,12 @@ import android.support.annotation.Nullable;
 
 import com.mapswithme.maps.MwmApplication;
 import com.mapswithme.maps.R;
+import com.mapswithme.maps.search.Popularity;
 import com.mapswithme.maps.search.SearchResult;
 
 import static com.mapswithme.maps.gallery.Constants.TYPE_MORE;
 import static com.mapswithme.maps.gallery.Constants.TYPE_PRODUCT;
+import static com.mapswithme.util.Constants.Rating.RATING_INCORRECT_VALUE;
 
 public class Items
 {
@@ -47,38 +49,6 @@ public class Items
   {
 
     public ViatorMoreItem(@Nullable String url)
-    {
-      super(TYPE_MORE, MwmApplication.get().getString(R.string.placepage_more_button), url);
-    }
-  }
-
-  public static class CianItem extends RegularAdapterStrategy.Item
-  {
-    @NonNull
-    final String mPrice;
-    @NonNull
-    final String mAddress;
-
-    public CianItem(@NonNull String title, @NonNull String url, @NonNull String price,
-                    @NonNull String address)
-    {
-      super(TYPE_PRODUCT, title, url, null);
-      mPrice = price;
-      mAddress = address;
-    }
-
-    CianItem(@Constants.ViewType int type, @NonNull String title, @Nullable String url)
-    {
-      super(type, title, url, null);
-      mPrice = "";
-      mAddress = "";
-    }
-  }
-
-  public static class CianMoreItem extends CianItem
-  {
-
-    public CianMoreItem(@Nullable String url)
     {
       super(TYPE_MORE, MwmApplication.get().getString(R.string.placepage_more_button), url);
     }
@@ -148,6 +118,12 @@ public class Items
       mResult = result;
     }
 
+    public SearchItem(@NonNull String title)
+    {
+      super(TYPE_MORE, title, null, null);
+      mResult = SearchResult.EMPTY;
+    }
+
     @NonNull
     public String getDistance()
     {
@@ -163,6 +139,54 @@ public class Items
     public double getLon()
     {
       return mResult.lon;
+    }
+
+    public int getStars()
+    {
+      if (mResult.description == null)
+        return 0;
+
+      return mResult.description.stars;
+    }
+
+    public float getRating()
+    {
+      if (mResult.description == null)
+        return RATING_INCORRECT_VALUE;
+
+      return mResult.description.rating;
+    }
+
+    @Nullable
+    public String getPrice()
+    {
+      if (mResult.description == null)
+        return null;
+
+      return mResult.description.pricing;
+    }
+
+    @Nullable
+    public String getFeatureType()
+    {
+      if (mResult.description == null)
+        return null;
+
+      return mResult.description.featureType;
+    }
+
+    @NonNull
+    public Popularity getPopularity()
+    {
+      return mResult.getPopularity();
+    }
+  }
+
+  public static class MoreSearchItem extends SearchItem
+  {
+    public MoreSearchItem()
+    {
+      super(MwmApplication.get().getString(R.string.placepage_more_button));
     }
   }
 

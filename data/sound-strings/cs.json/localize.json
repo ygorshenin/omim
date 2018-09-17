@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Ostře doleva.",
 "make_a_u_turn":"Otočte se do protisměru.",
 "go_straight":"Jeďte rovně.",
+"exit":"výstup.",
 "destination":"Přijedete do cíle.",
 "you_have_reached_the_destination":"Jste v cíli.",
 "in_50_meters":"Za padesát metrů",
@@ -61,5 +62,6 @@
 "in_5000_feet":"Za pět tisíc stop",
 "in_1_mile":"Za jednu míli",
 "in_1_5_miles":"Za jednu a půl míle",
-"in_2_miles":"Za dvě míle"
+"in_2_miles":"Za dvě míle",
+"unknown_camera":"Speed camera ahead"
 }

@@ -19,7 +19,7 @@ be found, i.e. the tests that were specified in the skip list, but do not exist.
 from __future__ import print_function
 
 from optparse import OptionParser
-from os import listdir, remove
+from os import listdir, remove, environ
 from random import shuffle
 import random
 import socket
@@ -39,7 +39,7 @@ WITH_SERVER = "with_server"
 
 PORT = 34568
 
-TESTS_REQUIRING_SERVER = ["downloader_tests", "storage_tests", "partners_api_tests", "map_tests"]
+TESTS_REQUIRING_SERVER = ["platform_tests", "storage_tests", "partners_api_tests", "map_tests"]
 
 class TestRunner:
 
@@ -153,8 +153,16 @@ class TestRunner:
             test_file_with_keys = self.test_file_with_keys(test_file)
         
             logging.info(test_file_with_keys)
+
+            # Fix float parsing
+            # See more here:
+            # https://github.com/mapsme/omim/pull/996
+            current_env = environ
+            current_env['LC_NUMERIC'] = 'C'
+            #
             process = subprocess.Popen("{tests_path}/{test_file} 2>> {logfile}".
                                    format(tests_path=self.workspace_path, test_file=test_file_with_keys, logfile=self.logfile),
+                                   env=current_env,
                                    shell=True,
                                    stdout=subprocess.PIPE)
             logging.info("Pid: {0}".format(process.pid))

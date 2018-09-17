@@ -26,7 +26,7 @@ public class ViatorAdapterStrategy
 
   @NonNull
   @Override
-  protected Holders.BaseViewHolder<Items.ViatorItem> createProductViewHodler
+  protected Holders.BaseViewHolder<Items.ViatorItem> createProductViewHolder
       (@NonNull ViewGroup parent, int viewType, @NonNull GalleryAdapter<?, Items.ViatorItem> adapter)
   {
     View view = LayoutInflater.from(parent.getContext())
@@ -42,7 +42,7 @@ public class ViatorAdapterStrategy
   {
     View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_viator_more, parent,
                                                                  false);
-    return new Holders.ViatorMoreItemViewHolder(view, mItems, adapter);
+    return new Holders.GenericMoreHolder<>(view, mItems, adapter);
   }
 
   @NonNull

@@ -12,10 +12,11 @@
 #include "drape_frontend/gui/skin.hpp"
 
 #include "drape/pointers.hpp"
-#include "drape/oglcontextfactory.hpp"
+#include "drape/graphics_context_factory.hpp"
 
 #include "local_ads/event.hpp"
 
+#include "partners_api/booking_api.hpp"
 #include "partners_api/locals_api.hpp"
 
 #include "platform/country_defines.hpp"
@@ -32,12 +33,17 @@
 #include <memory>
 #include <mutex>
 
-class Index;
+class DataSource;
 struct FeatureID;
 
 namespace search
 {
 struct EverywhereSearchParams;
+}
+
+namespace booking
+{
+struct BlockParams;
 }
 
 namespace android
@@ -58,6 +64,7 @@ namespace android
     std::map<gui::EWidget, gui::Position> m_guiPositions;
 
     void TrafficStateChanged(TrafficManager::TrafficState state);
+    void TransitSchemeStateChanged(TransitReadManager::TransitSchemeState state);
 
     void MyPositionModeChanged(location::EMyPositionMode mode, bool routingActive);
 
@@ -66,6 +73,7 @@ namespace android
     bool m_isCurrentModeInitialized;
 
     TrafficManager::TrafficStateChangedFn m_onTrafficStateChangedFn;
+    TransitReadManager::TransitStateChangedFn m_onTransitStateChangedFn;
 
     bool m_isChoosePositionMode;
 
@@ -75,7 +83,7 @@ namespace android
     Framework();
 
     storage::Storage & GetStorage();
-    Index const & GetIndex();
+    DataSource const & GetDataSource();
 
     void ShowNode(storage::TCountryId const & countryId, bool zoomToDownloadButton);
 
@@ -84,14 +92,14 @@ namespace android
     void OnCompassUpdated(location::CompassInfo const & info, bool forceRedraw);
     void UpdateCompassSensor(int ind, float * arr);
 
-    void Invalidate();
-
     bool CreateDrapeEngine(JNIEnv * env, jobject jSurface, int densityDpi, bool firstLaunch,
                            bool launchByDeepLink);
     bool IsDrapeEngineCreated();
 
     void DetachSurface(bool destroyContext);
     bool AttachSurface(JNIEnv * env, jobject jSurface);
+    void PauseSurfaceRendering();
+    void ResumeSurfaceRendering();
 
     void SetMapStyle(MapStyle mapStyle);
     void MarkMapStyle(MapStyle mapStyle);
@@ -138,8 +146,8 @@ namespace android
     void Scale(::Framework::EScaleMode mode);
     void Scale(m2::PointD const & centerPt, int targetZoom, bool animate);
 
-    void ReplaceBookmark(BookmarkAndCategory const & ind, BookmarkData & bm);
-    size_t ChangeBookmarkCategory(BookmarkAndCategory const & ind, size_t newCat);
+    void ReplaceBookmark(kml::MarkId markId, kml::BookmarkData & bm);
+    void MoveBookmark(kml::MarkId markId, kml::MarkGroupId curCat, kml::MarkGroupId newCat);
 
     ::Framework * NativeFramework();
 
@@ -151,14 +159,14 @@ namespace android
 
     std::string GetOutdatedCountriesString();
 
-    void ShowTrack(int category, int track);
-
     void SetMyPositionModeListener(location::TMyPositionModeChanged const & fn);
     location::EMyPositionMode GetMyPositionMode();
     void OnMyPositionModeChanged(location::EMyPositionMode mode);
     void SwitchMyPositionNextMode();
 
     void SetTrafficStateListener(TrafficManager::TrafficStateChangedFn const & fn);
+    void SetTransitSchemeListener(TransitReadManager::TransitStateChangedFn const & fn);
+    bool IsTrafficEnabled();
     void EnableTraffic();
     void DisableTraffic();
 
@@ -175,9 +183,8 @@ namespace android
 
     void SetPlacePageInfo(place_page::Info const & info);
     place_page::Info & GetPlacePageInfo();
-    void RequestBookingMinPrice(JNIEnv * env, jobject policy, 
-                                std::string const & hotelId, std::string const & currency,
-                                booking::GetMinPriceCallback const & callback);
+    void RequestBookingMinPrice(JNIEnv * env, jobject policy, booking::BlockParams && params,
+                                booking::BlockAvailabilityCallback const & callback);
     void RequestBookingInfo(JNIEnv * env, jobject policy, 
                             std::string const & hotelId, std::string const & lang,
                             booking::GetHotelInfoCallback const & callback);
@@ -206,10 +213,6 @@ namespace android
     void SetUGCUpdate(FeatureID const & fid, ugc::UGCUpdate const & ugc);
     void UploadUGC();
 
-    uint64_t GetRentNearby(JNIEnv * env, jobject policy, ms::LatLon const & latlon,
-                       cian::Api::RentNearbyCallback const & onSuccess,
-                       cian::Api::ErrorCallback const & onError);
-
     int ToDoAfterUpdate() const;
 
     uint64_t GetLocals(JNIEnv * env, jobject policy, double lat, double lon,
@@ -220,4 +223,4 @@ namespace android
   };
 }
 
-extern android::Framework * g_framework;
+extern unique_ptr<android::Framework> g_framework;

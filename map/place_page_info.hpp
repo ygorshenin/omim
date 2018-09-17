@@ -10,19 +10,26 @@
 
 #include "storage/index.hpp"
 
+#include "editor/osm_editor.hpp"
+
 #include "indexer/feature_data.hpp"
 #include "indexer/feature_meta.hpp"
+#include "indexer/feature_source.hpp"
+#include "indexer/ftypes_matcher.hpp"
 #include "indexer/map_object.hpp"
-#include "indexer/osm_editor.hpp"
 
 #include "geometry/latlon.hpp"
 #include "geometry/mercator.hpp"
 #include "geometry/point2d.hpp"
 
+#include "defines.hpp"
+
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <boost/optional.hpp>
 
 namespace ads
 {
@@ -37,10 +44,8 @@ enum class SponsoredType
   None,
   Booking,
   Opentable,
-  Geochat,
   Viator,
-  Cian,
-  Thor,
+  Partner,
   Holiday
 };
 
@@ -57,7 +62,7 @@ enum class LocalsStatus
   Available
 };
 
-auto constexpr kIncorrectRating = -1.0f;
+auto constexpr kIncorrectRating = kInvalidRatingValue;
 
 class Info : public osm::MapObject
 {
@@ -69,7 +74,7 @@ public:
 
   /// Place traits
   bool IsFeature() const { return m_featureID.IsValid(); }
-  bool IsBookmark() const { return m_bac.IsValid(); }
+  bool IsBookmark() const { return m_markGroupId != kml::kInvalidMarkGroupId && m_markId != kml::kInvalidMarkId; }
   bool IsMyPosition() const { return m_isMyPosition; }
   bool IsRoutePoint() const { return m_isRoutePoint; }
 
@@ -91,7 +96,7 @@ public:
   bool HasWifi() const { return GetInternet() == osm::Internet::Wlan; }
   /// Should be used by UI code to generate cool name for new bookmarks.
   // TODO: Tune new bookmark name. May be add address or some other data.
-  std::string FormatNewBookmarkName() const;
+  kml::LocalizableString FormatNewBookmarkName() const;
 
   /// For showing in UI
   std::string const & GetTitle() const { return m_uiTitle; };
@@ -106,6 +111,7 @@ public:
   float GetRatingRawValue() const;
   /// @returns string with |kPricingSymbol| signs or empty std::string if it isn't booking object
   std::string GetApproximatePricing() const;
+  boost::optional<int> GetRawApproximatePricing() const;
 
   /// UI setters
   void SetCustomName(std::string const & name);
@@ -116,12 +122,14 @@ public:
   void SetLocalizedWifiString(std::string const & str) { m_localizedWifiString = str; }
 
   /// Bookmark
-  BookmarkAndCategory const & GetBookmarkAndCategory() const { return m_bac; }
+  void SetBookmarkId(kml::MarkId markId);
+  kml::MarkId GetBookmarkId() const { return m_markId; }
+  void SetBookmarkCategoryId(kml::MarkGroupId markGroupId) { m_markGroupId = markGroupId; }
+  kml::MarkGroupId GetBookmarkCategoryId() const { return m_markGroupId; }
   std::string const & GetBookmarkCategoryName() const { return m_bookmarkCategoryName; }
-  void SetBac(BookmarkAndCategory const & bac);
   void SetBookmarkCategoryName(std::string const & name) { m_bookmarkCategoryName = name; }
-  void SetBookmarkData(BookmarkData const & data) { m_bookmarkData = data; }
-  BookmarkData const & GetBookmarkData() const { return m_bookmarkData; }
+  void SetBookmarkData(kml::BookmarkData const & data) { m_bookmarkData = data; }
+  kml::BookmarkData const & GetBookmarkData() const { return m_bookmarkData; }
 
   /// Api
   void SetApiId(std::string const & apiId) { m_apiId = apiId; }
@@ -135,6 +143,8 @@ public:
   std::string const & GetBookingSearchUrl() const { return m_bookingSearchUrl; }
   void SetSponsoredUrl(std::string const & url) { m_sponsoredUrl = url; }
   std::string const & GetSponsoredUrl() const { return m_sponsoredUrl; }
+  void SetSponsoredDeepLink(std::string const & url) { m_sponsoredDeepLink = url; }
+  std::string const & GetSponsoredDeepLink() const { return m_sponsoredDeepLink; }
   void SetSponsoredDescriptionUrl(std::string const & url) { m_sponsoredDescriptionUrl = url; }
   std::string const & GetSponsoredDescriptionUrl() const { return m_sponsoredDescriptionUrl; }
   void SetSponsoredReviewUrl(std::string const & url) { m_sponsoredReviewUrl = url; }
@@ -143,8 +153,13 @@ public:
   SponsoredType GetSponsoredType() const { return m_sponsoredType; }
   bool IsPreviewExtended() const { return m_sponsoredType == SponsoredType::Viator; }
 
+  /// Partners
+  int GetPartnerIndex() const { return m_partnerIndex; }
+  std::string const & GetPartnerName() const { return m_partnerName; }
+  void SetPartnerIndex(int index);
+
   /// Feature status
-  void SetFeatureStatus(osm::Editor::FeatureStatus const status) { m_featureStatus = status; }
+  void SetFeatureStatus(FeatureStatus const status) { m_featureStatus = status; }
 
   /// Banner
   bool HasBanner() const;
@@ -195,14 +210,20 @@ public:
   storage::TCountriesVec const & GetTopmostCountryIds() const { return m_topmostCountryIds; }
 
   /// MapObject
-  void SetFromFeatureType(FeatureType const & ft);
+  void SetFromFeatureType(FeatureType & ft);
 
   void SetMercator(m2::PointD const & mercator) { m_mercator = mercator; }
   std::vector<std::string> GetRawTypes() const { return m_types.ToObjectNames(); }
 
+  boost::optional<ftypes::IsHotelChecker::Type> GetHotelType() const { return m_hotelType; }
+
+  void SetPopularity(uint8_t popularity) { m_popularity = popularity; }
+  uint8_t GetPopularity() const { return m_popularity; }
+
 private:
   std::string FormatSubtitle(bool withType) const;
   void GetPrefferedNames(std::string & primaryName, std::string & secondaryName) const;
+  std::string GetBookmarkName();
   /// @returns empty string or GetStars() count of ★ symbol.
   std::string FormatStars() const;
 
@@ -227,11 +248,12 @@ private:
   std::string m_customName;
 
   /// Bookmarks
-  /// If not empty, bookmark is bound to this place page.
-  BookmarkAndCategory m_bac;
+  /// If not invalid, bookmark is bound to this place page.
+  kml::MarkId m_markId = kml::kInvalidMarkId;
+  kml::MarkGroupId m_markGroupId = kml::kInvalidMarkGroupId;;
   /// Bookmark category name. Empty, if it's not bookmark;
   std::string m_bookmarkCategoryName;
-  BookmarkData m_bookmarkData;
+  kml::BookmarkData m_bookmarkData;
 
   /// Api ID passed for the selected object. It's automatically included in api url below.
   std::string m_apiId;
@@ -262,10 +284,11 @@ private:
   SponsoredType m_sponsoredType = SponsoredType::None;
 
   /// Feature status
-  osm::Editor::FeatureStatus m_featureStatus = osm::Editor::FeatureStatus::Untouched;
+  FeatureStatus m_featureStatus = FeatureStatus::Untouched;
 
   /// Sponsored feature urls.
   std::string m_sponsoredUrl;
+  std::string m_sponsoredDeepLink;
   std::string m_sponsoredDescriptionUrl;
   std::string m_sponsoredReviewUrl;
 
@@ -276,11 +299,27 @@ private:
   std::string m_localsUrl;
   LocalsStatus m_localsStatus = LocalsStatus::NotAvailable;
 
+  /// Partners
+  int m_partnerIndex = -1;
+  std::string m_partnerName;
+
   feature::TypesHolder m_sortedTypes;
+
+  boost::optional<ftypes::IsHotelChecker::Type> m_hotelType;
+
+  uint8_t m_popularity = 0;
 };
 
 namespace rating
 {
+enum class FilterRating
+{
+  Any,
+  Good,
+  VeryGood,
+  Excellent
+};
+
 enum Impress
 {
   None,
@@ -290,6 +329,8 @@ enum Impress
   Good,
   Excellent
 };
+
+FilterRating GetFilterRating(float const rawRating);
 
 Impress GetImpress(float const rawRating);
 std::string GetRatingFormatted(float const rawRating);

@@ -8,15 +8,13 @@
 
 @interface MapViewController : MWMViewController
 
-+ (MapViewController *)controller;
++ (MapViewController *)sharedController;
 
 // called when app is terminated by system
 - (void)onTerminate;
 - (void)onGetFocus:(BOOL)isOnFocus;
 
 - (void)updateStatusBarStyle;
-
-- (void)showAPIBar;
 
 - (void)performAction:(NSString *)action;
 
@@ -26,6 +24,10 @@
 - (void)openEditor;
 - (void)openHotelFacilities;
 - (void)openBookmarkEditorWithData:(MWMPlacePageData *)data;
+- (void)showUGCAuth;
+- (void)showBookmarksLoadedAlert:(UInt64)categoryId;
+- (void)openCatalogAnimated:(BOOL)animated;
+- (void)openCatalogDeeplink:(NSURL * _Nullable)deeplinkUrl animated:(BOOL)animated;
 
 - (void)setPlacePageTopBound:(CGFloat)bound;
 

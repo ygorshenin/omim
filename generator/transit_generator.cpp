@@ -50,11 +50,11 @@ void LoadBorders(string const & dir, TCountryId const & countryId, vector<m2::Re
   osm::LoadBorders(polyFile, borders);
 }
 
-void FillOsmIdToFeatureIdsMap(string const & osmIdToFeatureIdsPath, OsmIdToFeatureIdsMap & map)
+void FillOsmIdToFeatureIdsMap(string const & osmIdToFeatureIdsPath, OsmIdToFeatureIdsMap & mapping)
 {
   CHECK(ForEachOsmId2FeatureId(osmIdToFeatureIdsPath,
-                               [&map](osm::Id const & osmId, uint32_t featureId) {
-                                 map[osmId].push_back(featureId);
+                               [&mapping](base::GeoObjectId const & osmId, uint32_t featureId) {
+                                 mapping[osmId].push_back(featureId);
                                }),
         (osmIdToFeatureIdsPath));
 }
@@ -72,7 +72,7 @@ void CalculateBestPedestrianSegments(string const & mwmPath, TCountryId const & 
                                      GraphData & graphData)
 {
   // Creating IndexRouter.
-  SingleMwmIndex index(mwmPath);
+  SingleMwmDataSource dataSource(mwmPath);
 
   auto infoGetter = storage::CountryInfoReader::CreateCountryInfoReader(GetPlatform());
   CHECK(infoGetter, ());
@@ -86,15 +86,15 @@ void CalculateBestPedestrianSegments(string const & mwmPath, TCountryId const & 
     return infoGetter->GetLimitRectForLeaf(c);
   };
 
-  CHECK_EQUAL(index.GetMwmId().GetInfo()->GetType(), MwmInfo::COUNTRY, ());
+  CHECK_EQUAL(dataSource.GetMwmId().GetInfo()->GetType(), MwmInfo::COUNTRY, ());
   auto numMwmIds = make_shared<NumMwmIds>();
   numMwmIds->RegisterFile(CountryFile(countryId));
 
-  // Note. |indexRouter| is valid while |index| is valid.
+  // Note. |indexRouter| is valid while |dataSource| is valid.
   IndexRouter indexRouter(VehicleType::Pedestrian, false /* load altitudes */,
                           CountryParentNameGetterFn(), countryFileGetter, getMwmRectByName,
                           numMwmIds, MakeNumMwmTree(*numMwmIds, *infoGetter),
-                          traffic::TrafficCache(), index.GetIndex());
+                          traffic::TrafficCache(), dataSource.GetDataSource());
   auto worldGraph = indexRouter.MakeSingleMwmWorldGraph();
 
   // Looking for the best segment for every gate.
@@ -176,13 +176,13 @@ void ProcessGraph(string const & mwmPath, TCountryId const & countryId,
 {
   CalculateBestPedestrianSegments(mwmPath, countryId, data);
   data.Sort();
-  CHECK(data.IsValid(), (mwmPath));
+  data.CheckValidSortedUnique();
 }
 
 void BuildTransit(string const & mwmDir, TCountryId const & countryId,
                   string const & osmIdToFeatureIdsPath, string const & transitDir)
 {
-  LOG(LINFO, ("Building transit section for", countryId));
+  LOG(LINFO, ("Building transit section for", countryId, "mwmDir:", mwmDir));
   Platform::FilesList graphFiles;
   Platform::GetFilesByExt(my::AddSlashIfNeeded(transitDir), TRANSIT_FILE_EXTENSION, graphFiles);
 
@@ -207,7 +207,7 @@ void BuildTransit(string const & mwmDir, TCountryId const & countryId,
     return; // Empty transit section.
 
   ProcessGraph(mwmPath, countryId, mapping, jointData);
-  CHECK(jointData.IsValid(), (mwmPath, countryId));
+  jointData.CheckValidSortedUnique();
 
   FilesContainerW cont(mwmPath, FileWriter::OP_WRITE_EXISTING);
   FileWriter writer = cont.GetWriter(TRANSIT_FILE_TAG);

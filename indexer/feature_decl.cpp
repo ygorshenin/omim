@@ -1,6 +1,8 @@
 #include "indexer/feature_decl.hpp"
 
-#include "std/sstream.hpp"
+#include <sstream>
+
+using namespace std;
 
 string DebugPrint(FeatureID const & id)
 {
@@ -19,6 +21,7 @@ string DebugPrint(feature::EGeomType type)
   case EGeomType::GEOM_LINE: return "GEOM_LINE";
   case EGeomType::GEOM_AREA: return "GEOM_AREA";
   }
+  CHECK_SWITCH();
 }
 
 // static

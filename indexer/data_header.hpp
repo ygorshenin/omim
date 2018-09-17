@@ -1,15 +1,14 @@
 #pragma once
 
-#include "indexer/coding_params.hpp"
-
 #include "platform/mwm_version.hpp"
+
+#include "coding/geometry_coding.hpp"
 
 #include "geometry/rect2d.hpp"
 
 #include "base/buffer_vector.hpp"
 
-#include "std/utility.hpp"
-
+#include <utility>
 
 class FilesContainerR;
 class FileWriter;
@@ -24,9 +23,10 @@ namespace feature
     static const size_t MAX_SCALES_COUNT = 4;
 
   private:
-    serial::CodingParams m_codingParams;
+    serial::GeometryCodingParams m_codingParams;
 
-    pair<int64_t, int64_t> m_bounds;
+    // Rect around region border. Features which cross region border may cross this rect.
+    std::pair<int64_t, int64_t> m_bounds;
 
     buffer_vector<uint8_t, MAX_SCALES_COUNT> m_scales;
     buffer_vector<uint8_t, 2> m_langs;
@@ -36,15 +36,15 @@ namespace feature
     explicit DataHeader(string const & fileName);
     explicit DataHeader(FilesContainerR const & cont);
 
-    inline void SetCodingParams(serial::CodingParams const & cp)
+    inline void SetGeometryCodingParams(serial::GeometryCodingParams const & cp)
     {
       m_codingParams = cp;
     }
-    inline serial::CodingParams const & GetDefCodingParams() const
+    inline serial::GeometryCodingParams const & GetDefGeometryCodingParams() const
     {
       return m_codingParams;
     }
-    serial::CodingParams GetCodingParams(int scaleIndex) const;
+    serial::GeometryCodingParams GetGeometryCodingParams(int scaleIndex) const;
 
     m2::RectD const GetBounds() const;
     void SetBounds(m2::RectD const & r);
@@ -65,7 +65,7 @@ namespace feature
     inline int GetScale(size_t i) const { return static_cast<int>(m_scales[i]); }
     inline int GetLastScale() const { return m_scales.back(); }
 
-    pair<int, int> GetScaleRange() const;
+    std::pair<int, int> GetScaleRange() const;
 
     inline version::Format GetFormat() const { return m_format; }
     inline bool IsMWMSuitable() const { return m_format <= version::Format::lastFormat; }

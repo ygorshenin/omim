@@ -1,6 +1,7 @@
 #pragma once
 
 #include "search/bookmarks/processor.hpp"
+#include "search/bookmarks/types.hpp"
 #include "search/categories_cache.hpp"
 #include "search/categories_set.hpp"
 #include "search/cities_boundaries_table.hpp"
@@ -16,7 +17,6 @@
 #include "search/token_slice.hpp"
 #include "search/utils.hpp"
 
-#include "indexer/index.hpp"
 #include "indexer/string_slice.hpp"
 
 #include "coding/multilang_utf8_string.hpp"
@@ -28,13 +28,13 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 class FeatureType;
 class CategoriesHolder;
+class DataSource;
 
 namespace coding
 {
@@ -53,7 +53,7 @@ class QueryParams;
 class Ranker;
 class ReverseGeocoder;
 
-class Processor : public my::Cancellable
+class Processor : public base::Cancellable
 {
 public:
   // Maximum result candidates count for each viewport/criteria.
@@ -62,9 +62,7 @@ public:
   static double const kMinViewportRadiusM;
   static double const kMaxViewportRadiusM;
 
-  static double const kMinDistanceOnMapBetweenResultsM;
-
-  Processor(Index const & index, CategoriesHolder const & categories,
+  Processor(DataSource const & dataSource, CategoriesHolder const & categories,
             std::vector<Suggest> const & suggests, storage::CountryInfoGetter const & infoGetter);
 
   void SetViewport(m2::RectD const & viewport);
@@ -81,8 +79,12 @@ public:
 
   // Tries to generate a (lat, lon) result from |m_query|.
   void SearchCoordinates();
+  // Tries to parse a plus code from |m_query| and generate a (lat, lon) result.
+  void SearchPlusCode();
 
-  void InitParams(QueryParams & params);
+  void SearchBookmarks() const;
+
+  void InitParams(QueryParams & params) const;
 
   void InitGeocoder(Geocoder::Params &geocoderParams,
                     SearchParams const &searchParams);
@@ -120,7 +122,8 @@ protected:
   std::string m_query;
   QueryTokens m_tokens;
   strings::UniString m_prefix;
-  std::set<uint32_t> m_preferredTypes;
+  bool m_isCategorialRequest;
+  std::vector<uint32_t> m_preferredTypes;
 
   m2::RectD m_viewport;
   m2::PointD m_position;
@@ -137,5 +140,7 @@ protected:
   Ranker m_ranker;
   PreRanker m_preRanker;
   Geocoder m_geocoder;
+
+  bookmarks::Processor m_bookmarksProcessor;
 };
 }  // namespace search

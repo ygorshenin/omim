@@ -31,8 +31,6 @@ inline JSONPtr NewJSONNull() { return JSONPtr(json_null()); }
 
 class Json
 {
-  JsonHandle m_handle;
-
 public:
   DECLARE_EXCEPTION(Exception, RootException);
 
@@ -51,6 +49,9 @@ public:
 
   json_t * get() const { return m_handle.get(); }
   json_t * get_deep_copy() const { return json_deep_copy(get()); }
+
+private:
+  JsonHandle m_handle;
 };
 
 json_t * GetJSONObligatoryField(json_t * root, std::string const & field);
@@ -71,6 +72,8 @@ void FromJSON(json_t * root, T & result)
     MYTHROW(my::Json::Exception, ("Object must contain a json number."));
   result = static_cast<T>(json_integer_value(root));
 }
+
+std::string FromJSONToString(json_t * root);
 
 template <typename T>
 void FromJSONObject(json_t * root, std::string const & field, T & result)
@@ -106,9 +109,30 @@ inline my::JSONPtr ToJSON(bool value) { return my::NewJSONBool(value); }
 inline my::JSONPtr ToJSON(char const * s) { return my::NewJSONString(s); }
 
 template <typename T>
+void ToJSONArray(json_t & root, T const & value)
+{
+  json_array_append_new(&root, ToJSON(value).release());
+}
+
+inline void ToJSONArray(json_t & parent, my::JSONPtr & child)
+{
+  json_array_append_new(&parent, child.release());
+}
+
+inline void ToJSONArray(json_t & parent, json_t & child)
+{
+  json_array_append_new(&parent, &child);
+}
+
+template <typename T>
 void ToJSONObject(json_t & root, std::string const & field, T const & value)
 {
   json_object_set_new(&root, field.c_str(), ToJSON(value).release());
+}
+
+inline void ToJSONObject(json_t & parent, std::string const & field, my::JSONPtr & child)
+{
+  json_object_set_new(&parent, field.c_str(), child.release());
 }
 
 inline void ToJSONObject(json_t & parent, std::string const & field, json_t & child)

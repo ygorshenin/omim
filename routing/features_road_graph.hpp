@@ -6,7 +6,6 @@
 
 #include "indexer/altitude_loader.hpp"
 #include "indexer/feature_data.hpp"
-#include "indexer/index.hpp"
 #include "indexer/mwm_set.hpp"
 
 #include "geometry/point2d.hpp"
@@ -17,12 +16,11 @@
 #include "std/unique_ptr.hpp"
 #include "std/vector.hpp"
 
-class Index;
+class DataSource;
 class FeatureType;
 
 namespace routing
 {
-
 class FeaturesRoadGraph : public IRoadGraph
 {
 private:
@@ -32,12 +30,12 @@ private:
     CrossCountryVehicleModel(shared_ptr<VehicleModelFactoryInterface> vehicleModelFactory);
 
     // VehicleModelInterface overrides:
-    double GetSpeed(FeatureType const & f) const override;
-    double GetMaxSpeed() const override;
+    VehicleModelInterface::SpeedKMpH GetSpeed(FeatureType & f) const override;
+    VehicleModelInterface::SpeedKMpH GetMaxSpeed() const override { return m_maxSpeed; };
     double GetOffroadSpeed() const override;
-    bool IsOneWay(FeatureType const & f) const override;
-    bool IsRoad(FeatureType const & f) const override;
-    bool IsPassThroughAllowed(FeatureType const & f) const override;
+    bool IsOneWay(FeatureType & f) const override;
+    bool IsRoad(FeatureType & f) const override;
+    bool IsPassThroughAllowed(FeatureType & f) const override;
 
     void Clear();
 
@@ -45,8 +43,8 @@ private:
     VehicleModelInterface * GetVehicleModel(FeatureID const & featureId) const;
 
     shared_ptr<VehicleModelFactoryInterface> const m_vehicleModelFactory;
-    double const m_maxSpeedKMPH;
-    double const m_offroadSpeedKMPH;
+    VehicleModelInterface::SpeedKMpH const m_maxSpeed;
+    double const m_offroadSpeedKMpH;
 
     mutable map<MwmSet::MwmId, shared_ptr<VehicleModelInterface>> m_cache;
   };
@@ -64,15 +62,15 @@ private:
   };
 
 public:
-  FeaturesRoadGraph(Index const & index, IRoadGraph::Mode mode,
+  FeaturesRoadGraph(DataSource const & dataSource, IRoadGraph::Mode mode,
                     shared_ptr<VehicleModelFactoryInterface> vehicleModelFactory);
 
   static int GetStreetReadScale();
 
   // IRoadGraph overrides:
   RoadInfo GetRoadInfo(FeatureID const & featureId) const override;
-  double GetSpeedKMPH(FeatureID const & featureId) const override;
-  double GetMaxSpeedKMPH() const override;
+  double GetSpeedKMpH(FeatureID const & featureId) const override;
+  double GetMaxSpeedKMpH() const override;
   void ForEachFeatureClosestToCross(m2::PointD const & cross,
                                     ICrossEdgesLoader & edgesLoader) const override;
   void FindClosestEdges(m2::PointD const & point, uint32_t count,
@@ -82,7 +80,7 @@ public:
   IRoadGraph::Mode GetMode() const override;
   void ClearState() override;
 
-  bool IsRoad(FeatureType const & ft) const;
+  bool IsRoad(FeatureType & ft) const;
 
 private:
   friend class CrossFeaturesLoader;
@@ -90,7 +88,7 @@ private:
   struct Value
   {
     Value() = default;
-    Value(Index const & index, MwmSet::MwmHandle handle);
+    Value(DataSource const & dataSource, MwmSet::MwmHandle handle);
 
     bool IsAlive() const { return m_mwmHandle.IsAlive(); }
 
@@ -98,22 +96,22 @@ private:
     unique_ptr<feature::AltitudeLoader> m_altitudeLoader;
   };
 
-  bool IsOneWay(FeatureType const & ft) const;
-  double GetSpeedKMPHFromFt(FeatureType const & ft) const;
+  bool IsOneWay(FeatureType & ft) const;
+  double GetSpeedKMpHFromFt(FeatureType & ft) const;
 
   // Searches a feature RoadInfo in the cache, and if does not find then
   // loads feature from the index and takes speed for the feature from the vehicle model.
   RoadInfo const & GetCachedRoadInfo(FeatureID const & featureId) const;
   // Searches a feature RoadInfo in the cache, and if does not find then takes passed feature and speed.
   // This version is used to prevent redundant feature loading when feature speed is known.
-  RoadInfo const & GetCachedRoadInfo(FeatureID const & featureId, FeatureType const & ft,
+  RoadInfo const & GetCachedRoadInfo(FeatureID const & featureId, FeatureType & ft,
                                      double speedKMPH) const;
-  void ExtractRoadInfo(FeatureID const & featureId, FeatureType const & ft, double speedKMPH,
+  void ExtractRoadInfo(FeatureID const & featureId, FeatureType & ft, double speedKMpH,
                        RoadInfo & ri) const;
 
   Value const & LockMwm(MwmSet::MwmId const & mwmId) const;
 
-  Index const & m_index;
+  DataSource const & m_dataSource;
   IRoadGraph::Mode const m_mode;
   mutable RoadInfoCache m_cache;
   mutable CrossCountryVehicleModel m_vehicleModel;

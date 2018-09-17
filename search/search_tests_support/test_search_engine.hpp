@@ -7,7 +7,7 @@
 #include <memory>
 #include <string>
 
-class Index;
+class DataSource;
 
 namespace search
 {
@@ -18,9 +18,9 @@ namespace tests_support
 class TestSearchEngine
 {
 public:
-  TestSearchEngine(Index & index, std::unique_ptr<storage::CountryInfoGetter> infoGetter,
+  TestSearchEngine(DataSource & dataSource, std::unique_ptr<storage::CountryInfoGetter> infoGetter,
                    Engine::Params const & params);
-  TestSearchEngine(Index & index, Engine::Params const & params);
+  TestSearchEngine(DataSource & dataSource, Engine::Params const & params);
 
   void SetLocale(std::string const & locale) { m_engine.SetLocale(locale); }
 

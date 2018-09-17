@@ -1,17 +1,24 @@
 #include "map/place_page_info.hpp"
+#include "map/bookmark_helpers.hpp"
 #include "map/reachable_by_taxi_checker.hpp"
 
 #include "partners_api/ads_engine.hpp"
 #include "partners_api/banner.hpp"
+#include "partners_api/partners.hpp"
 
+#include "editor/osm_editor.hpp"
+
+#include "indexer/feature_source.hpp"
 #include "indexer/feature_utils.hpp"
-#include "indexer/osm_editor.hpp"
+#include "indexer/ftypes_sponsored.hpp"
 
 #include "platform/measurement_utils.hpp"
 #include "platform/preferred_languages.hpp"
 #include "platform/settings.hpp"
 
 #include <sstream>
+
+#include "private.h"
 
 namespace place_page
 {
@@ -35,11 +42,11 @@ bool Info::ShouldShowAddPlace() const
 bool Info::ShouldShowUGC() const
 {
   return ftraits::UGC::IsUGCAvailable(m_sortedTypes) &&
-         (m_featureStatus == osm::Editor::FeatureStatus::Untouched ||
-          m_featureStatus == osm::Editor::FeatureStatus::Modified);
+         (m_featureStatus == FeatureStatus::Untouched ||
+          m_featureStatus == FeatureStatus::Modified);
 }
 
-void Info::SetFromFeatureType(FeatureType const & ft)
+void Info::SetFromFeatureType(FeatureType & ft)
 {
   MapObject::SetFromFeatureType(ft);
   std::string primaryName;
@@ -49,16 +56,11 @@ void Info::SetFromFeatureType(FeatureType const & ft)
   m_sortedTypes.SortBySpec();
   if (IsBookmark())
   {
-    m_uiTitle = m_bookmarkData.GetName();
+    m_uiTitle = GetBookmarkName();
 
-    std::string secondary;
-    if (m_customName.empty())
-      secondary = primaryName.empty() ? secondaryName : primaryName;
-    else
-      secondary = m_customName;
-
-    if (m_uiTitle != secondary)
-      m_uiSecondaryTitle = secondary;
+    auto const secondaryTitle = m_customName.empty() ? primaryName : m_customName;
+    if (m_uiTitle != secondaryTitle)
+      m_uiSecondaryTitle = secondaryTitle;
 
     m_uiSubtitle = FormatSubtitle(true /* withType */);
     m_uiAddress = m_address;
@@ -67,12 +69,6 @@ void Info::SetFromFeatureType(FeatureType const & ft)
   {
     m_uiTitle = primaryName;
     m_uiSecondaryTitle = secondaryName;
-    m_uiSubtitle = FormatSubtitle(true /* withType */);
-    m_uiAddress = m_address;
-  }
-  else if (!secondaryName.empty())
-  {
-    m_uiTitle = secondaryName;
     m_uiSubtitle = FormatSubtitle(true /* withType */);
     m_uiAddress = m_address;
   }
@@ -88,6 +84,8 @@ void Info::SetFromFeatureType(FeatureType const & ft)
     m_uiSubtitle = FormatSubtitle(false /* withType */);
     m_uiAddress = m_address;
   }
+
+  m_hotelType = ftypes::IsHotelChecker::Instance().GetHotelType(ft);
 }
 
 string Info::FormatSubtitle(bool withType) const
@@ -143,12 +141,35 @@ void Info::GetPrefferedNames(std::string & primaryName, std::string & secondaryN
   }
 }
 
+std::string Info::GetBookmarkName()
+{
+  std::string bookmarkName;
+
+  auto const mwmInfo = GetID().m_mwmId.GetInfo();
+  if (mwmInfo)
+  {
+    bookmarkName = GetPreferredBookmarkStr(m_bookmarkData.m_customName, mwmInfo->GetRegionData());
+    if (bookmarkName.empty())
+      bookmarkName = GetPreferredBookmarkStr(m_bookmarkData.m_name, mwmInfo->GetRegionData());
+  }
+
+  if (bookmarkName.empty())
+    bookmarkName = GetPreferredBookmarkName(m_bookmarkData);
+
+  return bookmarkName;
+}
+
 void Info::SetCustomName(std::string const & name)
 {
   if (IsBookmark())
   {
-    m_uiTitle = GetBookmarkData().GetName();
-    m_uiSubtitle = m_bookmarkCategoryName;
+    m_uiTitle = GetBookmarkName();
+
+    std::vector<std::string> subtitle;
+    subtitle.push_back(m_bookmarkCategoryName);
+    if (!m_bookmarkData.m_featureTypes.empty())
+      subtitle.push_back(GetLocalizedBookmarkType(m_bookmarkData.m_featureTypes));
+    m_uiSubtitle = strings::JoinStrings(subtitle, kSubtitleSeparator);
   }
   else
   {
@@ -162,8 +183,13 @@ void Info::SetCustomNameWithCoordinates(m2::PointD const & mercator, std::string
 {
   if (IsBookmark())
   {
-    m_uiTitle = GetBookmarkData().GetName();
-    m_uiSubtitle = m_bookmarkCategoryName;
+    m_uiTitle = GetBookmarkName();
+
+    std::vector<std::string> subtitle;
+    subtitle.push_back(m_bookmarkCategoryName);
+    if (!m_bookmarkData.m_featureTypes.empty())
+      subtitle.push_back(GetLocalizedBookmarkType(m_bookmarkData.m_featureTypes));
+    m_uiSubtitle = strings::JoinStrings(subtitle, kSubtitleSeparator);
   }
   else
   {
@@ -175,9 +201,9 @@ void Info::SetCustomNameWithCoordinates(m2::PointD const & mercator, std::string
   m_customName = name;
 }
 
-void Info::SetBac(BookmarkAndCategory const & bac)
+void Info::SetBookmarkId(kml::MarkId markId)
 {
-  m_bac = bac;
+  m_markId = markId;
   m_uiSubtitle = FormatSubtitle(IsFeature() /* withType */);
 }
 
@@ -199,12 +225,26 @@ ftraits::UGCRatingCategories Info::GetRatingCategories() const
   return ftraits::UGC::GetCategories(m_sortedTypes);
 }
 
-string Info::FormatNewBookmarkName() const
+kml::LocalizableString Info::FormatNewBookmarkName() const
 {
-  string const title = GetTitle();
-  if (title.empty())
-    return GetLocalizedType();
-  return title;
+  kml::LocalizableString bookmarkName;
+  if (IsFeature())
+  {
+    m_name.ForEach([&bookmarkName](int8_t langCode, std::string const & localName)
+    {
+      if (!localName.empty())
+        bookmarkName[langCode] = localName;
+    });
+
+    if (bookmarkName.empty() && IsBuilding() && !m_address.empty())
+      kml::SetDefaultStr(bookmarkName, m_address);
+  }
+  else if (!m_uiTitle.empty())
+  {
+    kml::SetDefaultStr(bookmarkName, m_uiTitle);
+  }
+
+  return bookmarkName;
 }
 
 string Info::FormatStars() const
@@ -252,12 +292,21 @@ string Info::GetApproximatePricing() const
   return result;
 }
 
+boost::optional<int> Info::GetRawApproximatePricing() const
+{
+  if (!IsSponsored())
+    return {};
+
+  int pricing;
+  if (strings::to_int(GetMetadata().Get(feature::Metadata::FMD_PRICE_RATE), pricing))
+    return pricing;
+
+  return {};
+}
+
 bool Info::HasBanner() const
 {
   if (!m_adsEngine)
-    return false;
-
-  if (m_sponsoredType == SponsoredType::Cian)
     return false;
 
   if (IsMyPosition())
@@ -274,12 +323,34 @@ vector<ads::Banner> Info::GetBanners() const
   return m_adsEngine->GetBanners(m_types, m_topmostCountryIds, languages::GetCurrentNorm());
 }
 
+void Info::SetPartnerIndex(int index)
+{
+  m_partnerIndex = index;
+  m_partnerName = GetPartnerByIndex(m_partnerIndex).m_name;
+}
+
 namespace rating
 {
 namespace
 {
 std::string const kEmptyRatingSymbol = "-";
 }  // namespace
+
+FilterRating GetFilterRating(float const rawRating)
+{
+  CHECK_LESS_OR_EQUAL(rawRating, kTopRatingBound, ());
+  CHECK_GREATER_OR_EQUAL(rawRating, 0, ());
+
+  auto const rounded = static_cast<int>(rawRating);
+  if (rounded < 7)
+    return FilterRating::Any;
+  if (rounded < 8)
+    return FilterRating::Good;
+  if (rounded < 9)
+    return FilterRating::VeryGood;
+
+  return FilterRating::Excellent;
+}
 
 Impress GetImpress(float const rawRating)
 {

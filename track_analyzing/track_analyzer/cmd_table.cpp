@@ -9,12 +9,17 @@
 #include "traffic/speed_groups.hpp"
 
 #include "indexer/classificator.hpp"
+#include "indexer/feature.hpp"
 #include "indexer/feature_data.hpp"
+#include "indexer/features_vector.hpp"
 
 #include "storage/routing_helpers.hpp"
 #include "storage/storage.hpp"
 
 #include "coding/file_name_utils.hpp"
+#include "coding/file_reader.hpp"
+
+#include "base/timer.hpp"
 
 #include <iostream>
 
@@ -50,7 +55,7 @@ public:
     }
   }
 
-  uint32_t GetType(FeatureType const & feature) const
+  uint32_t GetType(FeatureType & feature) const
   {
     feature::TypesHolder holder(feature);
     for (uint32_t type : m_tags)
@@ -228,6 +233,9 @@ void CmdTagsTable(string const & filepath, string const & trackExtension, String
       for (size_t trackIdx = 0; trackIdx < kv.second.size(); ++trackIdx)
       {
         MatchedTrack const & track = kv.second[trackIdx];
+        if (track.size() <= 1)
+          continue;
+
         uint64_t const start = track.front().GetDataPoint().m_timestamp;
         uint64_t const timeElapsed = track.back().GetDataPoint().m_timestamp - start;
         double const length = CalcTrackLength(track, geometry);

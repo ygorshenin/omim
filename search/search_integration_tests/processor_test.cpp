@@ -3,7 +3,7 @@
 #include "search/cities_boundaries_table.hpp"
 #include "search/features_layer_path_finder.hpp"
 #include "search/retrieval.hpp"
-#include "search/search_integration_tests/helpers.hpp"
+#include "search/search_tests_support/helpers.hpp"
 #include "search/search_tests_support/test_results_matching.hpp"
 #include "search/search_tests_support/test_search_request.hpp"
 #include "search/token_range.hpp"
@@ -13,9 +13,10 @@
 #include "generator/generator_tests_support/test_feature.hpp"
 #include "generator/generator_tests_support/test_mwm_builder.hpp"
 
+#include "editor/editable_data_source.hpp"
+
 #include "indexer/feature.hpp"
 #include "indexer/ftypes_matcher.hpp"
-#include "indexer/index.hpp"
 
 #include "geometry/mercator.hpp"
 #include "geometry/point2d.hpp"
@@ -432,16 +433,27 @@ UNIT_CLASS_TEST(ProcessorTest, TestRankingInfo_ErrorsMade)
 
   TestCity chekhov(m2::PointD(0, 0), "Чеховъ Антонъ Павловичъ", "ru", 100 /* rank */);
 
+  TestStreet yesenina(
+      vector<m2::PointD>{m2::PointD(0.5, -0.5), m2::PointD(0, 0), m2::PointD(-0.5, 0.5)},
+      "Yesenina street", "en");
+
   TestStreet pushkinskaya(
       vector<m2::PointD>{m2::PointD(-0.5, -0.5), m2::PointD(0, 0), m2::PointD(0.5, 0.5)},
       "Улица Пушкинская", "ru");
+
+  TestStreet ostrovskogo(
+      vector<m2::PointD>{m2::PointD(-0.5, 0.0), m2::PointD(0, 0), m2::PointD(0.5, 0.0)},
+      "улица Островского", "ru");
+
   TestPOI lermontov(m2::PointD(0, 0), "Трактиръ Лермонтовъ", "ru");
   lermontov.SetTypes({{"amenity", "cafe"}});
 
   auto worldId = BuildWorld([&](TestMwmBuilder & builder) { builder.Add(chekhov); });
 
   auto wonderlandId = BuildCountry(countryName, [&](TestMwmBuilder & builder) {
+    builder.Add(yesenina);
     builder.Add(pushkinskaya);
+    builder.Add(ostrovskogo);
     builder.Add(lermontov);
   });
 
@@ -460,6 +472,14 @@ UNIT_CLASS_TEST(ProcessorTest, TestRankingInfo_ErrorsMade)
   checkErrors("кафе лермонтов", ErrorsMade(1));
   checkErrors("трактир лермонтов", ErrorsMade(2));
   checkErrors("кафе", ErrorsMade());
+
+  checkErrors("Yesenina cafe", ErrorsMade(0));
+  checkErrors("Esenina cafe", ErrorsMade(1));
+  checkErrors("Jesenina cafe", ErrorsMade(1));
+
+  checkErrors("Островского кафе", ErrorsMade(0));
+  checkErrors("Астровского кафе", ErrorsMade(1));
+
   checkErrors("пушкенская трактир лермонтов", ErrorsMade(3));
   checkErrors("пушкенская кафе", ErrorsMade(1));
   checkErrors("пушкинская трактиръ лермонтовъ", ErrorsMade(0));
@@ -567,8 +587,8 @@ UNIT_CLASS_TEST(ProcessorTest, TestPostcodes)
 
   // Tests that postcode is added to the search index.
   {
-    MwmContext context(m_index.GetMwmHandleById(countryId));
-    my::Cancellable cancellable;
+    MwmContext context(m_dataSource.GetMwmHandleById(countryId));
+    base::Cancellable cancellable;
 
     QueryParams params;
     {
@@ -585,9 +605,9 @@ UNIT_CLASS_TEST(ProcessorTest, TestPostcodes)
     while (!features->GetBit(index))
       ++index;
 
-    Index::FeaturesLoaderGuard loader(m_index, countryId);
+    FeaturesLoaderGuard loader(m_dataSource, countryId);
     FeatureType ft;
-    TEST(loader.GetFeatureByIndex(::base::checked_cast<uint32_t>(index), ft), ());
+    TEST(loader.GetFeatureByIndex(base::checked_cast<uint32_t>(index), ft), ());
 
     auto rule = ExactMatch(countryId, building31);
     TEST(rule->Matches(ft), ());
@@ -682,7 +702,7 @@ UNIT_CLASS_TEST(ProcessorTest, TestCategories)
     TEST(ResultsMatch(request->Results(), rules), ());
     for (auto const & result : request->Results())
     {
-      Index::FeaturesLoaderGuard loader(m_index, wonderlandId);
+      FeaturesLoaderGuard loader(m_dataSource, wonderlandId);
       FeatureType ft;
       TEST(loader.GetFeatureByIndex(result.GetFeatureID().m_index, ft), ());
 
@@ -834,7 +854,7 @@ UNIT_CLASS_TEST(ProcessorTest, TestCoords)
   TEST_EQUAL(results.size(), 1, ());
 
   auto const & result = results[0];
-  TEST_EQUAL(result.GetResultType(), Result::RESULT_LATLON, ());
+  TEST_EQUAL(result.GetResultType(), Result::Type::LatLon, ());
   TEST(result.HasPoint(), ());
 
   m2::PointD const expected = MercatorBounds::FromLatLon(51.681644, 39.183481);
@@ -1108,44 +1128,6 @@ UNIT_CLASS_TEST(ProcessorTest, TestWeirdTypes)
   }
 }
 
-UNIT_CLASS_TEST(ProcessorTest, Cian)
-{
-  string const countryName = "Wonderland";
-  TestCity cianCity(m2::PointD(0, 0), "Cian", "en", 100 /* rank */);
-  TestBuilding plainBuilding(m2::PointD(0, 0), "Plain building", "1", "en");
-  TestBuilding garage(m2::PointD(0.001, 0.001), "Garage", "2", "en");
-  garage.AddType({"building", "garage"});
-  TestBuilding nonameBuilding(m2::PointD(0.002, 0.002), "", "3", "en");
-
-  auto worldId = BuildWorld([&](TestMwmBuilder & builder) { builder.Add(cianCity); });
-
-  auto countryId = BuildCountry(countryName, [&](TestMwmBuilder & builder) {
-    builder.Add(plainBuilding);
-    builder.Add(garage);
-    builder.Add(nonameBuilding);
-  });
-
-  SearchParams params;
-  params.m_query = "cian";
-  params.m_inputLocale = "en";
-  params.m_viewport = m2::RectD(m2::PointD(-1.0, -1.0), m2::PointD(1.0, 1.0));
-  params.m_mode = Mode::Everywhere;
-  params.m_suggestsEnabled = false;
-
-  params.m_cianMode = false;
-  {
-    TRules rules = {ExactMatch(worldId, cianCity), ExactMatch(countryId, plainBuilding),
-                    ExactMatch(countryId, garage), ExactMatch(countryId, nonameBuilding)};
-    TEST(ResultsMatch(params, rules), ());
-  }
-
-  params.m_cianMode = true;
-  {
-    TRules rules = {ExactMatch(countryId, nonameBuilding)};
-    TEST(ResultsMatch(params, rules), ());
-  }
-}
-
 UNIT_CLASS_TEST(ProcessorTest, CityBoundaryLoad)
 {
   TestCity city(vector<m2::PointD>({m2::PointD(0, 0), m2::PointD(0.5, 0), m2::PointD(0.5, 0.5),
@@ -1159,7 +1141,7 @@ UNIT_CLASS_TEST(ProcessorTest, CityBoundaryLoad)
     TEST(ResultsMatch("moscow", "en", rules), ());
   }
 
-  CitiesBoundariesTable table(m_index);
+  CitiesBoundariesTable table(m_dataSource);
   TEST(table.Load(), ());
   TEST(table.Has(0 /* fid */), ());
   TEST(!table.Has(10 /* fid */), ());
@@ -1357,9 +1339,9 @@ UNIT_CLASS_TEST(ProcessorTest, PathsThroughLayers)
       FeaturesLayerPathFinder::SetModeForTesting(FeaturesLayerPathFinder::MODE_AUTO);
     });
 
-    auto const ruleStreet = {ExactMatch(countryId, computingStreet)};
-    auto const ruleBuilding = {ExactMatch(countryId, statisticalLearningBuilding)};
-    auto const rulePoi = {ExactMatch(countryId, reinforcementCafe)};
+    auto const ruleStreet = ExactMatch(countryId, computingStreet);
+    auto const ruleBuilding = ExactMatch(countryId, statisticalLearningBuilding);
+    auto const rulePoi = ExactMatch(countryId, reinforcementCafe);
 
     // POI-BUILDING-STREET
     TEST(ResultsMatch("computing street statistical learning cafe ", {rulePoi}), ());
@@ -1387,6 +1369,62 @@ UNIT_CLASS_TEST(ProcessorTest, PathsThroughLayers)
     // STREET
     TEST(ResultsMatch("computing street ", {ruleStreet}), ());
   }
+}
+
+UNIT_CLASS_TEST(ProcessorTest, SelectProperName)
+{
+  string const countryName = "Wonderland";
+
+  auto testLanguage = [&](string language, string expectedRes) {
+    auto request = MakeRequest("cafe", language);
+    auto const & results = request->Results();
+    TEST_EQUAL(results.size(), 1, (results));
+    TEST_EQUAL(results[0].GetString(), expectedRes, (results));
+  };
+
+  TestMultilingualPOI cafe(
+      m2::PointD(0.0, 0.0), "Default",
+      {{"es", "Spanish"}, {"int_name", "International"}, {"fr", "French"}, {"ru", "Russian"}});
+  cafe.SetTypes({{"amenity", "cafe"}});
+
+  auto wonderlandId = BuildCountry(countryName, [&](TestMwmBuilder & builder) {
+    builder.Add(cafe);
+    builder.SetMwmLanguages({"it", "fr"});
+  });
+
+  SetViewport(m2::RectD(-1, -1, 1, 1));
+
+  // Language priorities:
+  // - device language
+  // - input language
+  // - default if mwm has device or input region
+  // - english and international
+  // - default
+
+  // Device language is English by default.
+
+  // No English(device) or Italian(query) name present but mwm has Italian region.
+  testLanguage("it", "Default");
+
+  // No English(device) name present. Mwm has French region but we should prefer explicit French
+  // name.
+  testLanguage("fr", "French");
+
+  // No English(device) name present. Use query language.
+  testLanguage("es", "Spanish");
+
+  // No English(device) or German(query) names present. Mwm does not have German region. We should
+  // use international name.
+  testLanguage("de", "International");
+
+  // Set Russian as device language.
+  m_engine.SetLocale("ru");
+
+  // Device language(Russian) is present and preferred for all queries.
+  testLanguage("it", "Russian");
+  testLanguage("fr", "Russian");
+  testLanguage("es", "Russian");
+  testLanguage("de", "Russian");
 }
 }  // namespace
 }  // namespace search

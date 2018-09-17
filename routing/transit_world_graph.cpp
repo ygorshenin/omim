@@ -3,8 +3,7 @@
 #include "routing/index_graph.hpp"
 #include "routing/transit_graph.hpp"
 
-#include "base/stl_add.hpp"
-
+#include <memory>
 #include <utility>
 
 namespace routing
@@ -144,6 +143,15 @@ RouteWeight TransitWorldGraph::CalcOffroadWeight(m2::PointD const & from,
   return RouteWeight(m_estimator->CalcOffroadWeight(from, to));
 }
 
+double TransitWorldGraph::CalcSegmentETA(routing::Segment const & segment)
+{
+  // TODO: Separate weight and ETA of transit segments.
+  if (TransitGraph::IsTransitSegment(segment))
+    return CalcSegmentWeight(segment).GetWeight();
+
+  return m_estimator->CalcSegmentETA(segment, GetRealRoadGeometry(segment.GetMwmId(), segment.GetFeatureId()));
+}
+
 bool TransitWorldGraph::LeapIsAllowed(NumMwmId /* mwmId */) const { return false; }
 
 vector<Segment> const & TransitWorldGraph::GetTransitions(NumMwmId numMwmId, bool isEnter)
@@ -158,14 +166,16 @@ unique_ptr<TransitInfo> TransitWorldGraph::GetTransitInfo(Segment const & segmen
 
   auto & transitGraph = GetTransitGraph(segment.GetMwmId());
   if (transitGraph.IsGate(segment))
-    return my::make_unique<TransitInfo>(transitGraph.GetGate(segment));
+    return make_unique<TransitInfo>(transitGraph.GetGate(segment));
 
   if (transitGraph.IsEdge(segment))
-    return my::make_unique<TransitInfo>(transitGraph.GetEdge(segment));
+    return make_unique<TransitInfo>(transitGraph.GetEdge(segment));
 
   // Fake segment between pedestrian feature and gate.
   return {};
 }
+
+std::vector<RouteSegment::SpeedCamera> TransitWorldGraph::GetSpeedCamInfo(Segment const & segment) { return {}; }
 
 void TransitWorldGraph::GetTwinsInner(Segment const & segment, bool isOutgoing,
                                       vector<Segment> & twins)
@@ -181,7 +191,7 @@ void TransitWorldGraph::GetTwinsInner(Segment const & segment, bool isOutgoing,
 RoadGeometry const & TransitWorldGraph::GetRealRoadGeometry(NumMwmId mwmId, uint32_t featureId)
 {
   CHECK(!TransitGraph::IsTransitFeature(featureId), ("GetRealRoadGeometry not designed for transit."));
-  return GetIndexGraph(mwmId).GetGeometry().GetRoad(featureId);
+  return m_indexLoader->GetGeometry(mwmId).GetRoad(featureId);
 }
 
 void TransitWorldGraph::AddRealEdges(Segment const & segment, bool isOutgoing,

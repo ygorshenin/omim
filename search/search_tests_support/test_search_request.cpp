@@ -7,6 +7,10 @@
 
 #include "base/logging.hpp"
 
+#include <functional>
+
+using namespace std;
+
 namespace search
 {
 namespace tests_support
@@ -78,7 +82,7 @@ void TestSearchRequest::Wait()
 void TestSearchRequest::SetUpCallbacks()
 {
   m_params.m_onStarted = bind(&TestSearchRequest::OnStarted, this);
-  m_params.m_onResults = bind(&TestSearchRequest::OnResults, this, _1);
+  m_params.m_onResults = bind(&TestSearchRequest::OnResults, this, placeholders::_1);
 }
 
 void TestSearchRequest::SetUpResultParams()
@@ -90,8 +94,9 @@ void TestSearchRequest::SetUpResultParams()
     m_params.m_suggestsEnabled = false;
     m_params.m_needHighlighting = true;
     break;
-  case Mode::Viewport:  // fallthrough
-  case Mode::Downloader:
+  case Mode::Viewport:    // fallthrough
+  case Mode::Downloader:  // fallthrough
+  case Mode::Bookmarks:
     m_params.m_needAddress = false;
     m_params.m_suggestsEnabled = false;
     m_params.m_needHighlighting = false;

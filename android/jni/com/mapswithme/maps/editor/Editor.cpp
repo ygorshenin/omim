@@ -3,15 +3,16 @@
 #include "com/mapswithme/core/jni_helper.hpp"
 #include "com/mapswithme/maps/Framework.hpp"
 
+#include "editor/osm_editor.hpp"
+
+#include "indexer/cuisines.hpp"
+#include "indexer/editable_map_object.hpp"
+
 #include "coding/multilang_utf8_string.hpp"
 
 #include "base/assert.hpp"
 #include "base/logging.hpp"
 #include "base/string_utils.hpp"
-
-#include "indexer/cuisines.hpp"
-#include "indexer/editable_map_object.hpp"
-#include "indexer/osm_editor.hpp"
 
 #include "std/target_os.hpp"
 
@@ -244,12 +245,12 @@ Java_com_mapswithme_maps_editor_Editor_nativeSaveEditedFeature(JNIEnv *, jclass)
 {
   switch (g_framework->NativeFramework()->SaveEditedMapObject(g_editableMapObject))
   {
-  case osm::Editor::NothingWasChanged:
-  case osm::Editor::SavedSuccessfully:
+  case osm::Editor::SaveResult::NothingWasChanged:
+  case osm::Editor::SaveResult::SavedSuccessfully:
     return true;
-  case osm::Editor::NoFreeSpaceError:
-  case osm::Editor::NoUnderlyingMapError:
-  case osm::Editor::SavingError:
+  case osm::Editor::SaveResult::NoFreeSpaceError:
+  case osm::Editor::SaveResult::NoUnderlyingMapError:
+  case osm::Editor::SaveResult::SavingError:
     return false;
   }
 }
@@ -486,7 +487,7 @@ Java_com_mapswithme_maps_editor_Editor_nativeSearchFeatureCategories(JNIEnv * en
 JNIEXPORT jobjectArray JNICALL
 Java_com_mapswithme_maps_editor_Editor_nativeGetCuisines(JNIEnv * env, jclass clazz)
 {
-  osm::TAllCuisines const & cuisines = osm::Cuisines::Instance().AllSupportedCuisines();
+  osm::AllCuisines const & cuisines = osm::Cuisines::Instance().AllSupportedCuisines();
   std::vector<std::string> keys;
   keys.reserve(cuisines.size());
   for (TCuisine const & cuisine : cuisines)

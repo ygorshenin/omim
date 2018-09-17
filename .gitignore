@@ -25,6 +25,8 @@ data/drules_proto_design.bin
 data/colors_design.txt
 data/patterns_design.txt
 data/route_points.dat
+data/bookmarks/
+data/bookmarks_backup/
 
 # Compiled Python
 *.pyc
@@ -76,7 +78,8 @@ iphone/**/*.perspectivev3
 
 # Carthage
 iphone/Maps/3party/Carthage/Checkouts
-iphone/Maps/3party/Carthage/Build/Mac
+iphone/Maps/3party/Carthage/Build/Mac/*.bcsymbolmap
+iphone/Maps/3party/Carthage/Build/Mac/*.dSYM
 iphone/Maps/3party/Carthage/Build/tvOS
 iphone/Maps/3party/Carthage/Build/watchOS
 iphone/Maps/3party/Carthage/Build/iOS/*.bcsymbolmap
@@ -157,6 +160,7 @@ tools/android/yota.keystore
 android/secure.properties
 android/fabric.properties
 android/pushwoosh.properties
+android/libnotify.properties
 android/res/values/google-service.xml
 server
 
@@ -169,3 +173,7 @@ cmake-build-*
 qt/res/Info.plist
 
 designer_version.h
+
+# Vim files
+tags
+*.sw?

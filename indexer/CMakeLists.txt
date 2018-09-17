@@ -6,6 +6,8 @@ set(
   SRC
   altitude_loader.cpp
   altitude_loader.hpp
+  borders.cpp
+  borders.hpp
   categories_holder.cpp
   categories_holder.hpp
   categories_holder_loader.cpp
@@ -13,6 +15,7 @@ set(
   categories_index.hpp
   cell_coverer.hpp
   cell_id.hpp
+  cell_value_pair.hpp
   centers_table.cpp
   centers_table.hpp
   cities_boundaries_serdes.hpp
@@ -21,14 +24,16 @@ set(
   classificator_loader.cpp
   classificator_loader.hpp
   classificator.hpp
-  coding_params.cpp
-  coding_params.hpp
   cuisines.cpp
   cuisines.hpp
   data_factory.cpp
   data_factory.hpp
   data_header.cpp
   data_header.hpp
+  data_source.cpp
+  data_source.hpp
+  data_source_helpers.cpp
+  data_source_helpers.hpp
   drawing_rule_def.cpp
   drawing_rule_def.hpp
   drawing_rules.cpp
@@ -42,8 +47,6 @@ set(
   drules_struct.pb.h
   editable_map_object.cpp
   editable_map_object.hpp
-  edits_migration.cpp
-  edits_migration.hpp
   fake_feature_ids.cpp
   fake_feature_ids.hpp
   feature_algo.cpp
@@ -57,13 +60,11 @@ set(
   feature_decl.hpp
   feature_impl.cpp
   feature_impl.hpp
-  feature_loader_base.cpp
-  feature_loader_base.hpp
-  feature_loader.cpp
-  feature_loader.hpp
   feature_meta.cpp
   feature_meta.hpp
   feature_processor.hpp
+  feature_source.cpp
+  feature_source.hpp
   feature_utils.cpp
   feature_utils.hpp
   feature_visibility.cpp
@@ -79,19 +80,15 @@ set(
   ftypes_matcher.hpp
   ftypes_sponsored.cpp
   ftypes_sponsored.hpp
-  geometry_coding.cpp
-  geometry_coding.hpp
-  geometry_serialization.cpp
-  geometry_serialization.hpp
   index_builder.cpp
   index_builder.hpp
-  index_helpers.cpp
-  index_helpers.hpp
-  index.cpp
-  index.hpp
   interval_index_builder.hpp
-  interval_index_iface.hpp
   interval_index.hpp
+  locality_index.hpp
+  locality_index_builder.hpp
+  locality_index_builder.cpp
+  locality_object.hpp
+  locality_object.cpp
   map_object.cpp
   map_object.hpp
   map_style_reader.cpp
@@ -100,13 +97,8 @@ set(
   map_style.hpp
   mwm_set.cpp
   mwm_set.hpp
-  new_feature_categories.cpp   # it's in indexer because of CategoriesHolder dependency.
-  new_feature_categories.hpp   # it's in indexer because of CategoriesHolder dependency.
-  old/feature_loader_101.cpp
-  old/feature_loader_101.hpp
-  old/interval_index_101.hpp
-  osm_editor.cpp
-  osm_editor.hpp
+  popularity_loader.cpp
+  popularity_loader.hpp
   postcodes_matcher.cpp   # it's in indexer due to editor which is in indexer and depends on postcodes_marcher
   postcodes_matcher.hpp    # it's in indexer due to editor which is in indexer and depends on postcodes_marcher
   rank_table.cpp
@@ -122,12 +114,13 @@ set(
   search_delimiters.hpp       # it's in indexer because of CategoriesHolder dependency.
   search_string_utils.cpp   # it's in indexer because of CategoriesHolder dependency.
   search_string_utils.hpp     # it's in indexer because of CategoriesHolder dependency.
+  shared_load_info.cpp
+  shared_load_info.hpp
   string_set.hpp
   string_slice.cpp
   string_slice.hpp
   succinct_trie_builder.hpp
   succinct_trie_reader.hpp
-  tesselator_decl.hpp
   tree_structure.hpp
   trie_builder.hpp
   trie_reader.hpp
@@ -144,7 +137,6 @@ set(
 
 file(COPY ${OTHER_FILES} DESTINATION ${CMAKE_BINARY_DIR})
 
-add_library(${PROJECT_NAME} ${SRC})
+omim_add_library(${PROJECT_NAME} ${SRC})
 
-omim_add_test_subdirectory(indexer_tests_support)
 omim_add_test_subdirectory(indexer_tests)

@@ -2,34 +2,33 @@
 
 #include "drape_frontend/message.hpp"
 
+#include "drape/drape_diagnostics.hpp"
 #include "drape/pointers.hpp"
 
 #include "base/condition.hpp"
 
-#include "std/condition_variable.hpp"
-#include "std/deque.hpp"
-#include "std/functional.hpp"
-#include "std/mutex.hpp"
+#include <condition_variable>
+#include <deque>
+#include <functional>
+#include <mutex>
 
 namespace df
 {
-
-//#define DEBUG_MESSAGE_QUEUE
-
 class MessageQueue
 {
 public:
   MessageQueue();
   ~MessageQueue();
 
-  /// if queue is empty then return NULL
+  // If the queue is empty then it returns nullptr or wait for a message.
   drape_ptr<Message> PopMessage(bool waitForMessage);
   void PushMessage(drape_ptr<Message> && message, MessagePriority priority);
   void CancelWait();
   void ClearQuery();
 
-  using TFilterMessageFn = function<bool(ref_ptr<Message>)>;
-  void FilterMessages(TFilterMessageFn needFilterMessageFn);
+  using FilterMessageFn = std::function<bool(ref_ptr<Message>)>;
+  void EnableMessageFiltering(FilterMessageFn && filter);
+  void DisableMessageFiltering();
 
 #ifdef DEBUG_MESSAGE_QUEUE
   bool IsEmpty() const;
@@ -37,14 +36,15 @@ public:
 #endif
 
 private:
+  void FilterMessagesImpl();
   void CancelWaitImpl();
 
-  mutable mutex m_mutex;
-  condition_variable m_condition;
+  mutable std::mutex m_mutex;
+  std::condition_variable m_condition;
   bool m_isWaiting;
-  using TMessageNode = pair<drape_ptr<Message>, MessagePriority>;
-  deque<TMessageNode> m_messages;
-  deque<drape_ptr<Message>> m_lowPriorityMessages;
+  using TMessageNode = std::pair<drape_ptr<Message>, MessagePriority>;
+  std::deque<TMessageNode> m_messages;
+  std::deque<drape_ptr<Message>> m_lowPriorityMessages;
+  FilterMessageFn m_filter;
 };
-
-} // namespace df
+}  // namespace df

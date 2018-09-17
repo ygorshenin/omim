@@ -3,21 +3,60 @@
 #import "MWMBannerHelpers.h"
 #import "MWMFrameworkListener.h"
 #import "MWMSearchHotelsFilterViewController.h"
+#import "MWMSearchManager+Filter.h"
+#import "MWMSearchManager.h"
 #import "SwiftBridge.h"
 
 #include "Framework.h"
 
+#include "partners_api/booking_availability_params.hpp"
 #include "partners_api/ads_engine.hpp"
 
 #include "map/everywhere_search_params.hpp"
 #include "map/viewport_search_params.hpp"
 
-extern NSString * const kCianCategory;
+#include "map/booking_filter_params.hpp"
+
+#include "platform/network_policy.hpp"
+
+#include <chrono>
+#include <memory>
+#include <utility>
 
 namespace
 {
 using Observer = id<MWMSearchObserver>;
 using Observers = NSHashTable<Observer>;
+
+booking::filter::Tasks MakeBookingFilterTasks(booking::filter::Params && availabilityParams)
+{
+  booking::filter::Tasks tasks;
+  if (availabilityParams.IsEmpty())
+  {
+    if (!platform::GetCurrentNetworkPolicy().CanUse())
+      return {};
+    
+    auto params = GetFramework().GetLastBookingAvailabilityParams();
+    if (params.IsEmpty())
+      params = booking::AvailabilityParams::MakeDefault();
+    params.m_dealsOnly = true;
+    
+    booking::filter::Params dp(std::make_shared<booking::AvailabilityParams>(params), {});
+    tasks.EmplaceBack(booking::filter::Type::Deals, move(dp));
+  }
+  else
+  {
+    booking::AvailabilityParams dp;
+    dp.Set(*(availabilityParams.m_apiParams));
+    dp.m_dealsOnly = true;
+    booking::filter::Params dealsParams(std::make_shared<booking::AvailabilityParams>(dp), {});
+    
+    tasks.EmplaceBack(booking::filter::Type::Availability, std::move(availabilityParams));
+    tasks.EmplaceBack(booking::filter::Type::Deals, std::move(dealsParams));
+  }
+  
+  return tasks;
+}
 }  // namespace
 
 @interface MWMSearch ()<MWMFrameworkDrapeObserver>
@@ -49,8 +88,8 @@ using Observers = NSHashTable<Observer>;
   search::ViewportSearchParams m_viewportParams;
   search::Results m_everywhereResults;
   search::Results m_viewportResults;
-  std::vector<bool> m_isLocalAdsCustomer;
-  std::vector<FeatureID> m_bookingAvailableFeatureIDs;
+  std::unordered_map<booking::filter::Type, std::vector<FeatureID>> m_filterResults;
+  std::vector<search::ProductInfo> m_productInfo;
 }
 
 #pragma mark - Instance
@@ -76,17 +115,43 @@ using Observers = NSHashTable<Observer>;
   return self;
 }
 
+- (void)enableCallbackFor:(booking::filter::Type const)filterType {
+  auto & tasks = self->m_everywhereParams.m_bookingFilterTasks;
+  auto availabilityTaskIt = tasks.Find(filterType);
+  if (availabilityTaskIt != tasks.end())
+  {
+    availabilityTaskIt->m_filterParams.m_callback =
+    [self, filterType](shared_ptr<booking::ParamsBase> const & apiParams,
+                        std::vector<FeatureID> const & sortedFeatures)
+    {
+      auto & t = self->m_everywhereParams.m_bookingFilterTasks;
+      auto const it = t.Find(filterType);
+
+      if (it == t.end())
+        return;
+
+      auto const & p = it->m_filterParams.m_apiParams;
+      if (p->IsEmpty() || !p->Equals(*apiParams))
+        return;
+
+      self->m_filterResults[filterType] = sortedFeatures;
+      [self onSearchResultsUpdated];
+    };
+  }
+}
+
 - (void)searchEverywhere
 {
   self.lastSearchTimestamp += 1;
   NSUInteger const timestamp = self.lastSearchTimestamp;
-  m_everywhereParams.m_onResults = [self, timestamp](search::Results const & results,
-                                                     vector<bool> const & isLocalAdsCustomer) {
+  m_everywhereParams.m_onResults = [self, timestamp](
+                                       search::Results const & results,
+                                       std::vector<search::ProductInfo> const & productInfo) {
 
     if (timestamp == self.lastSearchTimestamp)
     {
       self->m_everywhereResults = results;
-      self->m_isLocalAdsCustomer = isLocalAdsCustomer;
+      self->m_productInfo = productInfo;
       self.suggestionsCount = results.GetSuggestsCount();
 
       [self onSearchResultsUpdated];
@@ -96,14 +161,8 @@ using Observers = NSHashTable<Observer>;
       self.searchCount -= 1;
   };
 
-  m_everywhereParams.m_bookingFilterParams.m_callback =
-      [self](booking::AvailabilityParams const & params,
-             std::vector<FeatureID> const & sortedFeatures) {
-        if (self->m_everywhereParams.m_bookingFilterParams.m_params != params)
-          return;
-        self->m_bookingAvailableFeatureIDs = sortedFeatures;
-        [self onSearchResultsUpdated];
-      };
+  [self enableCallbackFor:booking::filter::Type::Availability];
+  [self enableCallbackFor:booking::filter::Type::Deals];
 
   GetFramework().SearchEverywhere(m_everywhereParams);
   self.searchCount += 1;
@@ -127,11 +186,14 @@ using Observers = NSHashTable<Observer>;
   shared_ptr<search::hotels_filter::Rule> const hotelsRules = self.filter ? [self.filter rules] : nullptr;
   m_viewportParams.m_hotelsFilter = hotelsRules;
   m_everywhereParams.m_hotelsFilter = hotelsRules;
+  
+  auto availabilityParams =
+    self.filter ? [self.filter availabilityParams] : booking::filter::Params();
 
-  auto const availabilityParams =
-      self.filter ? [self.filter availabilityParams] : booking::filter::availability::Params();
-  m_viewportParams.m_bookingFilterParams = availabilityParams;
-  m_everywhereParams.m_bookingFilterParams = availabilityParams;
+  auto const tasks = MakeBookingFilterTasks(std::move(availabilityParams));
+
+  m_viewportParams.m_bookingFilterTasks = tasks;
+  m_everywhereParams.m_bookingFilterTasks = tasks;
 }
 
 - (void)update
@@ -173,7 +235,7 @@ using Observers = NSHashTable<Observer>;
 {
   if (!query || query.length == 0)
     return;
-  CLS_LOG(@"Save search text: %@\nInputLocale: %@", query, inputLocale);
+
   string const locale = (!inputLocale || inputLocale.length == 0)
                             ? [MWMSearch manager]->m_everywhereParams.m_inputLocale
                             : inputLocale.UTF8String;
@@ -185,7 +247,7 @@ using Observers = NSHashTable<Observer>;
 {
   if (!query)
     return;
-  CLS_LOG(@"Search text: %@\nInputLocale: %@", query, inputLocale);
+
   MWMSearch * manager = [MWMSearch manager];
   if (inputLocale.length != 0)
   {
@@ -199,7 +261,10 @@ using Observers = NSHashTable<Observer>;
   manager->m_viewportParams.m_query = text;
   manager.textChanged = YES;
   auto const & adsEngine = GetFramework().GetAdsEngine();
-  if (![MWMSettings adForbidden] && adsEngine.HasSearchBanner())
+  auto const & purchase = GetFramework().GetPurchase();
+  bool const hasSubscription = purchase && !purchase->IsSubscriptionActive(SubscriptionType::RemoveAds);
+  
+  if (hasSubscription && ![MWMSettings adForbidden] && adsEngine.HasSearchBanner())
   {
     auto coreBanners = banner_helpers::MatchPriorityBanners(adsEngine.GetSearchBanners(), manager.lastQuery);
     [[MWMBannersCache cache] refreshWithCoreBanners:coreBanners];
@@ -213,9 +278,9 @@ using Observers = NSHashTable<Observer>;
   return [MWMSearch manager]->m_everywhereResults[index];
 }
 
-+ (BOOL)isLocalAdsWithContainerIndex:(NSUInteger)index
++ (search::ProductInfo const &)productInfoWithContainerIndex:(NSUInteger)index
 {
-  return [MWMSearch manager]->m_isLocalAdsCustomer[index];
+  return [MWMSearch manager]->m_productInfo[index];
 }
 
 + (id<MWMBanner>)adWithContainerIndex:(NSUInteger)index
@@ -223,15 +288,23 @@ using Observers = NSHashTable<Observer>;
   return [[MWMSearch manager].banners bannerAtIndex:index];
 }
 
-+ (BOOL)isBookingAvailableWithContainerIndex:(NSUInteger)index
++ (BOOL)isFeatureAt:(NSUInteger)index in:(std::vector<FeatureID> const &)array
 {
   auto const & result = [self resultWithContainerIndex:index];
-  if (result.GetResultType() != search::Result::ResultType::RESULT_FEATURE)
+  if (result.GetResultType() != search::Result::Type::Feature)
     return NO;
   auto const & resultFeatureID = result.GetFeatureID();
-  auto const & bookingAvailableIDs = [MWMSearch manager]->m_bookingAvailableFeatureIDs;
-  return std::binary_search(bookingAvailableIDs.begin(), bookingAvailableIDs.end(),
-                            resultFeatureID);
+  return std::binary_search(array.begin(), array.end(), resultFeatureID);
+}
+
++ (BOOL)isBookingAvailableWithContainerIndex:(NSUInteger)index
+{
+  return [self isFeatureAt:index in:[MWMSearch manager]->m_filterResults[booking::filter::Type::Availability]];
+}
+
++ (BOOL)isDealAvailableWithContainerIndex:(NSUInteger)index
+{
+  return [self isFeatureAt:index in:[MWMSearch manager]->m_filterResults[booking::filter::Type::Deals]];
 }
 
 + (MWMSearchItemType)resultTypeWithRow:(NSUInteger)row
@@ -256,10 +329,9 @@ using Observers = NSHashTable<Observer>;
   m_everywhereResults.Clear();
   m_viewportResults.Clear();
 
-  m_bookingAvailableFeatureIDs.clear();
-  auto const availabilityParams = booking::filter::availability::Params();
-  m_viewportParams.m_bookingFilterParams = availabilityParams;
-  m_everywhereParams.m_bookingFilterParams = availabilityParams;
+  m_filterResults.clear();
+  m_viewportParams.m_bookingFilterTasks.Clear();
+  m_everywhereParams.m_bookingFilterTasks.Clear();
 
   [self onSearchResultsUpdated];
 }
@@ -318,6 +390,19 @@ using Observers = NSHashTable<Observer>;
   [manager update];
 }
 
++ (void)showHotelFilterWithParams:(search_filter::HotelParams &&)params
+                 onFinishCallback:(MWMVoidBlock)callback
+{
+  auto filter =
+  static_cast<MWMSearchHotelsFilterViewController *>([MWMSearchHotelsFilterViewController controller]);
+  auto search = [MWMSearch manager];
+  search.filter = filter;
+  [[MWMSearchManager manager] updateFilter:[filter, callback, params = std::move(params)]() mutable
+  {
+    [filter applyParams:std::move(params) onFinishCallback:callback];
+  }];
+}
+
 - (void)updateItemsIndexWithBannerReload:(BOOL)reloadBanner
 {
   auto const resultsCount = self->m_everywhereResults.GetCount();
@@ -326,7 +411,10 @@ using Observers = NSHashTable<Observer>;
   if (resultsCount > 0)
   {
     auto const & adsEngine = GetFramework().GetAdsEngine();
-    if (![MWMSettings adForbidden] && adsEngine.HasSearchBanner())
+    auto const & purchase = GetFramework().GetPurchase();
+    bool const hasSubscription = purchase && !purchase->IsSubscriptionActive(SubscriptionType::RemoveAds);
+
+    if (hasSubscription && ![MWMSettings adForbidden] && adsEngine.HasSearchBanner())
     {
       self.banners = [[MWMSearchBanners alloc] initWithSearchIndex:itemsIndex];
       __weak auto weakSelf = self;
@@ -408,10 +496,8 @@ using Observers = NSHashTable<Observer>;
 
 - (BOOL)isHotelResults
 {
-  BOOL const isEverywhereHotelResults =
-      search::HotelsClassifier::IsHotelResults(m_everywhereResults);
-  BOOL const isViewportHotelResults = search::HotelsClassifier::IsHotelResults(m_viewportResults);
-  return isEverywhereHotelResults || isViewportHotelResults;
+  return m_everywhereResults.GetType() == search::Results::Type::Hotels ||
+         m_viewportResults.GetType() == search::Results::Type::Hotels;
 }
 
 @end

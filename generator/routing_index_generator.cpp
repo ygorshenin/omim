@@ -20,21 +20,23 @@
 #include "transit/transit_graph_data.hpp"
 #include "transit/transit_serdes.hpp"
 
-#include "indexer/coding_params.hpp"
 #include "indexer/data_header.hpp"
 #include "indexer/feature.hpp"
 #include "indexer/feature_processor.hpp"
 
-#include "geometry/point2d.hpp"
-
 #include "coding/file_container.hpp"
 #include "coding/file_name_utils.hpp"
+#include "coding/geometry_coding.hpp"
 #include "coding/point_to_integer.hpp"
+#include "coding/pointd_to_pointu.hpp"
 #include "coding/reader.hpp"
 
+#include "geometry/point2d.hpp"
+
 #include "base/checked_cast.hpp"
+#include "base/geo_object_id.hpp"
 #include "base/logging.hpp"
-#include "base/osm_id.hpp"
+#include "base/timer.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -48,6 +50,7 @@ using namespace feature;
 using namespace platform;
 using namespace routing;
 using namespace std;
+using namespace std::placeholders;
 
 namespace
 {
@@ -67,21 +70,21 @@ public:
     CHECK(m_carModel, ());
   }
 
-  VehicleMask CalcRoadMask(FeatureType const & f) const
+  VehicleMask CalcRoadMask(FeatureType & f) const
   {
     return CalcMask(
-        f, [&](VehicleModelInterface const & model, FeatureType const & f) { return model.IsRoad(f); });
+        f, [&](VehicleModelInterface const & model, FeatureType & f) { return model.IsRoad(f); });
   }
 
-  VehicleMask CalcOneWayMask(FeatureType const & f) const
+  VehicleMask CalcOneWayMask(FeatureType & f) const
   {
     return CalcMask(
-        f, [&](VehicleModelInterface const & model, FeatureType const & f) { return model.IsOneWay(f); });
+        f, [&](VehicleModelInterface const & model, FeatureType & f) { return model.IsOneWay(f); });
   }
 
 private:
   template <class Fn>
-  VehicleMask CalcMask(FeatureType const & f, Fn && fn) const
+  VehicleMask CalcMask(FeatureType & f, Fn && fn) const
   {
     VehicleMask mask = 0;
     if (fn(*m_pedestrianModel, f))
@@ -128,7 +131,7 @@ public:
   unordered_map<uint32_t, VehicleMask> const & GetMasks() const { return m_masks; }
 
 private:
-  void ProcessFeature(FeatureType const & f, uint32_t id)
+  void ProcessFeature(FeatureType & f, uint32_t id)
   {
     VehicleMask const mask = m_maskBuilder.CalcRoadMask(f);
     if (mask == 0)
@@ -139,7 +142,7 @@ private:
 
     for (size_t i = 0; i < f.GetPointsCount(); ++i)
     {
-      uint64_t const locationKey = PointToInt64(f.GetPoint(i), POINT_COORD_BITS);
+      uint64_t const locationKey = PointToInt64Obsolete(f.GetPoint(i), POINT_COORD_BITS);
       m_posToJoint[locationKey].AddPoint(RoadPoint(id, base::checked_cast<uint32_t>(i)));
     }
   }
@@ -221,14 +224,14 @@ double CalcDistanceAlongTheBorders(vector<m2::RegionD> const & borders,
 void CalcCrossMwmTransitions(
     string const & mwmFile, string const & mappingFile, vector<m2::RegionD> const & borders,
     string const & country, CountryParentNameGetterFn const & countryParentNameGetterFn,
-    vector<CrossMwmConnectorSerializer::Transition<osm::Id>> & transitions)
+    vector<CrossMwmConnectorSerializer::Transition<base::GeoObjectId>> & transitions)
 {
   VehicleMaskBuilder const maskMaker(country, countryParentNameGetterFn);
-  map<uint32_t, osm::Id> featureIdToOsmId;
+  map<uint32_t, base::GeoObjectId> featureIdToOsmId;
   CHECK(ParseFeatureIdToOsmIdMapping(mappingFile, featureIdToOsmId),
         ("Can't parse feature id to osm id mapping. File:", mappingFile));
 
-  ForEachFromDat(mwmFile, [&](FeatureType const & f, uint32_t featureId) {
+  ForEachFromDat(mwmFile, [&](FeatureType & f, uint32_t featureId) {
     VehicleMask const roadMask = maskMaker.CalcRoadMask(f);
     if (roadMask == 0)
       return;
@@ -241,6 +244,7 @@ void CalcCrossMwmTransitions(
     auto const it = featureIdToOsmId.find(featureId);
     CHECK(it != featureIdToOsmId.end(), ("Can't find osm id for feature id", featureId));
     auto const osmId = it->second;
+    CHECK(osmId.GetType() == base::GeoObjectId::Type::ObsoleteOsmWay, ());
 
     bool prevPointIn = m2::RegionsContain(borders, f.GetPoint(0));
 
@@ -389,7 +393,7 @@ void FillWeights(string const & path, string const & mwmFile, string const & cou
   shared_ptr<VehicleModelInterface> vehicleModel =
       CarModelFactory(countryParentNameGetterFn).GetVehicleModelForCountry(country);
   IndexGraph graph(
-      GeometryLoader::CreateFromFile(mwmFile, vehicleModel),
+      make_shared<Geometry>(GeometryLoader::CreateFromFile(mwmFile, vehicleModel)),
       EdgeEstimator::Create(VehicleType::Car, *vehicleModel, nullptr /* trafficStash */));
 
   MwmValue mwmValue(LocalCountryFile(path, platform::CountryFile(country), 0 /* version */));
@@ -443,10 +447,10 @@ void FillWeights(string const & path, string const & mwmFile, string const & cou
               foundCount, ", not found:", notFoundCount));
 }
 
-serial::CodingParams LoadCodingParams(string const & mwmFile)
+serial::GeometryCodingParams LoadGeometryCodingParams(string const & mwmFile)
 {
   DataHeader const dataHeader(mwmFile);
-  return dataHeader.GetDefCodingParams();
+  return dataHeader.GetDefGeometryCodingParams();
 }
 }  // namespace
 
@@ -491,7 +495,7 @@ void SerializeCrossMwm(string const & mwmFile, string const & sectionName,
                        CrossMwmConnectorPerVehicleType<CrossMwmId> const & connectors,
                        vector<CrossMwmConnectorSerializer::Transition<CrossMwmId>> const & transitions)
 {
-  serial::CodingParams const codingParams = LoadCodingParams(mwmFile);
+  serial::GeometryCodingParams const codingParams = LoadGeometryCodingParams(mwmFile);
   FilesContainerW cont(mwmFile, FileWriter::OP_WRITE_EXISTING);
   auto writer = cont.GetWriter(sectionName);
   auto const startPos = writer.Pos();
@@ -507,7 +511,7 @@ void BuildRoutingCrossMwmSection(string const & path, string const & mwmFile,
                                  string const & osmToFeatureFile, bool disableCrossMwmProgress)
 {
   LOG(LINFO, ("Building cross mwm section for", country));
-  using CrossMwmId = osm::Id;
+  using CrossMwmId = base::GeoObjectId;
   CrossMwmConnectorPerVehicleType<CrossMwmId> connectors;
   vector<CrossMwmConnectorSerializer::Transition<CrossMwmId>> transitions;
 

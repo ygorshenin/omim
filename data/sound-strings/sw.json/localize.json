@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Fanya kushoto mkali.",
 "make_a_u_turn":"Geuka urudi ulikotoka.",
 "go_straight":"Pita kabisa.",
+"exit":"Kuondoka.",
 "destination":"Utawasili.",
 "you_have_reached_the_destination":"Umewasili mwisho wa safari.",
 "in_50_meters":"Kabla ya mita hamsini",
@@ -61,5 +62,6 @@
 "in_5000_feet":"Kabla ya futi elfu tano",
 "in_1_mile":"Kabla ya maili moja",
 "in_1_5_miles":"Kabla ya maili moja na nusu",
-"in_2_miles":"Kabla ya maili mbili"
+"in_2_miles":"Kabla ya maili mbili",
+"unknown_camera":"Speed camera ahead"
 }

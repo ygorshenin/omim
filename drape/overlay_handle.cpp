@@ -8,6 +8,7 @@
 #include "base/logging.hpp"
 
 #include <algorithm>
+#include <ios>
 #include <sstream>
 
 namespace dp
@@ -27,13 +28,14 @@ private:
 };
 
 OverlayHandle::OverlayHandle(OverlayID const & id, dp::Anchor anchor,
-                             uint64_t priority, bool isBillboard)
+                             uint64_t priority, int minVisibleScale, bool isBillboard)
   : m_id(id)
   , m_anchor(anchor)
   , m_priority(priority)
   , m_overlayRank(OverlayRank0)
   , m_extendingSize(0.0)
   , m_pivotZ(0.0)
+  , m_minVisibleScale(minVisibleScale)
   , m_isBillboard(isBillboard)
   , m_isVisible(false)
   , m_enableCaching(false)
@@ -56,6 +58,11 @@ bool OverlayHandle::IsVisible() const
 void OverlayHandle::SetIsVisible(bool isVisible)
 {
   m_isVisible = isVisible;
+}
+
+int OverlayHandle::GetMinVisibleScale() const
+{
+  return m_minVisibleScale;
 }
 
 bool OverlayHandle::IsBillboard() const
@@ -203,8 +210,8 @@ m2::RectD OverlayHandle::GetPixelRectPerspective(ScreenBase const & screen) cons
 SquareHandle::SquareHandle(OverlayID const & id, dp::Anchor anchor, m2::PointD const & gbPivot,
                            m2::PointD const & pxSize, m2::PointD const & pxOffset,
                            uint64_t priority, bool isBound, std::string const & debugStr,
-                           bool isBillboard)
-  : TBase(id, anchor, priority, isBillboard)
+                           int minVisibleScale, bool isBillboard)
+  : TBase(id, anchor, priority, minVisibleScale, isBillboard)
   , m_pxHalfSize(pxSize.x / 2.0, pxSize.y / 2.0)
   , m_gbPivot(gbPivot)
   , m_pxOffset(pxOffset)
@@ -248,7 +255,7 @@ bool SquareHandle::IsBound() const { return m_isBound; }
 std::string SquareHandle::GetOverlayDebugInfo()
 {
   std::ostringstream out;
-  out << "POI Priority(" << GetPriority() << ") "
+  out << "POI Priority(" << std::hex << GetPriority() << ") " << std::dec
       << GetOverlayID().m_featureId.m_index << "-" << GetOverlayID().m_index << " "
       << m_debugStr;
   return out.str();
@@ -267,7 +274,7 @@ uint64_t CalculateOverlayPriority(int minZoomLevel, uint8_t rank, float depth)
   float const kMinDepth = -100000.0f;
   float const kMaxDepth = 100000.0f;
   float const d = my::clamp(depth, kMinDepth, kMaxDepth) - kMinDepth;
-  uint32_t const priority = static_cast<uint32_t>(d);
+  auto const priority = static_cast<uint32_t>(d);
 
   return (static_cast<uint64_t>(minZoom) << 56) |
          (static_cast<uint64_t>(priority) << 24) |

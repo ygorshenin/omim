@@ -9,7 +9,7 @@
 #import "Statistics.h"
 #import "SwiftBridge.h"
 
-#include "std/array.hpp"
+#include <array>
 
 #pragma mark - Base
 // Base class for avoiding copy-paste in inheriting cells.
@@ -45,10 +45,21 @@
 @interface _MWMPPPTitle : _MWMPPPCellBase
 
 @property(weak, nonatomic) IBOutlet UILabel * title;
+@property(weak, nonatomic) IBOutlet UIView * popular;
+@property(weak, nonatomic) IBOutlet NSLayoutConstraint * titleTrailing;
 
 @end
 
 @implementation _MWMPPPTitle
+
+- (void)configWithTitle:(NSString *)title popular:(BOOL)popular
+{
+  self.title.text = title;
+  self.titleTrailing.priority = popular ? UILayoutPriorityDefaultLow : UILayoutPriorityDefaultHigh;
+  self.popular.hidden = !popular;
+  [self setNeedsLayout];
+}
+
 @end
 
 #pragma mark - External Title
@@ -103,11 +114,12 @@
 
 namespace
 {
-array<Class, 8> const kPreviewCells = {{[_MWMPPPTitle class],
+std::array<Class, 9> const kPreviewCells = {{[_MWMPPPTitle class],
                                         [_MWMPPPExternalTitle class],
                                         [_MWMPPPSubtitle class],
                                         [_MWMPPPSchedule class],
                                         [MWMPPPReview class],
+                                        [MWMPPPSearchSimilarButton class],
                                         [_MWMPPPAddress class],
                                         [_MWMPPPSpace class],
                                         [MWMAdBanner class]}};
@@ -175,13 +187,13 @@ array<Class, 8> const kPreviewCells = {{[_MWMPPPTitle class],
   using namespace place_page;
   auto tableView = self.tableView;
   auto const row = data.previewRows[indexPath.row];
-  Class cls = kPreviewCells[static_cast<size_t>(row)];
+  Class cls = kPreviewCells[base::Key(row)];
 
   auto * c = [tableView dequeueReusableCellWithCellClass:cls indexPath:indexPath];
   switch(row)
   {
   case PreviewRows::Title:
-    static_cast<_MWMPPPTitle *>(c).title.text = data.title;
+    [static_cast<_MWMPPPTitle *>(c) configWithTitle:data.title popular:data.isPopular];
     break;
   case PreviewRows::ExternalTitle:
     static_cast<_MWMPPPExternalTitle *>(c).externalTitle.text = data.externalTitle;
@@ -226,28 +238,37 @@ array<Class, 8> const kPreviewCells = {{[_MWMPPPTitle class],
       [reviewCell configWithRating:data.bookingRating
                       canAddReview:NO
                       reviewsCount:0
-                       priceSetter:^(UILabel * pricingLabel) {
-                         pricingLabel.text = data.bookingApproximatePricing;
-                         [data assignOnlinePriceToLabel:pricingLabel];
-                       }
-                       onAddReview:^{
-                       }];
+                             price:data.bookingPricing
+                          discount:data.bookingDiscount
+                         smartDeal:data.isSmartDeal
+                       onAddReview:nil];
+      data.bookingDataUpdatedCallback = ^{
+        [tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationNone];
+      };
     }
     else
     {
       NSAssert(data.ugc, @"");
       [reviewCell configWithRating:data.ugc.summaryRating
-          canAddReview:data.ugc.isUGCUpdateEmpty
-          reviewsCount:data.ugc.totalReviewsCount
-          priceSetter:^(UILabel * _Nonnull pricingLabel) {
-            pricingLabel.text = @"";
-          }
-          onAddReview:^{
-            [MWMPlacePageManagerHelper showUGCAddReview:MWMRatingSummaryViewValueTypeNoValue
-                                            fromPreview:YES];
-          }];
+                      canAddReview:data.ugc.isUGCUpdateEmpty
+                      reviewsCount:data.ugc.totalReviewsCount
+                             price:@""
+                          discount:0
+                         smartDeal:NO
+                       onAddReview:^{
+                         [MWMPlacePageManagerHelper showUGCAddReview:MWMRatingSummaryViewValueTypeNoValue
+                                                         fromPreview:YES];
+                       }];
     }
     return reviewCell;
+  }
+  case PreviewRows::SearchSimilar:
+  {
+    auto searchCell = static_cast<MWMPPPSearchSimilarButton *>(c);
+    [searchCell configWithTap:^{
+      [MWMPlacePageManagerHelper searchSimilar];
+    }];
+    return searchCell;
   }
   case PreviewRows::Address:
     static_cast<_MWMPPPAddress *>(c).address.text = data.address;
@@ -357,17 +378,15 @@ array<Class, 8> const kPreviewCells = {{[_MWMPPPTitle class],
 {
   if (IPAD)
     return;
+  dispatch_async(dispatch_get_main_queue(), ^{
+    auto data = self.data;
+    if (!data)
+      return;
 
-  auto data = self.data;
-  if (!data)
-    return;
-
-  CLS_LOG(@"layoutInOpenState\tisOpen:%@\tLatitude:%@\tLongitude:%@", @(isOpen), @(data.latLon.lat),
-          @(data.latLon.lon));
-
-  [self.tableView update:^{
-    self.cachedBannerCell.state = isOpen ? MWMAdBannerStateDetailed : MWMAdBannerStateCompact;
-  }];
+    [self.tableView update:^{
+      self.cachedBannerCell.state = isOpen ? MWMAdBannerStateDetailed : MWMAdBannerStateCompact;
+    }];
+  });
 }
 
 - (MWMDirectionView *)directionView

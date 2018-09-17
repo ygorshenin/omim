@@ -122,6 +122,11 @@ public:
     m_p->ReadAsString(s);
   }
 
+  ReaderPtr<Reader> SubReader(uint64_t pos, uint64_t size) const
+  {
+    return {m_p->CreateSubReader(pos, size)};
+  }
+
   TReader * GetPtr() const { return m_p.get(); }
 };
 
@@ -259,7 +264,7 @@ inline TPrimitive ReadPrimitiveFromPos(TReader const & reader, uint64_t pos)
 #endif
   TPrimitive primitive;
   ReadFromPos(reader, pos, &primitive, sizeof(primitive));
-  return SwapIfBigEndian(primitive);
+  return SwapIfBigEndianMacroBased(primitive);
 }
 
 template <typename TPrimitive, class TSource>
@@ -270,7 +275,7 @@ TPrimitive ReadPrimitiveFromSource(TSource & source)
 #endif
   TPrimitive primitive;
   source.Read(&primitive, sizeof(primitive));
-  return SwapIfBigEndian(primitive);
+  return SwapIfBigEndianMacroBased(primitive);
 }
 
 template <typename TPrimitive, typename TSource>

@@ -3,15 +3,23 @@
 #include "com/mapswithme/maps/UserMarkHelper.hpp"
 #include "com/mapswithme/platform/Platform.hpp"
 
+#include "map/bookmarks_search_params.hpp"
 #include "map/everywhere_search_params.hpp"
+#include "map/place_page_info.hpp"
 #include "map/viewport_search_params.hpp"
 
 #include "search/hotels_filter.hpp"
 #include "search/mode.hpp"
 #include "search/result.hpp"
 
+#include "platform/network_policy.hpp"
+
+#include "geometry/distance_on_sphere.hpp"
+
 #include "base/assert.hpp"
 #include "base/logging.hpp"
+
+#include "defines.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -243,72 +251,10 @@ private:
   bool m_initialized = false;
 } g_hotelsFilterBuilder;
 
-class BookingAvailabilityParamsBuilder
-{
-public:
-  void Init(JNIEnv * env)
-  {
-    if (m_initialized)
-      return;
+FeatureID const kEmptyFeatureId;
 
-    m_bookingFilterParamsClass = jni::GetGlobalClassRef(env, "com/mapswithme/maps/search/BookingFilterParams");
-    m_roomClass = jni::GetGlobalClassRef(env, "com/mapswithme/maps/search/BookingFilterParams$Room");
-    m_checkinMillisecId = env->GetFieldID(m_bookingFilterParamsClass, "mCheckinMillisec", "J");
-    m_checkoutMillisecId = env->GetFieldID(m_bookingFilterParamsClass, "mCheckoutMillisec", "J");
-    m_roomsId = env->GetFieldID(m_bookingFilterParamsClass, "mRooms",
-                              "[Lcom/mapswithme/maps/search/BookingFilterParams$Room;");
-    m_roomAdultsCountId = env->GetFieldID(m_roomClass, "mAdultsCount", "I");
-    m_roomAgeOfChildId = env->GetFieldID(m_roomClass, "mAgeOfChild", "I");
-
-    m_initialized = true;
-  }
-
-  booking::AvailabilityParams Build(JNIEnv * env, jobject bookingFilterParams)
-  {
-    booking::AvailabilityParams result;
-
-    if (!m_initialized || bookingFilterParams == nullptr)
-      return result;
-
-    jlong const jcheckin = env->GetLongField(bookingFilterParams, m_checkinMillisecId) / 1000;
-    result.m_checkin = booking::AvailabilityParams::Clock::from_time_t(jcheckin);
-
-    jlong const jcheckout = env->GetLongField(bookingFilterParams, m_checkoutMillisecId) / 1000;
-    result.m_checkout = booking::AvailabilityParams::Clock::from_time_t(jcheckout);
-
-    jobjectArray const jrooms =
-            static_cast<jobjectArray>(env->GetObjectField(bookingFilterParams, m_roomsId));
-    auto const length = static_cast<size_t>(env->GetArrayLength(jrooms));
-    result.m_rooms.resize(length);
-    for (size_t i = 0; i < length; ++i)
-    {
-      jobject jroom = env->GetObjectArrayElement(jrooms, i);
-
-      booking::AvailabilityParams::Room room;
-      room.SetAdultsCount(static_cast<uint8_t>(env->GetIntField(jroom, m_roomAdultsCountId)));
-      room.SetAgeOfChild(static_cast<int8_t>(env->GetIntField(jroom, m_roomAgeOfChildId)));
-      result.m_rooms[i] = std::move(room);
-    }
-
-    return result;
-  }
-
-private:
-  jclass m_bookingFilterParamsClass = nullptr;
-  jclass m_roomClass = nullptr;
-  jfieldID m_checkinMillisecId = nullptr;
-  jfieldID m_checkoutMillisecId = nullptr;
-  jfieldID m_roomsId = nullptr;
-  jfieldID m_roomAdultsCountId = nullptr;
-  jfieldID m_roomAgeOfChildId = nullptr;
-
-  bool m_initialized = false;
-} g_bookingAvailabilityParamsBuilder;
-
-// TODO yunitsky
-// Do not cache search results here, after new search will be implemented.
-// Currently we cannot serialize FeatureID of search result properly.
-// Cache is needed to show results on the map after click in the list of results.
+// This cache is needed only for showing a specific result on the map after click on the list item.
+// Don't use it with another intentions!
 Results g_results;
 
 // Timestamp of last search query. Results with older stamps are ignored.
@@ -318,23 +264,33 @@ jobject g_javaListener;
 jmethodID g_updateResultsId;
 jmethodID g_endResultsId;
 // Implements 'NativeBookingFilterListener' java interface.
-jmethodID g_onFilterAvailableHotelsId;
+jmethodID g_onFilterHotels;
 // Cached classes and methods to return results.
 jclass g_resultClass;
 jmethodID g_resultConstructor;
 jmethodID g_suggestConstructor;
 jclass g_descriptionClass;
 jmethodID g_descriptionConstructor;
+jclass g_popularityClass;
+jmethodID g_popularityConstructor;
 
 // Implements 'NativeMapSearchListener' java interface.
 jmethodID g_mapResultsMethod;
 jclass g_mapResultClass;
 jmethodID g_mapResultCtor;
 
-booking::AvailabilityParams g_lastBookingFilterParams;
+jmethodID g_updateBookmarksResultsId;
+jmethodID g_endBookmarksResultsId;
 
-jobject ToJavaResult(Result & result, bool isLocalAdsCustomer, bool hasPosition, double lat,
-                     double lon)
+booking::filter::Tasks g_lastBookingFilterTasks;
+
+bool PopularityHasHigherPriority(bool hasPosition, double distanceInMeters)
+{
+  return !hasPosition || distanceInMeters > search::Result::kPopularityHighPriorityMinDistance;
+}
+
+jobject ToJavaResult(Result & result, search::ProductInfo const & productInfo, bool hasPosition,
+                     double lat, double lon)
 {
   JNIEnv * env = jni::GetEnv();
   ::Framework * fr = g_framework->NativeFramework();
@@ -351,15 +307,22 @@ jobject ToJavaResult(Result & result, bool isLocalAdsCustomer, bool hasPosition,
 
   ms::LatLon ll = ms::LatLon::Zero();
   string distance;
-  if (result.HasPoint())
+  double distanceInMeters = 0.0;
+  if (hasPosition)
   {
-    ll = MercatorBounds::ToLatLon(result.GetFeatureCenter());
-    if (hasPosition)
+    if (result.HasPoint())
     {
-      double dummy;
-      (void) fr->GetDistanceAndAzimut(result.GetFeatureCenter(), lat, lon, 0, distance, dummy);
+      auto const center = result.GetFeatureCenter();
+      ll = MercatorBounds::ToLatLon(center);
+
+      distanceInMeters = ms::DistanceOnEarth(lat, lon,
+                                             MercatorBounds::YToLat(center.y),
+                                             MercatorBounds::XToLon(center.x));
+      measurement_utils::FormatDistance(distanceInMeters, distance);
     }
   }
+
+  bool popularityHasHigherPriority = PopularityHasHigherPriority(hasPosition, distanceInMeters);
 
   if (result.IsSuggest())
   {
@@ -370,29 +333,44 @@ jobject ToJavaResult(Result & result, bool isLocalAdsCustomer, bool hasPosition,
     return ret;
   }
 
-  jni::TScopedLocalRef featureId(env, usermark_helper::CreateFeatureId(env, result.GetFeatureID()));
-  jni::TScopedLocalRef featureType(env, jni::ToJavaString(env, result.GetFeatureType()));
+  auto const isFeature = result.GetResultType() == Result::Type::Feature;
+  jni::TScopedLocalRef featureId(env, usermark_helper::CreateFeatureId(env, isFeature ?
+                                                                            result.GetFeatureID() :
+                                                                            kEmptyFeatureId));
+  jni::TScopedLocalRef featureType(env, jni::ToJavaString(env, result.GetFeatureTypeName()));
   jni::TScopedLocalRef address(env, jni::ToJavaString(env, result.GetAddress()));
   jni::TScopedLocalRef dist(env, jni::ToJavaString(env, distance));
   jni::TScopedLocalRef cuisine(env, jni::ToJavaString(env, result.GetCuisine()));
-  jni::TScopedLocalRef rating(env, jni::ToJavaString(env, result.GetHotelRating()));
   jni::TScopedLocalRef pricing(env, jni::ToJavaString(env, result.GetHotelApproximatePricing()));
+
+
+  auto const hotelRating = result.GetHotelRating();
+  auto const ugcRating = productInfo.m_ugcRating;
+  auto const rating = static_cast<jfloat>(hotelRating == kInvalidRatingValue ? ugcRating
+                                                                             : hotelRating);
+
   jni::TScopedLocalRef desc(env, env->NewObject(g_descriptionClass, g_descriptionConstructor,
                                                 featureId.get(), featureType.get(), address.get(),
                                                 dist.get(), cuisine.get(),
-                                                rating.get(), pricing.get(),
+                                                pricing.get(), rating,
                                                 result.GetStarsCount(),
-                                                static_cast<jint>(result.IsOpenNow())));
+                                                static_cast<jint>(result.IsOpenNow()),
+                                                static_cast<jboolean>(popularityHasHigherPriority)));
 
   jni::TScopedLocalRef name(env, jni::ToJavaString(env, result.GetString()));
-  jobject ret = env->NewObject(g_resultClass, g_resultConstructor, name.get(), desc.get(), ll.lat,
-                               ll.lon, ranges.get(), result.IsHotel(), isLocalAdsCustomer);
+  jni::TScopedLocalRef popularity(env, env->NewObject(g_popularityClass,
+                                                      g_popularityConstructor,
+                                                      static_cast<jint>(result.GetRankingInfo().m_popularity)));
+  jobject ret =
+      env->NewObject(g_resultClass, g_resultConstructor, name.get(), desc.get(), ll.lat, ll.lon,
+                     ranges.get(), result.IsHotel(), productInfo.m_isLocalAdsCustomer,
+                     popularity.get());
   ASSERT(ret, ());
 
   return ret;
 }
 
-void OnResults(Results const & results, vector<bool> const & isLocalAdsCustomer,
+void OnResults(Results const & results, vector<search::ProductInfo> const & productInfo,
                long long timestamp, bool isMapAndTable, bool hasPosition, double lat, double lon)
 {
   // Ignore results from obsolete searches.
@@ -404,10 +382,9 @@ void OnResults(Results const & results, vector<bool> const & isLocalAdsCustomer,
   if (!results.IsEndMarker() || results.IsEndedNormal())
   {
     jni::TScopedLocalObjectArrayRef jResults(
-        env, BuildSearchResults(results, isLocalAdsCustomer, hasPosition, lat, lon));
+        env, BuildSearchResults(results, productInfo, hasPosition, lat, lon));
     env->CallVoidMethod(g_javaListener, g_updateResultsId, jResults.get(),
-                        static_cast<jlong>(timestamp),
-                        search::HotelsClassifier::IsHotelResults(results));
+                        static_cast<jlong>(timestamp), results.GetType() == Results::Type::Hotels);
   }
 
   if (results.IsEndMarker())
@@ -447,22 +424,191 @@ void OnMapSearchResults(storage::DownloaderSearchResults const & results, long l
                       static_cast<jlong>(timestamp), results.m_endMarker);
 }
 
-void OnBookingFilterResults(booking::AvailabilityParams const & params,
-                            std::vector<FeatureID> const & featuresSorted)
+void OnBookmarksSearchStarted()
 {
-  // Ignore obsolete booking filter results.
-  if (params != g_lastBookingFilterParams)
+  // Dummy.
+}
+
+void OnBookmarksSearchResults(search::BookmarksSearchParams::Results const & results,
+                              search::BookmarksSearchParams::Status status, long long timestamp)
+{
+  // Ignore results from obsolete searches.
+  if (g_queryTimestamp > timestamp)
     return;
+
+  JNIEnv * env = jni::GetEnv();
+
+  jni::ScopedLocalRef<jlongArray> jResults(env, env->NewLongArray(results.size()));
+  vector<jlong> const tmp(results.cbegin(), results.cend());
+  env->SetLongArrayRegion(jResults.get(), 0, tmp.size(), tmp.data());
+
+  auto const method = (status == search::BookmarksSearchParams::Status::InProgress) ?
+                      g_updateBookmarksResultsId : g_endBookmarksResultsId;
+
+  env->CallVoidMethod(g_javaListener, method, jResults.get(), static_cast<jlong>(timestamp));
+}
+
+void OnBookingFilterAvailabilityResults(shared_ptr<booking::ParamsBase> const & apiParams,
+                                        vector<FeatureID> const & featuresSorted)
+{
+  auto const it = g_lastBookingFilterTasks.Find(booking::filter::Type::Availability);
+
+  if (it == g_lastBookingFilterTasks.end())
+    return;
+
+  // Ignore obsolete booking filter results.
+  if (!it->m_filterParams.m_apiParams->Equals(*apiParams))
+    return;
+
+  ASSERT(is_sorted(featuresSorted.cbegin(), featuresSorted.cend()), ());
 
   JNIEnv * env = jni::GetEnv();
   jni::TScopedLocalObjectArrayRef jResults(env,
                                            usermark_helper::ToFeatureIdArray(env, featuresSorted));
-  env->CallVoidMethod(g_javaListener, g_onFilterAvailableHotelsId, jResults.get());
+  env->CallVoidMethod(g_javaListener, g_onFilterHotels,
+                      static_cast<jint>(booking::filter::Type::Availability), jResults.get());
 }
+
+void OnBookingFilterDealsResults(shared_ptr<booking::ParamsBase> const & apiParams,
+                                 vector<FeatureID> const & featuresSorted)
+{
+  auto const it = g_lastBookingFilterTasks.Find(booking::filter::Type::Deals);
+
+  if (it == g_lastBookingFilterTasks.end())
+    return;
+
+  // Ignore obsolete booking filter results.
+  if (!it->m_filterParams.m_apiParams->Equals(*apiParams))
+    return;
+
+  ASSERT(is_sorted(featuresSorted.cbegin(), featuresSorted.cend()), ());
+
+  JNIEnv * env = jni::GetEnv();
+  jni::TScopedLocalObjectArrayRef jResults(env,
+                                           usermark_helper::ToFeatureIdArray(env, featuresSorted));
+  env->CallVoidMethod(g_javaListener, g_onFilterHotels,
+                      static_cast<jint>(booking::filter::Type::Deals), jResults.get());
+}
+
+class BookingBuilder
+{
+public:
+  void Init(JNIEnv * env)
+  {
+    if (m_initialized)
+      return;
+
+    m_bookingFilterParamsClass =
+        jni::GetGlobalClassRef(env, "com/mapswithme/maps/search/BookingFilterParams");
+    m_roomClass =
+        jni::GetGlobalClassRef(env, "com/mapswithme/maps/search/BookingFilterParams$Room");
+    m_checkinMillisecId = env->GetFieldID(m_bookingFilterParamsClass, "mCheckinMillisec", "J");
+    m_checkoutMillisecId = env->GetFieldID(m_bookingFilterParamsClass, "mCheckoutMillisec", "J");
+    m_roomsId = env->GetFieldID(m_bookingFilterParamsClass, "mRooms",
+                                "[Lcom/mapswithme/maps/search/BookingFilterParams$Room;");
+    m_roomAdultsCountId = env->GetFieldID(m_roomClass, "mAdultsCount", "I");
+    m_roomAgeOfChildId = env->GetFieldID(m_roomClass, "mAgeOfChild", "I");
+
+    m_initialized = true;
+  }
+
+  booking::AvailabilityParams BuildAvailability(JNIEnv * env, jobject bookingFilterParams)
+  {
+    booking::AvailabilityParams result;
+
+    if (!m_initialized || bookingFilterParams == nullptr)
+      return result;
+
+    jlong const jcheckin = env->GetLongField(bookingFilterParams, m_checkinMillisecId) / 1000;
+    result.m_checkin = booking::AvailabilityParams::Clock::from_time_t(jcheckin);
+
+    jlong const jcheckout = env->GetLongField(bookingFilterParams, m_checkoutMillisecId) / 1000;
+    result.m_checkout = booking::AvailabilityParams::Clock::from_time_t(jcheckout);
+
+    jobjectArray const jrooms =
+        static_cast<jobjectArray>(env->GetObjectField(bookingFilterParams, m_roomsId));
+    ASSERT(jrooms, ("Rooms must be non-null!"));
+
+    auto const length = static_cast<size_t>(env->GetArrayLength(jrooms));
+    result.m_rooms.resize(length);
+    for (size_t i = 0; i < length; ++i)
+    {
+      jobject jroom = env->GetObjectArrayElement(jrooms, i);
+
+      booking::AvailabilityParams::Room room;
+      room.SetAdultsCount(static_cast<uint8_t>(env->GetIntField(jroom, m_roomAdultsCountId)));
+      room.SetAgeOfChild(static_cast<int8_t>(env->GetIntField(jroom, m_roomAgeOfChildId)));
+      result.m_rooms[i] = move(room);
+    }
+    return result;
+  }
+
+  booking::AvailabilityParams BuildDeals(JNIEnv * env, jobject bookingFilterParams)
+  {
+    booking::AvailabilityParams result;
+
+    if (!m_initialized)
+      return result;
+
+    if (bookingFilterParams != nullptr)
+    {
+      result = BuildAvailability(env, bookingFilterParams);
+    }
+    else if (platform::GetCurrentNetworkPolicy().CanUse())
+    {
+      result = g_framework->NativeFramework()->GetLastBookingAvailabilityParams();
+      if (result.IsEmpty())
+        result = booking::AvailabilityParams::MakeDefault();
+    }
+
+    result.m_dealsOnly = true;
+
+    return result;
+  }
+
+  booking::filter::Tasks BuildTasks(JNIEnv * env, jobject bookingFilterParams)
+  {
+    booking::filter::Tasks tasks;
+
+    auto const availabilityParams = BuildAvailability(env, bookingFilterParams);
+
+    if (!availabilityParams.IsEmpty())
+    {
+      booking::filter::Params p(make_shared<booking::AvailabilityParams>(availabilityParams),
+                                bind(&::OnBookingFilterAvailabilityResults, _1, _2));
+
+      tasks.EmplaceBack(booking::filter::Type::Availability, move(p));
+    }
+
+    auto const dealsParams = BuildDeals(env, bookingFilterParams);
+
+    if (!dealsParams.IsEmpty())
+    {
+      booking::filter::Params p(make_shared<booking::AvailabilityParams>(dealsParams),
+                                bind(&::OnBookingFilterDealsResults, _1, _2));
+
+      tasks.EmplaceBack(booking::filter::Type::Deals, move(p));
+    }
+
+    return tasks;
+  }
+
+private:
+  jclass m_bookingFilterParamsClass = nullptr;
+  jclass m_roomClass = nullptr;
+  jfieldID m_checkinMillisecId = nullptr;
+  jfieldID m_checkoutMillisecId = nullptr;
+  jfieldID m_roomsId = nullptr;
+  jfieldID m_roomAdultsCountId = nullptr;
+  jfieldID m_roomAgeOfChildId = nullptr;
+
+  bool m_initialized = false;
+} g_bookingBuilder;
 }  // namespace
 
-jobjectArray BuildSearchResults(Results const & results, vector<bool> const & isLocalAdsCustomer,
-                                bool hasPosition, double lat, double lon)
+jobjectArray BuildSearchResults(Results const & results,
+                                vector<search::ProductInfo> const & productInfo, bool hasPosition,
+                                double lat, double lon)
 {
   JNIEnv * env = jni::GetEnv();
 
@@ -471,11 +617,10 @@ jobjectArray BuildSearchResults(Results const & results, vector<bool> const & is
   int const count = g_results.GetCount();
   jobjectArray const jResults = env->NewObjectArray(count, g_resultClass, nullptr);
 
-  ASSERT_EQUAL(results.GetCount(), isLocalAdsCustomer.size(), ());
   for (int i = 0; i < count; i++)
   {
-    jni::TScopedLocalRef jRes(
-      env, ToJavaResult(g_results[i], isLocalAdsCustomer[i], hasPosition, lat, lon));
+    jni::TScopedLocalRef jRes(env,
+                              ToJavaResult(g_results[i], productInfo[i], hasPosition, lat, lon));
     env->SetObjectArrayElement(jResults, i, jRes.get());
   }
   return jResults;
@@ -493,24 +638,33 @@ extern "C"
     g_resultClass = jni::GetGlobalClassRef(env, "com/mapswithme/maps/search/SearchResult");
     g_resultConstructor = jni::GetConstructorID(
         env, g_resultClass,
-        "(Ljava/lang/String;Lcom/mapswithme/maps/search/SearchResult$Description;DD[IZZ)V");
+        "(Ljava/lang/String;Lcom/mapswithme/maps/search/SearchResult$Description;DD[IZZ"
+          "Lcom/mapswithme/maps/search/Popularity;)V");
     g_suggestConstructor = jni::GetConstructorID(env, g_resultClass, "(Ljava/lang/String;Ljava/lang/String;DD[I)V");
     g_descriptionClass = jni::GetGlobalClassRef(env, "com/mapswithme/maps/search/SearchResult$Description");
     g_descriptionConstructor = jni::GetConstructorID(env, g_descriptionClass,
                                                      "(Lcom/mapswithme/maps/bookmarks/data/FeatureId;"
                                                      "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;"
-                                                     "Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;II)V");
+                                                     "Ljava/lang/String;Ljava/lang/String;FIIZ)V");
+
+    g_popularityClass = jni::GetGlobalClassRef(env, "com/mapswithme/maps/search/Popularity");
+    g_popularityConstructor = jni::GetConstructorID(env, g_popularityClass, "(I)V");
 
     g_mapResultsMethod = jni::GetMethodID(env, g_javaListener, "onMapSearchResults",
                                           "([Lcom/mapswithme/maps/search/NativeMapSearchListener$Result;JZ)V");
     g_mapResultClass = jni::GetGlobalClassRef(env, "com/mapswithme/maps/search/NativeMapSearchListener$Result");
     g_mapResultCtor = jni::GetConstructorID(env, g_mapResultClass, "(Ljava/lang/String;Ljava/lang/String;)V");
 
-    g_onFilterAvailableHotelsId = jni::GetMethodID(env, g_javaListener, "onFilterAvailableHotels",
-                                                   "([Lcom/mapswithme/maps/bookmarks/data/FeatureId;)V");
+    g_updateBookmarksResultsId =
+      jni::GetMethodID(env, g_javaListener, "onBookmarksResultsUpdate", "([JJ)V");
+    g_endBookmarksResultsId =
+      jni::GetMethodID(env, g_javaListener, "onBookmarksResultsEnd", "([JJ)V");
+
+    g_onFilterHotels = jni::GetMethodID(env, g_javaListener, "onFilterHotels",
+                                                   "(I[Lcom/mapswithme/maps/bookmarks/data/FeatureId;)V");
 
     g_hotelsFilterBuilder.Init(env);
-    g_bookingAvailabilityParamsBuilder.Init(env);
+    g_bookingBuilder.Init(env);
   }
 
   JNIEXPORT jboolean JNICALL Java_com_mapswithme_maps_search_SearchEngine_nativeRunSearch(
@@ -523,11 +677,9 @@ extern "C"
     params.m_inputLocale = jni::ToNativeString(env, lang);
     params.m_onResults = bind(&OnResults, _1, _2, timestamp, false, hasPosition, lat, lon);
     params.m_hotelsFilter = g_hotelsFilterBuilder.Build(env, hotelsFilter);
-    g_lastBookingFilterParams = g_bookingAvailabilityParamsBuilder.Build(env, bookingFilterParams);
-    params.m_bookingFilterParams.m_params = g_lastBookingFilterParams;
+    params.m_bookingFilterTasks = g_bookingBuilder.BuildTasks(env, bookingFilterParams);
 
-    params.m_bookingFilterParams.m_callback = std::bind(&OnBookingFilterResults, _1, _2);
-
+    g_lastBookingFilterTasks = params.m_bookingFilterTasks;
     bool const searchStarted = g_framework->NativeFramework()->SearchEverywhere(params);
     if (searchStarted)
       g_queryTimestamp = timestamp;
@@ -542,9 +694,9 @@ extern "C"
     vparams.m_query = jni::ToNativeString(env, bytes);
     vparams.m_inputLocale = jni::ToNativeString(env, lang);
     vparams.m_hotelsFilter = g_hotelsFilterBuilder.Build(env, hotelsFilter);
-    g_lastBookingFilterParams = g_bookingAvailabilityParamsBuilder.Build(env, bookingFilterParams);
-    vparams.m_bookingFilterParams.m_params = g_lastBookingFilterParams;
-    vparams.m_bookingFilterParams.m_callback = std::bind(&OnBookingFilterResults, _1, _2);
+    vparams.m_bookingFilterTasks = g_bookingBuilder.BuildTasks(env, bookingFilterParams);
+
+    g_lastBookingFilterTasks = vparams.m_bookingFilterTasks;
 
     // TODO (@alexzatsepin): set up vparams.m_onCompleted here and use
     // HotelsClassifier for hotel queries detection.
@@ -558,6 +710,8 @@ extern "C"
       eparams.m_onResults = bind(&OnResults, _1, _2, timestamp, isMapAndTable,
                                  false /* hasPosition */, 0.0 /* lat */, 0.0 /* lon */);
       eparams.m_hotelsFilter = vparams.m_hotelsFilter;
+      eparams.m_bookingFilterTasks = g_lastBookingFilterTasks;
+
       if (g_framework->NativeFramework()->SearchEverywhere(eparams))
         g_queryTimestamp = timestamp;
     }
@@ -575,6 +729,18 @@ extern "C"
       g_queryTimestamp = timestamp;
   }
 
+  JNIEXPORT void JNICALL Java_com_mapswithme_maps_search_SearchEngine_nativeRunSearchInBookmarks(
+      JNIEnv * env, jclass clazz, jbyteArray query, jlong timestamp)
+  {
+    search::BookmarksSearchParams params;
+    params.m_query = jni::ToNativeString(env, query);
+    params.m_onStarted = bind(&OnBookmarksSearchStarted);
+    params.m_onResults = bind(&OnBookmarksSearchResults, _1, _2, timestamp);
+
+    if (g_framework->NativeFramework()->SearchInBookmarks(params))
+      g_queryTimestamp = timestamp;
+  }
+
   JNIEXPORT void JNICALL
   Java_com_mapswithme_maps_search_SearchEngine_nativeShowResult(JNIEnv * env, jclass clazz, jint index)
   {
@@ -582,36 +748,21 @@ extern "C"
   }
 
   JNIEXPORT void JNICALL
-  Java_com_mapswithme_maps_search_SearchEngine_nativeShowAllResults(JNIEnv * env, jclass clazz)
-  {
-    g_framework->NativeFramework()->ShowSearchResults(g_results);
-  }
-
-  JNIEXPORT void JNICALL
   Java_com_mapswithme_maps_search_SearchEngine_nativeCancelInteractiveSearch(JNIEnv * env, jclass clazz)
   {
-    GetPlatform().RunTask(Platform::Thread::Gui, []()
-    {
-      g_framework->NativeFramework()->CancelSearch(search::Mode::Viewport);
-    });
+    g_framework->NativeFramework()->CancelSearch(search::Mode::Viewport);
   }
 
   JNIEXPORT void JNICALL
   Java_com_mapswithme_maps_search_SearchEngine_nativeCancelEverywhereSearch(JNIEnv * env, jclass clazz)
   {
-    GetPlatform().RunTask(Platform::Thread::Gui, []()
-    {
-      g_framework->NativeFramework()->CancelSearch(search::Mode::Everywhere);
-    });
+    g_framework->NativeFramework()->CancelSearch(search::Mode::Everywhere);
   }
 
   JNIEXPORT void JNICALL
   Java_com_mapswithme_maps_search_SearchEngine_nativeCancelAllSearches(JNIEnv * env, jclass clazz)
   {
-    GetPlatform().RunTask(Platform::Thread::Gui, []()
-    {
-      g_framework->NativeFramework()->CancelAllSearches();
-    });
+    g_framework->NativeFramework()->CancelAllSearches();
   }
 
   JNIEXPORT jobjectArray JNICALL

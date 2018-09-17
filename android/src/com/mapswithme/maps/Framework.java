@@ -3,26 +3,32 @@ package com.mapswithme.maps;
 import android.graphics.Bitmap;
 import android.location.Location;
 import android.support.annotation.IntDef;
+import android.support.annotation.MainThread;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.Size;
 import android.support.annotation.UiThread;
+import android.text.TextUtils;
 
 import com.mapswithme.maps.ads.Banner;
 import com.mapswithme.maps.ads.LocalAdInfo;
 import com.mapswithme.maps.api.ParsedRoutingData;
 import com.mapswithme.maps.api.ParsedSearchRequest;
 import com.mapswithme.maps.api.ParsedUrlMwmRequest;
+import com.mapswithme.maps.auth.AuthorizationListener;
 import com.mapswithme.maps.bookmarks.data.DistanceAndAzimut;
 import com.mapswithme.maps.bookmarks.data.MapObject;
-import com.mapswithme.maps.discovery.DiscoveryParams;
 import com.mapswithme.maps.location.LocationHelper;
 import com.mapswithme.maps.routing.RouteMarkData;
 import com.mapswithme.maps.routing.RoutePointInfo;
 import com.mapswithme.maps.routing.RoutingInfo;
 import com.mapswithme.maps.routing.TransitRouteInfo;
-import com.mapswithme.maps.routing.TransitStepInfo;
+import com.mapswithme.maps.search.FilterUtils;
+import com.mapswithme.maps.tips.TipsAction;
+import com.mapswithme.maps.tips.TipsApi;
 import com.mapswithme.util.Constants;
+import com.mapswithme.util.log.Logger;
+import com.mapswithme.util.log.LoggerFactory;
 
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -33,6 +39,9 @@ import java.lang.annotation.RetentionPolicy;
  */
 public class Framework
 {
+  private static final Logger LOGGER = LoggerFactory.INSTANCE.getLogger(LoggerFactory.Type.MISC);
+  private static final String TAG = Framework.class.getSimpleName();
+
   @Retention(RetentionPolicy.SOURCE)
   @IntDef({MAP_STYLE_CLEAR, MAP_STYLE_DARK, MAP_STYLE_VEHICLE_CLEAR, MAP_STYLE_VEHICLE_DARK})
 
@@ -82,11 +91,24 @@ public class Framework
   public static final int ROUTE_REBUILD_AFTER_POINTS_LOADING = 0;
 
   @Retention(RetentionPolicy.SOURCE)
-  @IntDef({ SOCIAL_TOKEN_FACEBOOK, SOCIAL_TOKEN_GOOGLE })
-  public @interface SocialTokenType {}
-
+  @IntDef({ SOCIAL_TOKEN_INVALID, SOCIAL_TOKEN_FACEBOOK, SOCIAL_TOKEN_GOOGLE,
+            SOCIAL_TOKEN_PHONE, TOKEN_MAPSME })
+  public @interface AuthTokenType
+  {}
+  public static final int SOCIAL_TOKEN_INVALID = -1;
   public static final int SOCIAL_TOKEN_FACEBOOK = 0;
   public static final int SOCIAL_TOKEN_GOOGLE = 1;
+  public static final int SOCIAL_TOKEN_PHONE = 2;
+  //TODO(@alexzatsepin): remove TOKEN_MAPSME from this list.
+  public static final int TOKEN_MAPSME = 3;
+
+  @Retention(RetentionPolicy.SOURCE)
+  @IntDef({ PURCHASE_VERIFIED, PURCHASE_NOT_VERIFIED, PURCHASE_VALIDATION_SERVER_ERROR })
+  public @interface PurchaseValidationCode {}
+
+  public static final int PURCHASE_VERIFIED = 0;
+  public static final int PURCHASE_NOT_VERIFIED = 1;
+  public static final int PURCHASE_VALIDATION_SERVER_ERROR = 2;
 
   @SuppressWarnings("unused")
   public interface MapObjectListener
@@ -99,12 +121,14 @@ public class Framework
   @SuppressWarnings("unused")
   public interface RoutingListener
   {
+    @MainThread
     void onRoutingEvent(int resultCode, String[] missingMaps);
   }
 
   @SuppressWarnings("unused")
   public interface RoutingProgressListener
   {
+    @MainThread
     void onRouteBuildingProgress(float progress);
   }
 
@@ -112,6 +136,19 @@ public class Framework
   public interface RoutingRecommendationListener
   {
     void onRecommend(@RouteRecommendationType int recommendation);
+  }
+
+  @SuppressWarnings("unused")
+  public interface RoutingLoadPointsListener
+  {
+    void onRoutePointsLoaded(boolean success);
+  }
+
+  @SuppressWarnings("unused")
+  public interface PurchaseValidationListener
+  {
+    void onValidatePurchase(@PurchaseValidationCode int code, @NonNull String serverId,
+                            @NonNull String vendorId, @NonNull String purchaseToken);
   }
 
   public static class Params3dMode
@@ -170,7 +207,31 @@ public class Framework
     nativeLogLocalAdsEvent(type, lat, lon, accuracy);
   }
 
-  public static native void nativeShowTrackRect(int category, int track);
+  @FilterUtils.RatingDef
+  public static int getFilterRating(@Nullable String ratingString)
+  {
+    if (TextUtils.isEmpty(ratingString))
+      return FilterUtils.RATING_ANY;
+
+    try
+    {
+      float rawRating = Float.valueOf(ratingString);
+      return Framework.nativeGetFilterRating(rawRating);
+    }
+    catch (NumberFormatException e)
+    {
+      LOGGER.w(TAG, "Rating string is not valid: " + ratingString);
+    }
+
+    return FilterUtils.RATING_ANY;
+  }
+
+  public static void tipsShown(@NonNull TipsApi tipsApi)
+  {
+    nativeTipsShown(tipsApi.ordinal(), TipsAction.ACTION_CLICKED.ordinal());
+  }
+
+  public static native void nativeShowTrackRect(long track);
 
   public static native int nativeGetDrawScale();
   
@@ -254,6 +315,8 @@ public class Framework
 
   public static native void nativeDisableFollowing();
 
+  public static native String nativeGetUserAgent();
+
   @Nullable
   public static native RoutingInfo nativeGetRouteFollowingInfo();
 
@@ -267,13 +330,16 @@ public class Framework
   // an array with one string "Make a right turn.". The next call of the method returns nothing.
   // nativeGenerateTurnNotifications shall be called by the client when a new position is available.
   @Nullable
-  public static native String[] nativeGenerateTurnNotifications();
+  public static native String[] nativeGenerateNotifications();
 
   public static native void nativeSetRoutingListener(RoutingListener listener);
 
   public static native void nativeSetRouteProgressListener(RoutingProgressListener listener);
 
   public static native void nativeSetRoutingRecommendationListener(RoutingRecommendationListener listener);
+
+  public static native void nativeSetRoutingLoadPointsListener(
+      @Nullable RoutingLoadPointsListener listener);
 
   public static native void nativeShowCountry(String countryId, boolean zoomToDownloadButton);
 
@@ -337,15 +403,17 @@ public class Framework
 
   public static native void nativeSetAutoZoomEnabled(boolean enabled);
 
-  public static native boolean nativeGetSimplifiedTrafficColorsEnabled();
+  public static native void nativeSetTransitSchemeEnabled(boolean enabled);
 
-  public static native void nativeSetSimplifiedTrafficColorsEnabled(boolean enabled);
+  public static native void nativeSaveSettingSchemeEnabled(boolean enabled);
+
+  public static native boolean nativeIsTransitSchemeEnabled();
 
   @NonNull
   public static native MapObject nativeDeleteBookmarkFromMapObject();
 
   // TODO remove that hack after bookmarks will be refactored completely
-  public static native void nativeOnBookmarkCategoryChanged(int cat, int bmk);
+  public static native void nativeOnBookmarkCategoryChanged(long cat, long bmk);
 
   public static native void nativeZoomToPoint(double lat, double lon, int zoom, boolean animate);
 
@@ -375,15 +443,51 @@ public class Framework
   public static native int nativeInvalidRoutePointsTransactionId();
 
   public static native boolean nativeHasSavedRoutePoints();
-  public static native boolean nativeLoadRoutePoints();
+  public static native void nativeLoadRoutePoints();
   public static native void nativeSaveRoutePoints();
   public static native void nativeDeleteSavedRoutePoints();
 
   public static native Banner[] nativeGetSearchBanners();
 
   public static native void nativeAuthenticateUser(@NonNull String socialToken,
-                                                   @SocialTokenType int socialTokenType);
+                                                   @AuthTokenType int socialTokenType,
+                                                   boolean privacyAccepted,
+                                                   boolean termsAccepted,
+                                                   boolean promoAccepted,
+                                                   @NonNull AuthorizationListener listener);
   public static native boolean nativeIsUserAuthenticated();
+  @NonNull
+  public static native String nativeGetPhoneAuthUrl(@NonNull String redirectUrl);
+  @NonNull
+  public static native String nativeGetPrivacyPolicyLink();
+  @NonNull
+  public static native String nativeGetTermsOfUseLink();
 
   public static native void nativeShowFeatureByLatLon(double lat, double lon);
+  public static native void nativeShowBookmarkCategory(long cat);
+
+  private static native int nativeGetFilterRating(float rawRating);
+
+  @NonNull
+  public static native String nativeMoPubInitializationBannerId();
+
+  public static native boolean nativeHasMegafonDownloaderBanner(@NonNull String mwmId);
+
+  @NonNull
+  public static native String nativeGetMegafonDownloaderBannerUrl();
+
+  public static native void nativeMakeCrash();
+
+  public static native void nativeValidatePurchase(@NonNull String serverId,
+                                                   @NonNull String vendorId,
+                                                   @NonNull String purchaseToken);
+  public static native void nativeSetPurchaseValidationListener(@Nullable
+    PurchaseValidationListener listener);
+
+  public static native boolean nativeHasActiveRemoveAdsSubscription();
+  public static native void nativeSetActiveRemoveAdsSubscription(boolean isActive);
+
+  public static native int nativeGetCurrentTipsApi();
+
+  private static native void nativeTipsShown(int tipType, int event);
 }

@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Sharp left.",
 "make_a_u_turn":"Make a u-turn.",
 "go_straight":"Go straight.",
+"exit":"Exit.",
 "destination":"You’ll arrive.",
 "you_have_reached_the_destination":"You have arrived.",
 "in_50_meters":"In fifty meters",
@@ -61,5 +62,6 @@
 "in_5000_feet":"In five thousand feet",
 "in_1_mile":"In one mile",
 "in_1_5_miles":"In one and a half miles",
-"in_2_miles":"In two miles"
+"in_2_miles":"In two miles",
+"unknown_camera":"Speed camera ahead"
 }

@@ -1,5 +1,4 @@
 #include "routing/road_graph.hpp"
-#include "routing/road_graph_router.hpp"
 
 #include "routing/route.hpp"
 
@@ -63,6 +62,13 @@ Edge Edge::MakeReal(FeatureID const & featureId, bool forward, uint32_t segId,
                     Junction const & startJunction, Junction const & endJunction)
 {
   return {Type::Real, featureId, forward, segId, startJunction, endJunction};
+}
+
+// static
+Edge Edge::MakeFakeWithRealPart(FeatureID const & featureId, bool forward, uint32_t segId,
+                                Junction const & startJunction, Junction const & endJunction)
+{
+  return {Type::FakeWithRealPart, featureId, forward, segId, startJunction, endJunction};
 }
 
 // static
@@ -282,11 +288,11 @@ void IRoadGraph::AddIngoingFakeEdge(Edge const & e)
   AddEdge(e.GetEndJunction(), e, m_fakeIngoingEdges);
 }
 
-double IRoadGraph::GetSpeedKMPH(Edge const & edge) const
+double IRoadGraph::GetSpeedKMpH(Edge const & edge) const
 {
-  double const speedKMPH = (edge.IsFake() ? GetMaxSpeedKMPH() : GetSpeedKMPH(edge.GetFeatureId()));
-  ASSERT(speedKMPH <= GetMaxSpeedKMPH(), ());
-  return speedKMPH;
+  double const speedKMpH = (edge.IsFake() ? GetMaxSpeedKMpH() : GetSpeedKMpH(edge.GetFeatureId()));
+  ASSERT_LESS_OR_EQUAL(speedKMpH, GetMaxSpeedKMpH(), ());
+  return speedKMpH;
 }
 
 void IRoadGraph::GetEdgeTypes(Edge const & edge, feature::TypesHolder & types) const
@@ -304,6 +310,7 @@ string DebugPrint(IRoadGraph::Mode mode)
     case IRoadGraph::Mode::ObeyOnewayTag: return "ObeyOnewayTag";
     case IRoadGraph::Mode::IgnoreOnewayTag: return "IgnoreOnewayTag";
   }
+  CHECK_SWITCH();
 }
 
 IRoadGraph::RoadInfo MakeRoadInfoForTesting(bool bidirectional, double speedKMPH,
@@ -316,10 +323,6 @@ IRoadGraph::RoadInfo MakeRoadInfoForTesting(bool bidirectional, double speedKMPH
   return ri;
 }
 // RoadGraphBase ------------------------------------------------------------------
-bool RoadGraphBase::IsRouteEdgesImplemented() const { return false; }
-
-bool RoadGraphBase::IsRouteSegmentsImplemented() const { return false; }
-
 void RoadGraphBase::GetRouteEdges(TEdgeVector & routeEdges) const
 {
   NOTIMPLEMENTED()

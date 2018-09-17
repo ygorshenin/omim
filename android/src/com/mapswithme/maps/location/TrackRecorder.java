@@ -6,7 +6,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.location.Location;
 import android.os.SystemClock;
-import android.support.annotation.Nullable;
+import android.support.annotation.NonNull;
 
 import com.mapswithme.maps.MwmApplication;
 import com.mapswithme.maps.background.AppBackgroundTracker;
@@ -18,7 +18,7 @@ public final class TrackRecorder
 {
   private static final String TAG = TrackRecorder.class.getSimpleName();
   private static final AlarmManager sAlarmManager = (AlarmManager)MwmApplication.get().getSystemService(Context.ALARM_SERVICE);
-  private static final Intent sAlarmIntent = new Intent("com.mapswithme.maps.TRACK_RECORDER_ALARM");
+
   private static final long WAKEUP_INTERVAL_MS = 20000;
   private static final long STARTUP_AWAIT_INTERVAL_MS = 5000;
 
@@ -35,8 +35,7 @@ public final class TrackRecorder
     }
   };
 
-  private static Boolean sEnableLogging;
-  @Nullable
+  @NonNull
   private static final Logger LOGGER = LoggerFactory.INSTANCE.getLogger(LoggerFactory.Type.TRACK_RECORDER);
 
   private static final LocationListener sLocationListener = new LocationListener.Simple()
@@ -90,7 +89,8 @@ public final class TrackRecorder
 
   private static PendingIntent getAlarmIntent()
   {
-    return PendingIntent.getBroadcast(MwmApplication.get(), 0, sAlarmIntent, 0);
+    Intent intent = new Intent(MwmApplication.get(), TrackRecorderWakeReceiver.class);
+    return PendingIntent.getBroadcast(MwmApplication.get(), 0, intent, 0);
   }
 
   private static void restartAlarmIfEnabled()
@@ -135,14 +135,14 @@ public final class TrackRecorder
     nativeSetDuration(hours);
   }
 
-  static void onWakeAlarm()
+  static void onWakeAlarm(@NonNull Context context)
   {
     LOGGER.d(TAG, "onWakeAlarm(). Enabled: " + nativeIsEnabled());
 
     UiThread.cancelDelayedTasks(sStartupAwaitProc);
 
     if (nativeIsEnabled() && !MwmApplication.backgroundTracker().isForeground())
-      TrackRecorderWakeService.start();
+      TrackRecorderWakeService.start(context);
     else
       stop();
   }

@@ -5,20 +5,33 @@
 
 #include "indexer/mwm_set.hpp"
 
-class Index;
+#include <map>
+#include <memory>
+#include <mutex>
+
+class DataSource;
 struct FeatureID;
 
 namespace ugc
 {
+// *NOTE* This class IS thread-safe.
 class Loader
 {
 public:
-  Loader(Index const & index);
+  Loader(DataSource const & dataSource);
   UGC GetUGC(FeatureID const & featureId);
 
 private:
-  Index const & m_index;
-  MwmSet::MwmId m_currentMwmId;
-  binary::UGCDeserializer m_d;
+  struct Entry
+  {
+    std::mutex m_mutex;
+    binary::UGCDeserializer m_deserializer;
+  };
+
+  using EntryPtr = std::shared_ptr<Entry>;
+
+  DataSource const & m_dataSource;
+  std::map<MwmSet::MwmId, EntryPtr> m_deserializers;
+  std::mutex m_mutex;
 };
 }  // namespace ugc

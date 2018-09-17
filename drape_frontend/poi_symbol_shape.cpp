@@ -1,6 +1,7 @@
 #include "drape_frontend/poi_symbol_shape.hpp"
 #include "drape_frontend/color_constants.hpp"
-#include "drape_frontend/shader_def.hpp"
+
+#include "shaders/programs.hpp"
 
 #include "drape/attribute_provider.hpp"
 #include "drape/batcher.hpp"
@@ -66,10 +67,11 @@ void Batch<SV>(ref_ptr<dp::Batcher> batcher, drape_ptr<dp::OverlayHandle> && han
         glsl::vec2(texRect.maxX(), texRect.minY()) },
   };
 
-  auto state = df::CreateGLState(gpu::TEXTURING_PROGRAM, params.m_depthLayer);
-  state.SetProgram3dIndex(gpu::TEXTURING_BILLBOARD_PROGRAM);
+  auto state = df::CreateRenderState(gpu::Program::Texturing, params.m_depthLayer);
+  state.SetProgram3d(gpu::Program::TexturingBillboard);
+  state.SetDepthTestEnabled(params.m_depthTestEnabled);
   state.SetColorTexture(symbolRegion.GetTexture());
-  state.SetTextureFilter(gl_const::GLNearest);
+  state.SetTextureFilter(dp::TextureFilter::Nearest);
 
   dp::AttributeProvider provider(1 /* streamCount */, ARRAY_SIZE(vertexes));
   provider.InitStream(0 /* streamIndex */, SV::GetBindingInfo(), make_ref(vertexes));
@@ -99,11 +101,12 @@ void Batch<MV>(ref_ptr<dp::Batcher> batcher, drape_ptr<dp::OverlayHandle> && han
         glsl::vec2(texRect.maxX(), texRect.minY()), maskColorCoords },
   };
 
-  auto state = df::CreateGLState(gpu::MASKED_TEXTURING_PROGRAM, params.m_depthLayer);
-  state.SetProgram3dIndex(gpu::MASKED_TEXTURING_BILLBOARD_PROGRAM);
+  auto state = df::CreateRenderState(gpu::Program::MaskedTexturing, params.m_depthLayer);
+  state.SetProgram3d(gpu::Program::MaskedTexturingBillboard);
+  state.SetDepthTestEnabled(params.m_depthTestEnabled);
   state.SetColorTexture(symbolRegion.GetTexture());
   state.SetMaskTexture(colorRegion.GetTexture()); // Here mask is a color.
-  state.SetTextureFilter(gl_const::GLNearest);
+  state.SetTextureFilter(dp::TextureFilter::Nearest);
 
   dp::AttributeProvider provider(1 /* streamCount */, ARRAY_SIZE(vertexes));
   provider.InitStream(0 /* streamIndex */, MV::GetBindingInfo(), make_ref(vertexes));
@@ -148,15 +151,19 @@ drape_ptr<dp::OverlayHandle> PoiSymbolShape::CreateOverlayHandle(m2::PointF cons
 {
   dp::OverlayID overlayId = dp::OverlayID(m_params.m_id, m_tileCoords, m_textIndex);
   drape_ptr<dp::OverlayHandle> handle = make_unique_dp<dp::SquareHandle>(overlayId, m_params.m_anchor,
-                                                                         m_pt, pixelSize, m_params.m_offset,
+                                                                         m_pt, m2::PointD(pixelSize), m2::PointD(m_params.m_offset),
                                                                          GetOverlayPriority(),
                                                                          true /* isBound */,
                                                                          m_params.m_symbolName,
+                                                                         m_params.m_minVisibleScale,
                                                                          true /* isBillboard */);
   handle->SetPivotZ(m_params.m_posZ);
   handle->SetExtendingSize(m_params.m_extendingSize);
-  if (m_params.m_specialDisplacement == SpecialDisplacement::UserMark)
-    handle->SetUserMarkOverlay(true);
+  if (m_params.m_specialDisplacement == SpecialDisplacement::UserMark ||
+      m_params.m_specialDisplacement == SpecialDisplacement::TransitScheme)
+  {
+    handle->SetSpecialLayerOverlay(true);
+  }
   handle->SetOverlayRank(m_params.m_startOverlayRank);
   return handle;
 }
@@ -168,15 +175,14 @@ uint64_t PoiSymbolShape::GetOverlayPriority() const
     return dp::kPriorityMaskAll;
 
   // Special displacement mode.
-  if (m_params.m_specialDisplacement == SpecialDisplacement::SpecialMode)
+  if (m_params.m_specialDisplacement == SpecialDisplacement::SpecialMode ||
+      m_params.m_specialDisplacement == SpecialDisplacement::TransitScheme)
+  {
     return dp::CalculateSpecialModePriority(m_params.m_specialPriority);
+  }
 
   if (m_params.m_specialDisplacement == SpecialDisplacement::UserMark)
     return dp::CalculateUserMarkPriority(m_params.m_minVisibleScale, m_params.m_specialPriority);
-
-  // Set up minimal priority for shapes which belong to areas.
-  if (m_params.m_hasArea)
-    return 0;
 
   return dp::CalculateOverlayPriority(m_params.m_minVisibleScale, m_params.m_rank, m_params.m_depth);
 }

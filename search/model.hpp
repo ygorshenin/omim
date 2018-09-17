@@ -53,12 +53,7 @@ public:
     return type >= TYPE_VILLAGE && type <= TYPE_COUNTRY;
   }
 
-  Type GetType(FeatureType const & feature) const;
-
-  void SetCianEnabled(bool enabled) { m_cianEnabled = enabled; }
-
-private:
-  bool m_cianEnabled = false;
+  Type GetType(FeatureType & feature) const;
 };
 
 string DebugPrint(Model::Type type);

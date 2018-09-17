@@ -136,6 +136,23 @@ string Platform::UniqueClientId() const
   return "@TODO";
 }
 
+string Platform::MacAddress(bool md5Decoded) const
+{
+  // Not implemented.
+  UNUSED_VALUE(md5Decoded);
+  return {};
+}
+
+string Platform::DeviceName() const
+{
+  return OMIM_OS_NAME;
+}
+
+string Platform::DeviceModel() const
+{
+  return {};
+}
+
 void Platform::RunOnGuiThread(TFunctor const & fn)
 {
   /// @todo

@@ -1,5 +1,7 @@
 #pragma once
 
+// Only defines and constexprs are allowed in this file.
+
 #define DATA_FILE_EXTENSION ".mwm"
 #define DATA_FILE_EXTENSION_TMP ".mwm.tmp"
 #define DIFF_FILE_EXTENSION ".mwmdiff"
@@ -9,9 +11,14 @@
 #define EXTENSION_TMP ".tmp"
 #define ADDR_FILE_EXTENSION ".addr"
 #define RAW_GEOM_FILE_EXTENSION ".rawgeom"
+#define LOC_IDX_FILE_EXTENSION ".locidx"
+#define LOC_DATA_FILE_EXTENSION ".locdata"
+#define OSM_DATA_FILE_EXTENSION ".osm"
 
 #define NODES_FILE "nodes.dat"
 #define WAYS_FILE "ways.dat"
+#define CAMERAS_NODES_TO_WAYS_FILE "cameras_nodes_to_ways.dat"
+#define CAMERAS_MAXSPEED_FILE "cameras_maxspeed.bin"
 #define RELATIONS_FILE "relations.dat"
 #define TOWNS_FILE "towns.csv"
 #define OFFSET_EXT ".offs"
@@ -35,15 +42,23 @@
 #define ROUTING_FILE_TAG "routing"
 #define CROSS_MWM_FILE_TAG "cross_mwm"
 #define FEATURE_OFFSETS_FILE_TAG "offs"
-#define RANKS_FILE_TAG "ranks"
+#define SEARCH_RANKS_FILE_TAG "ranks"
+#define POPULARITY_RANKS_FILE_TAG "popularity"
 #define REGION_INFO_FILE_TAG "rgninfo"
 #define METALINES_FILE_TAG "metalines"
+#define CAMERAS_INFO_FILE_TAG "speedcams"
 // Temporary addresses section that is used in search index generation.
 #define SEARCH_TOKENS_FILE_TAG "addrtags"
 #define TRAFFIC_KEYS_FILE_TAG "traffic"
 #define TRANSIT_CROSS_MWM_FILE_TAG "transit_cross_mwm"
 #define TRANSIT_FILE_TAG "transit"
 #define UGC_FILE_TAG "ugc"
+#define CITY_ROADS_FILE_TAG "city_roads"
+
+#define LOCALITY_DATA_FILE_TAG "locdata"
+#define GEO_OBJECTS_INDEX_FILE_TAG "locidx"
+#define REGIONS_INDEX_FILE_TAG "regidx"
+#define BORDERS_FILE_TAG "borders"
 
 #define READY_FILE_EXTENSION ".ready"
 #define RESUME_FILE_EXTENSION ".resume"
@@ -56,6 +71,10 @@
 #define GEOM_INDEX_TMP_EXT ".geomidx.tmp"
 #define CELL2FEATURE_SORTED_EXT ".c2f.sorted"
 #define CELL2FEATURE_TMP_EXT ".c2f.tmp"
+
+#define LOCALITY_INDEX_TMP_EXT ".locidx.tmp"
+#define CELL2LOCALITY_SORTED_EXT ".c2l.sorted"
+#define CELL2LOCALITY_TMP_EXT ".c2l.tmp"
 
 #define COUNTRIES_FILE "countries.txt"
 #define COUNTRIES_META_FILE "countries_meta.txt"
@@ -80,10 +99,16 @@
 #define RESTRICTIONS_FILENAME "restrictions.csv"
 #define ROAD_ACCESS_FILENAME "road_access.csv"
 #define METALINES_FILENAME "metalines.bin"
+#define CAMERAS_TO_WAYS_FILENAME "cameras_to_ways.bin"
 
 #define TRAFFIC_FILE_EXTENSION ".traffic"
 
 #define REPLACED_TAGS_FILE "replaced_tags.txt"
 #define MIXED_TAGS_FILE "mixed_tags.txt"
+#define MIXED_NODES_FILE "mixed_nodes.txt"
 
 #define LOCALIZATION_DESCRIPTION_SUFFIX " Description"
+
+#define BOOKING_EXCLUDED_FILE "booking_excluded.txt"
+
+auto constexpr kInvalidRatingValue = 0.0f;

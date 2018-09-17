@@ -1,9 +1,7 @@
 #include "drape_frontend/base_renderer.hpp"
 #include "drape_frontend/message_subclasses.hpp"
 
-#include "std/utility.hpp"
-
-#include <functional>
+#include <utility>
 
 namespace df
 {
@@ -42,7 +40,7 @@ void BaseRenderer::StopThread()
   m_selfThread.Join();
 }
 
-void BaseRenderer::SetRenderingEnabled(ref_ptr<dp::OGLContextFactory> contextFactory)
+void BaseRenderer::SetRenderingEnabled(ref_ptr<dp::GraphicsContextFactory> contextFactory)
 {
   if (m_wasContextReset && contextFactory != nullptr)
     m_contextFactory = contextFactory;
@@ -67,19 +65,19 @@ void BaseRenderer::SetRenderingEnabled(bool const isEnabled)
     return;
 
   // here we have to wait for completion of internal SetRenderingEnabled
-  mutex completionMutex;
-  condition_variable completionCondition;
+  std::mutex completionMutex;
+  std::condition_variable completionCondition;
   bool notified = false;
   auto handler = [&]()
   {
-    lock_guard<mutex> lock(completionMutex);
+    std::lock_guard<std::mutex> lock(completionMutex);
     notified = true;
     completionCondition.notify_one();
   };
-  
+
   {
-    lock_guard<mutex> lock(m_completionHandlerMutex);
-    m_renderingEnablingCompletionHandler = move(handler);
+    std::lock_guard<std::mutex> lock(m_completionHandlerMutex);
+    m_renderingEnablingCompletionHandler = std::move(handler);
   }
 
   if (isEnabled)
@@ -96,7 +94,7 @@ void BaseRenderer::SetRenderingEnabled(bool const isEnabled)
     CancelMessageWaiting();
   }
 
-  unique_lock<mutex> lock(completionMutex);
+  std::unique_lock<std::mutex> lock(completionMutex);
   completionCondition.wait(lock, [&notified] { return notified; });
 }
 
@@ -109,7 +107,7 @@ void BaseRenderer::CheckRenderingEnabled()
 {
   if (!m_isEnabled)
   {
-    dp::OGLContext * context = nullptr;
+    dp::GraphicsContext * context = nullptr;
 
     if (m_wasContextReset)
     {
@@ -120,20 +118,21 @@ void BaseRenderer::CheckRenderingEnabled()
     else
     {
       bool const isDrawContext = m_threadName == ThreadsCommutator::RenderThread;
-      context = isDrawContext ? m_contextFactory->getDrawContext() :
-                                m_contextFactory->getResourcesUploadContext();
-      context->setRenderingEnabled(false);
+      context = isDrawContext ? m_contextFactory->GetDrawContext() :
+                                m_contextFactory->GetResourcesUploadContext();
+      context->SetRenderingEnabled(false);
     }
 
     // notify initiator-thread about rendering disabling
     Notify();
 
     // wait for signal
-    unique_lock<mutex> lock(m_renderingEnablingMutex);
+    std::unique_lock<std::mutex> lock(m_renderingEnablingMutex);
     m_renderingEnablingCondition.wait(lock, [this] { return m_wasNotified; });
 
     m_wasNotified = false;
 
+    bool needCreateContext = false;
     if (!m_selfThread.GetRoutine()->IsCancelled())
     {
       // here rendering is enabled again
@@ -142,26 +141,31 @@ void BaseRenderer::CheckRenderingEnabled()
       if (m_wasContextReset)
       {
         m_wasContextReset = false;
-        DisableMessageFiltering();
-        OnContextCreate();
+        needCreateContext = true;
       }
       else
       {
-        context->setRenderingEnabled(true);
+        context->SetRenderingEnabled(true);
       }
     }
     // notify initiator-thread about rendering enabling
     // m_renderingEnablingCompletionHandler will be setup before awakening of this thread
     Notify();
+
+    if (needCreateContext)
+    {
+      DisableMessageFiltering();
+      OnContextCreate();
+    }
   }
 }
 
 void BaseRenderer::Notify()
 {
-  function<void()> handler;
+  std::function<void()> handler;
   {
-    lock_guard<mutex> lock(m_completionHandlerMutex);
-    handler = move(m_renderingEnablingCompletionHandler);
+    std::lock_guard<std::mutex> lock(m_completionHandlerMutex);
+    handler = std::move(m_renderingEnablingCompletionHandler);
     m_renderingEnablingCompletionHandler = nullptr;
   }
 
@@ -171,7 +175,7 @@ void BaseRenderer::Notify()
 
 void BaseRenderer::WakeUp()
 {
-  lock_guard<mutex> lock(m_renderingEnablingMutex);
+  std::lock_guard<std::mutex> lock(m_renderingEnablingMutex);
   m_wasNotified = true;
   m_renderingEnablingCondition.notify_one();
 }

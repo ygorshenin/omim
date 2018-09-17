@@ -1,5 +1,8 @@
-// See O5M Format definition at http://wiki.openstreetmap.org/wiki/O5m
+// See O5M Format definition at https://wiki.openstreetmap.org/wiki/O5m
 #pragma once
+
+#include "base/assert.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -12,10 +15,9 @@
 #include <type_traits>
 #include <vector>
 
-using TReadFunc = std::function<size_t(uint8_t *, size_t)>;
-
-namespace
+namespace osm
 {
+using TReadFunc = std::function<size_t(uint8_t *, size_t)>;
 
 class StreamBuffer
 {
@@ -106,10 +108,7 @@ private:
     m_position = m_buffer.begin();
   }
 };
-}  // anonymous namespace
 
-namespace osm
-{
 
 class O5MSource
 {
@@ -142,8 +141,7 @@ public:
       case EntityType::Sync:      s << "O5M_CMD_SYNC";
       case EntityType::Jump:      s << "O5M_CMD_JUMP";
       case EntityType::Reset:     s << "O5M_CMD_RESET";
-      default:
-        return s << "Unknown command: " << std::hex << static_cast<typename std::underlying_type<EntityType>::type>(type);
+      default: return s << "Unknown command: " << std::hex << base::Key(type);
     }
     return s;
   }
@@ -153,7 +151,7 @@ protected:
   struct StringTableRecord
   {
     // This important value got from
-    // documentation ( http://wiki.openstreetmap.org/wiki/O5m#Strings ) on O5M format.
+    // documentation ( https://wiki.openstreetmap.org/wiki/O5m#Strings ) on O5M format.
     // If change it all will be broken.
     enum { MaxEntrySize = 252 };
 

@@ -10,11 +10,11 @@
 
 #include <vector>
 
+#include <boost/optional.hpp>
+
 @class MWMPlacePageData;
 @class MWMUGCReviewVM;
-@class MWMCianItemModel;
 
-struct BookmarkAndCategory;
 struct FeatureID;
 
 namespace ugc
@@ -61,6 +61,7 @@ enum class PreviewRows
   Subtitle,
   Schedule,
   Review,
+  SearchSimilar,
   Address,
   Space,
   Banner
@@ -92,8 +93,7 @@ enum class HotelReviewsRow
 
 enum class SpecialProject
 {
-  Viator,
-  Cian
+  Viator
 };
 
 enum class MetainfoRows
@@ -135,12 +135,10 @@ enum class OpeningHours
 };
 
 using NewSectionsAreReady = void (^)(NSRange const & range, MWMPlacePageData * data, BOOL isSection);
-using CianIsReady = void (^)(NSArray<MWMCianItemModel *> * items);
 }  // namespace place_page
 
 @class MWMGalleryItemModel;
 @class MWMViatorItemModel;
-@class MWMCianItemModel;
 @class MWMUGCViewModel;
 @class MWMUGCReviewModel;
 @class MWMUGCRatingValueType;
@@ -152,8 +150,11 @@ using CianIsReady = void (^)(NSArray<MWMCianItemModel *> * items);
 @property(copy, nonatomic) MWMVoidBlock refreshPreviewCallback;
 @property(copy, nonatomic) place_page::NewSectionsAreReady sectionsAreReadyCallback;
 @property(copy, nonatomic) MWMVoidBlock bannerIsReadyCallback;
-@property(copy, nonatomic) place_page::CianIsReady cianIsReadyCallback;
+@property(copy, nonatomic) MWMVoidBlock bookingDataUpdatedCallback;
 @property(nonatomic, readonly) MWMUGCViewModel * ugc;
+@property(nonatomic, readonly) NSInteger bookingDiscount;
+@property(nonatomic, readonly) BOOL isSmartDeal;
+@property(nonatomic, readonly) BOOL isPopular;
 
 // ready callback will be called from main queue.
 - (instancetype)initWithPlacePageInfo:(place_page::Info const &)info;
@@ -177,18 +178,25 @@ using CianIsReady = void (^)(NSArray<MWMCianItemModel *> * items);
 // Booking
 - (void)fillOnlineBookingSections;
 - (MWMUGCRatingValueType *)bookingRating;
-- (NSString *)bookingApproximatePricing;
+- (NSString *)bookingPricing;
 - (NSURL *)sponsoredURL;
+- (NSURL *)deepLink;
 - (NSURL *)sponsoredDescriptionURL;
 - (NSURL *)bookingSearchURL;
 - (NSString *)sponsoredId;
-- (void)assignOnlinePriceToLabel:(UILabel *)label;
 - (NSString *)hotelDescription;
 - (vector<booking::HotelFacility> const &)facilities;
 - (vector<booking::HotelReview> const &)hotelReviews;
 - (NSUInteger)numberOfHotelReviews;
 - (NSURL *)URLToAllReviews;
 - (NSArray<MWMGalleryItemModel *> *)photos;
+
+- (boost::optional<int>)hotelRawApproximatePricing;
+- (boost::optional<ftypes::IsHotelChecker::Type>)hotelType;
+
+// Partners
+- (NSString *)partnerName;
+- (int)partnerIndex;
 
 // UGC
 - (ftraits::UGCRatingCategories)ugcRatingCategories;
@@ -197,9 +205,6 @@ using CianIsReady = void (^)(NSArray<MWMCianItemModel *> * items);
 // Viator
 - (void)fillOnlineViatorSection;
 - (NSArray<MWMViatorItemModel *> *)viatorItems;
-
-// CIAN
-- (void)fillOnlineCianSection;
 
 // Route points
 - (RouteMarkType)routeMarkType;
@@ -216,10 +221,12 @@ using CianIsReady = void (^)(NSArray<MWMCianItemModel *> * items);
 
 // Bookmark
 - (NSString *)externalTitle;
-- (NSString *)bookmarkColor;
+- (kml::PredefinedColor)bookmarkColor;
 - (NSString *)bookmarkDescription;
 - (NSString *)bookmarkCategory;
-- (BookmarkAndCategory)bookmarkAndCategory;
+- (kml::MarkId)bookmarkId;
+- (kml::MarkGroupId)bookmarkCategoryId;
+- (BOOL)isBookmarkFromCatalog;
 
 // Local Ads
 - (NSString *)localAdsURL;
@@ -247,14 +254,14 @@ using CianIsReady = void (^)(NSArray<MWMCianItemModel *> * items);
 - (BOOL)isBooking;
 - (BOOL)isOpentable;
 - (BOOL)isViator;
-- (BOOL)isCian;
-- (BOOL)isThor;
+- (BOOL)isPartner;
 - (BOOL)isHolidayObject;
 - (BOOL)isBookingSearch;
 - (BOOL)isHTMLDescription;
 - (BOOL)isMyPosition;
 - (BOOL)isRoutePoint;
 - (BOOL)isPreviewExtended;
+- (BOOL)isPartnerAppInstalled;
 
 + (MWMRatingSummaryViewValueType)ratingValueType:(place_page::rating::Impress)impress;
 

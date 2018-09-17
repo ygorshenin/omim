@@ -5,8 +5,8 @@
 #include "geometry/point2d.hpp"
 
 #include "indexer/classificator_loader.hpp"
+#include "indexer/data_source.hpp"
 #include "indexer/feature_altitude.hpp"
-#include "indexer/index.hpp"
 #include "indexer/mwm_set.hpp"
 
 #include "routing_common/car_model.hpp"
@@ -22,7 +22,7 @@ using namespace integration;
 
 // The test on combinatorial explosion of number of fake edges at FeaturesRoadGraph.
 // It might happen when a lot of roads intersect at one point. For example,
-// http://www.openstreetmap.org/#map=19/50.73197/-1.21295
+// https://www.openstreetmap.org/#map=19/50.73197/-1.21295
 UNIT_TEST(FakeEdgesCombinatorialExplosion)
 {
   classificator::Load();
@@ -31,14 +31,14 @@ UNIT_TEST(FakeEdgesCombinatorialExplosion)
   GetAllLocalFiles(localFiles);
   TEST(!localFiles.empty(), ());
 
-  Index index;
+  FrozenDataSource dataSource;
   for (auto const & file : localFiles)
   {
-    auto const result = index.Register(file);
+    auto const result = dataSource.Register(file);
     TEST_EQUAL(result.second, MwmSet::RegResult::Success, ());
   }
 
-  FeaturesRoadGraph graph(index, IRoadGraph::Mode::ObeyOnewayTag,
+  FeaturesRoadGraph graph(dataSource, IRoadGraph::Mode::ObeyOnewayTag,
                           make_shared<CarModelFactory>(CountryParentNameGetterFn()));
   Junction const j(m2::PointD(MercatorBounds::FromLatLon(50.73208, -1.21279)), feature::kDefaultAltitudeMeters);
   std::vector<std::pair<routing::Edge, routing::Junction>> sourceVicinity;

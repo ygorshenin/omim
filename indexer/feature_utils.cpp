@@ -13,9 +13,11 @@
 #include "base/base.hpp"
 #include "base/control_flow.hpp"
 
-#include "std/unordered_map.hpp"
-#include "std/utility.hpp"
-#include "std/vector.hpp"
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+using namespace std;
 
 namespace
 {
@@ -28,8 +30,7 @@ int8_t GetIndex(string const & lang)
 
 unordered_map<int8_t, vector<int8_t>> const kSimilarToDeviceLanguages =
 {
-  {GetIndex("be"), {GetIndex("ru")}},
-  {GetIndex("ru"), {GetIndex("be")}}
+  {GetIndex("be"), {GetIndex("ru")}}
 };
 
 void GetMwmLangName(feature::RegionData const & regionData, StringUtf8Multilang const & src, string & out)
@@ -77,17 +78,17 @@ bool GetBestName(StringUtf8Multilang const & src, vector<int8_t> const & priorit
   };
 
   src.ForEach([&](int8_t code, string const & name)
-  {
-    if (bestIndex == 0)
-      return base::ControlFlow::Break;
+              {
+                if (bestIndex == 0)
+                  return base::ControlFlow::Break;
 
-    findAndSet(priorityList, code, name, bestIndex, out);
-    return base::ControlFlow::Continue;
-  });
+                findAndSet(priorityList, code, name, bestIndex, out);
+                return base::ControlFlow::Continue;
+              });
 
   // There are many "junk" names in Arabian island.
   if (bestIndex < priorityList.size() &&
-      priorityList[bestIndex] == StrUtf8::kInternationalCode)
+    priorityList[bestIndex] == StrUtf8::kInternationalCode)
   {
     out = out.substr(0, out.find_first_of(','));
   }
@@ -361,5 +362,11 @@ int8_t GetNameForSearchOnBooking(RegionData const & regionData, StringUtf8Multil
 
   name.clear();
   return StringUtf8Multilang::kUnsupportedLanguageCode;
+}
+
+bool GetPreferredName(StringUtf8Multilang const & src, int8_t deviceLang, string & out)
+{
+  auto const priorityList = MakePrimaryNamePriorityList(deviceLang, true /* preferDefault */);
+  return GetBestName(src, priorityList, out);
 }
 } // namespace feature

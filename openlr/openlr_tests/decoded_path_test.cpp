@@ -6,7 +6,7 @@
 #include "generator/generator_tests_support/test_mwm_builder.hpp"
 
 #include "indexer/classificator_loader.hpp"
-#include "indexer/index.hpp"
+#include "indexer/data_source.hpp"
 
 #include "platform/country_file.hpp"
 #include "platform/local_country_file.hpp"
@@ -15,6 +15,8 @@
 #include "platform/platform_tests_support/scoped_file.hpp"
 
 #include "coding/file_name_utils.hpp"
+
+#include "base/checked_cast.hpp"
 
 #include <algorithm>
 #include <iomanip>
@@ -63,13 +65,13 @@ void RoughJunctionsInPath(openlr::Path & p)
     e = RoughEdgeJunctions(e);
 }
 
-void TestSerializeDeserialize(openlr::Path const & path, Index const & index)
+void TestSerializeDeserialize(openlr::Path const & path, DataSource const & dataSource)
 {
   pugi::xml_document doc;
   openlr::PathToXML(path, doc);
 
   openlr::Path restoredPath;
-  openlr::PathFromXML(doc, index, restoredPath);
+  openlr::PathFromXML(doc, dataSource, restoredPath);
 
   // Fix MercatorBounds::From/ToLatLon floating point error
   // for we could use TEST_EQUAL on result.
@@ -103,7 +105,8 @@ openlr::Path MakePath(FeatureType const & road, bool const forward)
     auto const from = road.GetPoint(current);
     auto const to = road.GetPoint(next);
     path.push_back(routing::Edge::MakeReal(
-        road.GetID(), forward, current - static_cast<size_t>(!forward) /* segId */,
+        road.GetID(), forward,
+        base::checked_cast<uint32_t>(current - static_cast<size_t>(!forward)) /* segId */,
         routing::Junction(from, 0 /* altitude */), routing::Junction(to, 0 /* altitude */)));
   }
 
@@ -130,25 +133,25 @@ void WithRoad(vector<m2::PointD> const & points, Func && fn)
     builder.Add(TestRoad(points, "Interstate 60", "en"));
   }
 
-  Index index;
-  auto const regResult = index.RegisterMap(country);
+  FrozenDataSource dataSource;
+  auto const regResult = dataSource.RegisterMap(country);
   TEST_EQUAL(regResult.second, MwmSet::RegResult::Success, ());
 
-  MwmSet::MwmHandle mwmHandle = index.GetMwmHandleById(regResult.first);
+  MwmSet::MwmHandle mwmHandle = dataSource.GetMwmHandleById(regResult.first);
   TEST(mwmHandle.IsAlive(), ());
 
-  Index::FeaturesLoaderGuard const guard(index, regResult.first);
+  FeaturesLoaderGuard const guard(dataSource, regResult.first);
   FeatureType road;
   TEST(guard.GetFeatureByIndex(0, road), ());
   road.ParseEverything();
 
-  fn(index, road);
+  fn(dataSource, road);
 }
 
 UNIT_TEST(MakePath_Test)
 {
   std::vector<m2::PointD> const points{{0, 0}, {0, 1}, {1, 0}, {1, 1}};
-  WithRoad(points, [&points](Index const & index, FeatureType & road) {
+  WithRoad(points, [&points](DataSource const & dataSource, FeatureType & road) {
     auto const & id = road.GetID();
     {
       openlr::Path const expected{
@@ -179,14 +182,14 @@ UNIT_TEST(MakePath_Test)
 
 UNIT_TEST(PathSerializeDeserialize_Test)
 {
-  WithRoad({{0, 0}, {0, 1}, {1, 0}, {1, 1}}, [](Index const & index, FeatureType & road) {
+  WithRoad({{0, 0}, {0, 1}, {1, 0}, {1, 1}}, [](DataSource const & dataSource, FeatureType & road) {
     {
       auto const path = MakePath(road, true /* forward */);
-      TestSerializeDeserialize(path, index);
+      TestSerializeDeserialize(path, dataSource);
     }
     {
       auto const path = MakePath(road, false /* forward */);
-      TestSerializeDeserialize(path, index);
+      TestSerializeDeserialize(path, dataSource);
     }
   });
 }
@@ -194,7 +197,7 @@ UNIT_TEST(PathSerializeDeserialize_Test)
 UNIT_TEST(GetPoints_Test)
 {
   vector<m2::PointD> const points{{0, 0}, {0, 1}, {1, 0}, {1, 1}};
-  WithRoad(points, [&points](Index const &, FeatureType & road) {
+  WithRoad(points, [&points](DataSource const &, FeatureType & road) {
     {
       auto path = MakePath(road, true /* forward */);
       // RoughJunctionsInPath(path);

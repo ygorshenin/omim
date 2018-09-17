@@ -6,7 +6,6 @@
 
 #include "base/assert.hpp"
 #include "base/mem_trie.hpp"
-#include "base/stl_add.hpp"
 #include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
@@ -16,25 +15,25 @@
 #include <utility>
 #include <vector>
 
-namespace search
+namespace search_base
 {
-namespace base
-{
-template <typename Id, typename Doc>
+template <typename Id>
 class MemSearchIndex
 {
 public:
   using Token = strings::UniString;
   using Char = Token::value_type;
   using List = InvertedList<Id>;
-  using Trie = ::base::MemTrie<Token, List>;
+  using Trie = base::MemTrie<Token, List>;
   using Iterator = trie::MemTrieIterator<Token, List>;
 
+  template <typename Doc>
   void Add(Id const & id, Doc const & doc)
   {
     ForEachToken(id, doc, [&](Token const & token) { m_trie.Add(token, id); });
   }
 
+  template <typename Doc>
   void Erase(Id const & id, Doc const & doc)
   {
     ForEachToken(id, doc, [&](Token const & token) { m_trie.Erase(token, id); });
@@ -76,7 +75,7 @@ private:
     return r;
   }
 
-  template <typename Fn>
+  template <typename Doc, typename Fn>
   void ForEachToken(Id const & id, Doc const & doc, Fn && fn)
   {
     doc.ForEachToken([&](int8_t lang, Token const & token) {
@@ -90,11 +89,10 @@ private:
   {
     std::vector<Id> ids;
     fn(ids);
-    my::SortUnique(ids);
+    base::SortUnique(ids);
     return ids;
   }
 
   Trie m_trie;
 };
-}  // namespace base
-}  // namespace search
+}  // namespace search_base

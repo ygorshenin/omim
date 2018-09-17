@@ -11,7 +11,6 @@
 #import "MapViewController.h"
 #import "MapsAppDelegate.h"
 #import "Statistics.h"
-#import "Statistics+ConnectionTypeLogging.h"
 #import "SwiftBridge.h"
 
 #include "Framework.h"
@@ -28,7 +27,8 @@ CGFloat constexpr kLayoutThreshold = 420.0;
 
 typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
   MWMBottomMenuViewCellAddPlace,
-  MWMBottomMenuViewCellDownload,
+  MWMBottomMenuViewCellDownloadRoutes,
+  MWMBottomMenuViewCellDownloadMaps,
   MWMBottomMenuViewCellSettings,
   MWMBottomMenuViewCellShare,
   MWMBottomMenuViewCellCount
@@ -45,12 +45,11 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
 
 @property(nonatomic) MWMBottomMenuState restoreState;
 @property(nonatomic) MWMDimBackground * dimBackground;
-@property(nonatomic, readonly) NSUInteger additionalButtonsCount;
 @property(weak, nonatomic) IBOutlet MWMButton * searchButton;
 @property(weak, nonatomic) IBOutlet NSLayoutConstraint * mainButtonsHeight;
 @property(weak, nonatomic) IBOutlet UICollectionView * additionalButtons;
 @property(weak, nonatomic) IBOutlet UIView * downloadBadge;
-@property(weak, nonatomic) MapViewController * controller;
+@property(weak, nonatomic) MapViewController * mapViewController;
 @property(weak, nonatomic) id<MWMBottomMenuControllerProtocol> delegate;
 
 @end
@@ -74,15 +73,15 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
   self = [super init];
   if (self)
   {
-    _controller = controller;
+    _mapViewController = controller;
     _delegate = delegate;
     [controller addChildViewController:self];
     [controller.view addSubview:self.view];
+    [controller.view layoutIfNeeded];
   }
   return self;
 }
 
-- (void)dealloc { [NSNotificationCenter.defaultCenter removeObserver:self]; }
 - (void)viewDidLoad
 {
   [super viewDidLoad];
@@ -122,6 +121,7 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
 - (void)viewWillTransitionToSize:(CGSize)size
        withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator
 {
+  [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
   [self.additionalButtons reloadData];
 }
 
@@ -176,14 +176,15 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
                        isEnabled:isEnabled];
     break;
   }
-  case MWMBottomMenuViewCellDownload:
-  {
+  case MWMBottomMenuViewCellDownloadRoutes:
+    [cell configurePromoWithImageName:@"ic_menu_routes" label:L(@"download_guides")];
+    break;
+  case MWMBottomMenuViewCellDownloadMaps:
     [cell configureWithImageName:@"ic_menu_download"
                            label:L(@"download_maps")
                       badgeCount:[[MapsAppDelegate theApp] badgeNumber]
                        isEnabled:YES];
-  }
-  break;
+    break;
   case MWMBottomMenuViewCellSettings:
     [cell configureWithImageName:@"ic_menu_settings"
                            label:L(@"settings")
@@ -212,7 +213,8 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
   switch (indexPath.item)
   {
   case MWMBottomMenuViewCellAddPlace: [self menuActionAddPlace]; break;
-  case MWMBottomMenuViewCellDownload: [self menuActionDownloadMaps]; break;
+  case MWMBottomMenuViewCellDownloadRoutes: [self menuActionDownloadRoutes]; break;
+  case MWMBottomMenuViewCellDownloadMaps: [self menuActionDownloadMaps]; break;
   case MWMBottomMenuViewCellSettings: [self menuActionOpenSettings]; break;
   case MWMBottomMenuViewCellShare: [self menuActionShareLocation]; break;
   }
@@ -222,31 +224,36 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
 
 - (void)menuActionAddPlace
 {
-  [Statistics logEvent:kStatEditorAddClick withParameters:@{kStatValue : kStatMenu}];
+  [Statistics logEvent:kStatToolbarMenuClick withParameters:@{kStatItem : kStatAddPlace}];
   GetPlatform().GetMarketingService().SendPushWooshTag(marketing::kEditorAddDiscovered);
   self.state = self.restoreState;
   [self.delegate addPlace:NO hasPoint:NO point:m2::PointD()];
 }
 
+- (void)menuActionDownloadRoutes
+{
+  [Statistics logEvent:kStatToolbarMenuClick withParameters:@{kStatItem : kStatDownloadGuides}];
+  self.state = self.restoreState;
+  [self.mapViewController openCatalogAnimated:YES];
+}
+
 - (void)menuActionDownloadMaps
 {
-  [Statistics logEvent:kStatMenu withParameters:@{kStatButton : kStatDownloadMaps}];
-  self.state = MWMBottomMenuStateInactive;
+  [Statistics logEvent:kStatToolbarMenuClick withParameters:@{kStatItem : kStatDownloadMaps}];
+  self.state = self.restoreState;
   [self.delegate actionDownloadMaps:MWMMapDownloaderModeDownloaded];
 }
 
 - (IBAction)menuActionOpenSettings
 {
-  [Statistics logEvent:kStatMenu withParameters:@{kStatButton : kStatSettings}];
+  [Statistics logEvent:kStatToolbarMenuClick withParameters:@{kStatItem : kStatSettings}];
   self.state = self.restoreState;
-  [Alohalytics logEvent:kAlohalyticsTapEventKey withValue:@"settingsAndMore"];
-  [self.controller performSegueWithIdentifier:@"Map2Settings" sender:nil];
+  [self.mapViewController performSegueWithIdentifier:@"Map2Settings" sender:nil];
 }
 
 - (void)menuActionShareLocation
 {
-  [Statistics logEvent:kStatMenu withParameters:@{kStatButton : kStatShare}];
-  [Alohalytics logEvent:kAlohalyticsTapEventKey withValue:@"share@"];
+  [Statistics logEvent:kStatToolbarMenuClick withParameters:@{kStatItem : kStatShareMyLocation}];
   CLLocation * lastLocation = [MWMLocationManager lastLocation];
   if (!lastLocation)
   {
@@ -263,12 +270,12 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
       (MWMBottomMenuCollectionViewCell *)[self.additionalButtons cellForItemAtIndexPath:cellIndex];
   MWMActivityViewController * shareVC =
       [MWMActivityViewController shareControllerForMyPosition:coord];
-  [shareVC presentInParentViewController:self.controller anchorView:cell.icon];
+  [shareVC presentInParentViewController:self.mapViewController anchorView:cell.icon];
 }
 
 - (IBAction)point2PointButtonTouchUpInside:(UIButton *)sender
 {
-  [Statistics logEvent:kStatMenu withParameters:@{kStatButton : kStatPointToPoint}];
+  [Statistics logEvent:kStatToolbarClick withParameters:@{kStatButton : kStatPointToPoint}];
   BOOL const isSelected = !sender.isSelected;
   [MWMRouter enableAutoAddLastLocation:NO];
   if (isSelected)
@@ -279,8 +286,7 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
 
 - (IBAction)searchButtonTouchUpInside
 {
-  [Statistics logEvent:kStatMenu withParameters:@{kStatButton : kStatSearch}];
-  [Alohalytics logEvent:kAlohalyticsTapEventKey withValue:@"search"];
+  [Statistics logEvent:kStatToolbarClick withParameters:@{kStatButton : kStatSearch}];
   self.state = MWMBottomMenuStateInactive;
   auto searchManager = [MWMSearchManager manager];
   if (searchManager.state == MWMSearchManagerStateHidden)
@@ -291,38 +297,21 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
 
 - (IBAction)discoveryTap
 {
-  auto mode = ^MWMDiscoveryMode (BOOL canUseNetwork) {
-    return canUseNetwork ? MWMDiscoveryModeOnline : MWMDiscoveryModeOffline;
-  };
+  [Statistics logEvent:kStatToolbarClick withParameters:@{kStatButton : kStatDiscovery}];
 
-  auto const connectionType = GetPlatform().ConnectionStatus();
+  self.state = self.restoreState;
 
-  [Statistics logEvent:kStatDiscoveryButtonOpen
-        withParameters:@{kStatNetwork: [Statistics connectionTypeToString:connectionType]}];
-
-  auto discovery = [MWMDiscoveryController instance];
-  using namespace network_policy;
-  auto const canUseNetwork = CanUseNetwork();
-  if (!canUseNetwork && connectionType == Platform::EConnectionType::CONNECTION_WWAN &&
-     GetStage() == platform::NetworkPolicy::Stage::Session)
-  {
-    [[MWMAlertViewController activeAlertController] presentMobileInternetAlertWithBlock:^{
-      discovery.mode = mode(CanUseNetwork());
-      [self.controller.navigationController pushViewController:discovery animated:YES];
-    }];
-    return;
-  }
-
-  discovery.mode = mode(canUseNetwork);
-  [self.controller.navigationController pushViewController:discovery animated:YES];
+  network_policy::CallPartnersApi([self](auto const & canUseNetwork) {
+    auto discovery = [MWMDiscoveryController instanceWithConnection:canUseNetwork.CanUse()];
+    [self.mapViewController.navigationController pushViewController:discovery animated:YES];
+  });
 }
 
 - (IBAction)bookmarksButtonTouchUpInside
 {
-  [Statistics logEvent:kStatMenu withParameters:@{kStatButton : kStatBookmarks}];
-  [Alohalytics logEvent:kAlohalyticsTapEventKey withValue:@"bookmarks"];
+  [Statistics logEvent:kStatToolbarClick withParameters:@{kStatButton : kStatBookmarks}];
   self.state = MWMBottomMenuStateInactive;
-  [self.controller openBookmarks];
+  [self.mapViewController openBookmarks];
 }
 
 - (IBAction)menuButtonTouchUpInside
@@ -333,7 +322,7 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
   case MWMBottomMenuStateInactive:
     if ([self.menuView isCompact])
     {
-      [Statistics logEvent:kStatMenu withParameters:@{kStatButton : kStatRegular}];
+      [Statistics logEvent:kStatToolbarClick withParameters:@{kStatButton : kStatMenu}];
       if (IPAD)
       {
         [MWMSearchManager manager].state = MWMSearchManagerStateHidden;
@@ -342,12 +331,11 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
     }
     else
     {
-      [Statistics logEvent:kStatMenu withParameters:@{kStatButton : kStatExpand}];
+      [Statistics logEvent:kStatToolbarClick withParameters:@{kStatButton : kStatMenu}];
       self.state = MWMBottomMenuStateActive;
     }
     break;
   case MWMBottomMenuStateActive:
-    [Statistics logEvent:kStatMenu withParameters:@{kStatButton : kStatCollapse}];
     self.state = MWMBottomMenuStateInactive;
     break;
   }
@@ -359,35 +347,36 @@ typedef NS_ENUM(NSUInteger, MWMBottomMenuViewCell) {
 - (MWMDimBackground *)dimBackground
 {
   if (!_dimBackground)
-    _dimBackground = [[MWMDimBackground alloc] initWithMainView:self.view];
+  {
+    __weak auto wSelf = self;
+    auto tapAction = ^{
+      // In case when there are 2 touch events (dimBackgroundTap &
+      // menuButtonTouchUpInside)
+      // if dimBackgroundTap is processed first then menuButtonTouchUpInside
+      // behaves as if menu is
+      // inactive this is wrong case, so we postpone dimBackgroundTap to make
+      // sure
+      // menuButtonTouchUpInside processed first
+      dispatch_async(dispatch_get_main_queue(), ^{
+        wSelf.state = MWMBottomMenuStateInactive;
+      });
+    };
+    _dimBackground = [[MWMDimBackground alloc] initWithMainView:self.view tapAction:tapAction];
+  }
   return _dimBackground;
 }
 
 - (void)setState:(MWMBottomMenuState)state
 {
   dispatch_async(dispatch_get_main_queue(), ^{
-    [self.controller setNeedsStatusBarAppearanceUpdate];
+    [self.mapViewController setNeedsStatusBarAppearanceUpdate];
   });
-  MWMBottomMenuView * view = self.menuView;
   BOOL const menuActive = (state == MWMBottomMenuStateActive);
   if (menuActive)
-    [self.controller.view bringSubviewToFront:view];
+    [self.mapViewController.view bringSubviewToFront:self.menuView];
 
-  __weak auto wSelf = self;
-  [self.dimBackground setVisible:menuActive
-                       tapAction:^{
-                         // In case when there are 2 touch events (dimBackgroundTap &
-                         // menuButtonTouchUpInside)
-                         // if dimBackgroundTap is processed first then menuButtonTouchUpInside
-                         // behaves as if menu is
-                         // inactive this is wrong case, so we postpone dimBackgroundTap to make
-                         // sure
-                         // menuButtonTouchUpInside processed first
-                         dispatch_async(dispatch_get_main_queue(), ^{
-                           wSelf.state = MWMBottomMenuStateInactive;
-                         });
-                       }];
-  view.state = state;
+  [self.dimBackground setVisible:menuActive completion:nil];
+  self.menuView.state = state;
   [self updateBadgeVisible:[[MapsAppDelegate theApp] badgeNumber] != 0];
 }
 

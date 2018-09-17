@@ -11,19 +11,18 @@ crashlytics_context_t * g_crashlytics;
 
 extern "C"
 {
-  // static void nativePreparePlatform(String settingsPath);
+  // void nativeInitPlatform(String apkPath, String storagePath, String privatePath, String tmpPath,
+  // String obbGooglePath, String flavorName, String buildType, boolean isTablet);
   JNIEXPORT void JNICALL
-  Java_com_mapswithme_maps_MwmApplication_nativePreparePlatform(JNIEnv * env, jclass clazz, jstring settingsPath)
+  Java_com_mapswithme_maps_MwmApplication_nativeInitPlatform(JNIEnv * env, jobject thiz,
+                                                             jstring apkPath, jstring storagePath,
+                                                             jstring privatePath, jstring tmpPath,
+                                                             jstring obbGooglePath,
+                                                             jstring flavorName, jstring buildType,
+                                                             jboolean isTablet)
   {
-    android::Platform::Instance().SetSettingsDir(jni::ToNativeString(env, settingsPath));
-  }
-
-  // void nativeInitPlatform(String apkPath, String storagePath, String tmpPath, String obbGooglePath, String flavorName, String buildType, boolean isTablet);
-  JNIEXPORT void JNICALL
-  Java_com_mapswithme_maps_MwmApplication_nativeInitPlatform(JNIEnv * env, jobject thiz, jstring apkPath, jstring storagePath, jstring tmpPath,
-                                                             jstring obbGooglePath, jstring flavorName, jstring buildType, jboolean isTablet)
-  {
-    android::Platform::Instance().Initialize(env, thiz, apkPath, storagePath, tmpPath, obbGooglePath, flavorName, buildType, isTablet);
+    android::Platform::Instance().Initialize(env, thiz, apkPath, storagePath, privatePath, tmpPath,
+                                             obbGooglePath, flavorName, buildType, isTablet);
   }
 
   // static void nativeInitFramework();
@@ -31,7 +30,7 @@ extern "C"
   Java_com_mapswithme_maps_MwmApplication_nativeInitFramework(JNIEnv * env, jclass clazz)
   {
     if (!g_framework)
-      g_framework = new android::Framework();
+      g_framework = make_unique<android::Framework>();
   }
 
   // static void nativeProcessTask(long taskPointer);

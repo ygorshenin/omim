@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Scharf links.",
 "make_a_u_turn":"Wenden Sie.",
 "go_straight":"Fahren Sie geradeaus.",
+"exit":"Ausfahrt.",
 "destination":"Werden Sie ankommen.",
 "you_have_reached_the_destination":"Sie sind angekommen.",
 "in_50_meters":"In fünfzig Metern",
@@ -61,5 +62,6 @@
 "in_5000_feet":"In fünftausend Fuß",
 "in_1_mile":"In einer Meile",
 "in_1_5_miles":"In anderthalb Meilen",
-"in_2_miles":"In zwei Meilen"
+"in_2_miles":"In zwei Meilen",
+"unknown_camera":"Speed camera ahead"
 }

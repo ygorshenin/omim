@@ -3,7 +3,7 @@
 
 #include "map/bookmark_manager.hpp"
 #include "map/framework.hpp"
-#include "map/user_mark_container.hpp"
+#include "map/user_mark_layer.hpp"
 
 #include "drape/constants.hpp"
 
@@ -113,9 +113,9 @@ void SearchPanel::OnSearchResults(uint64_t timestamp, search::Results const & re
     m_pTable->setCellWidget(rowCount, 1, new QLabel(strHigh));
     m_pTable->setItem(rowCount, 2, CreateItem(QString::fromStdString(res.GetAddress())));
 
-    if (res.GetResultType() == search::Result::RESULT_FEATURE)
+    if (res.GetResultType() == search::Result::Type::Feature)
     {
-      m_pTable->setItem(rowCount, 0, CreateItem(QString::fromStdString(res.GetFeatureType())));
+      m_pTable->setItem(rowCount, 0, CreateItem(QString::fromStdString(res.GetFeatureTypeName())));
       m_pTable->setItem(rowCount, 3, CreateItem(m_pDrawWidget->GetDistance(res).c_str()));
     }
 
@@ -261,9 +261,9 @@ void SearchPanel::OnSearchTextChanged(QString const & str)
     m_params.m_query = normalized.toUtf8().constData();
     auto const timestamp = ++m_timestamp;
     m_params.m_onResults = [this, timestamp](search::Results const & results,
-                                             vector<bool> const & /* isLocalAdsCustomer */) {
-      GetPlatform().RunTask(Platform::Thread::Gui, bind(&SearchPanel::OnSearchResults, this,
-                                                        timestamp, results));
+                                             std::vector<search::ProductInfo> const & productInfo) {
+      GetPlatform().RunTask(Platform::Thread::Gui,
+                            std::bind(&SearchPanel::OnSearchResults, this, timestamp, results));
     };
 
     if (m_pDrawWidget->Search(m_params))

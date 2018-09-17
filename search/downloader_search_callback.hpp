@@ -4,7 +4,7 @@
 
 #include <functional>
 
-class Index;
+class DataSource;
 
 namespace storage
 {
@@ -30,7 +30,7 @@ public:
     virtual void RunUITask(std::function<void()> fn) = 0;
   };
 
-  DownloaderSearchCallback(Delegate & delegate, Index const & index,
+  DownloaderSearchCallback(Delegate & delegate, DataSource const & dataSource,
                            storage::CountryInfoGetter const & infoGetter,
                            storage::Storage const & storage,
                            storage::DownloaderSearchParams params);
@@ -39,7 +39,7 @@ public:
 
 private:
   Delegate & m_delegate;
-  Index const & m_index;
+  DataSource const & m_dataSource;
   storage::CountryInfoGetter const & m_infoGetter;
   storage::Storage const & m_storage;
   storage::DownloaderSearchParams m_params;

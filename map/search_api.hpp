@@ -1,16 +1,18 @@
 #pragma once
 
+#include "map/booking_filter_params.hpp"
 #include "map/bookmark.hpp"
+#include "map/everywhere_search_callback.hpp"
+#include "map/search_product_info.hpp"
+#include "map/viewport_search_callback.hpp"
 
 #include "search/downloader_search_callback.hpp"
 #include "search/engine.hpp"
-#include "search/everywhere_search_callback.hpp"
 #include "search/mode.hpp"
 #include "search/result.hpp"
 #include "search/search_params.hpp"
-#include "search/viewport_search_callback.hpp"
 
-#include "drape_frontend/user_marks_provider.hpp"
+#include "kml/type_utils.hpp"
 
 #include "geometry/point2d.hpp"
 #include "geometry/rect2d.hpp"
@@ -24,10 +26,14 @@
 
 #include <boost/optional.hpp>
 
+class DataSource;
+
 namespace search
 {
+struct BookmarksSearchParams;
 struct EverywhereSearchParams;
 struct ViewportSearchParams;
+struct DiscoverySearchParams;
 }
 
 namespace storage
@@ -37,31 +43,12 @@ class Storage;
 struct DownloaderSearchParams;
 }
 
-namespace booking
-{
-struct AvailabilityParams;
-namespace filter
-{
-namespace availability
-{
-struct Params;
-}
-}
-}
-
 class SearchAPI : public search::DownloaderSearchCallback::Delegate,
                   public search::EverywhereSearchCallback::Delegate,
-                  public search::ViewportSearchCallback::Delegate
+                  public search::ViewportSearchCallback::Delegate,
+                  public search::ProductInfo::Delegate
 {
 public:
-  enum class SponsoredMode
-  {
-    None,
-    // TODO (@y, @m): delete me after Cian project is finished.
-    Cian,
-    Booking
-  };
-
   struct Delegate
   {
     virtual ~Delegate() = default;
@@ -70,8 +57,14 @@ public:
 
     virtual void SetSearchDisplacementModeEnabled(bool /* enabled */) {}
 
-    virtual void ShowViewportSearchResults(bool clear, search::Results::ConstIter begin,
-                                           search::Results::ConstIter end)
+    virtual void ShowViewportSearchResults(search::Results::ConstIter begin,
+                                           search::Results::ConstIter end, bool clear)
+    {
+    }
+
+    virtual void ShowViewportSearchResults(search::Results::ConstIter begin,
+                                           search::Results::ConstIter end, bool clear,
+                                           booking::filter::Types types)
     {
     }
 
@@ -86,27 +79,23 @@ public:
 
     virtual double GetMinDistanceBetweenResults() const { return 0.0; };
 
-    virtual bool IsLocalAdsCustomer(search::Result const & /* result */) const { return false; }
-
-    virtual void FilterSearchResultsOnBooking(booking::filter::availability::Params const & params,
-                                              search::Results const & results, bool inViewport)
+    virtual void FilterResultsForHotelsQuery(booking::filter::Tasks const & filterTasks,
+                                             search::Results const & results, bool inViewport)
     {
     }
 
-    virtual void OnBookingFilterParamsUpdate(booking::AvailabilityParams const & params)
-    {
-    }
+    virtual void OnBookingFilterParamsUpdate(booking::filter::Tasks const & filterTasks) {}
+
+    virtual search::ProductInfo GetProductInfo(search::Result const & result) const { return {}; };
   };
 
-  SearchAPI(Index & index, storage::Storage const & storage,
+  SearchAPI(DataSource & dataSource, storage::Storage const & storage,
             storage::CountryInfoGetter const & infoGetter, Delegate & delegate);
   virtual ~SearchAPI() = default;
 
   void OnViewportChanged(m2::RectD const & viewport);
 
   void LoadCitiesBoundaries() { m_engine.LoadCitiesBoundaries(); }
-
-  SponsoredMode GetSponsoredMode() const { return m_sponsoredMode; }
 
   // Search everywhere.
   bool SearchEverywhere(search::EverywhereSearchParams const & params);
@@ -116,6 +105,9 @@ public:
 
   // Search for maps by countries or cities.
   bool SearchInDownloader(storage::DownloaderSearchParams const & params);
+
+  // Search for bookmarks.
+  bool SearchInBookmarks(search::BookmarksSearchParams const & params);
 
   search::Engine & GetEngine() { return m_engine; }
   search::Engine const & GetEngine() const { return m_engine; }
@@ -134,13 +126,18 @@ public:
   void RunUITask(std::function<void()> fn) override;
   void SetHotelDisplacementMode() override;
   bool IsViewportSearchActive() const override;
-  void ShowViewportSearchResults(bool clear, search::Results::ConstIter begin,
-                                 search::Results::ConstIter end) override;
-  bool IsLocalAdsCustomer(search::Result const & result) const override;
+  void ShowViewportSearchResults(search::Results::ConstIter begin,
+                                 search::Results::ConstIter end, bool clear) override;
+  void ShowViewportSearchResults(search::Results::ConstIter begin,
+                                 search::Results::ConstIter end, bool clear,
+                                 booking::filter::Types types) override;
+  search::ProductInfo GetProductInfo(search::Result const & result) const override;
+  void FilterResultsForHotelsQuery(booking::filter::Tasks const & filterTasks,
+                                   search::Results const & results, bool inViewport) override;
 
-  void OnBookmarksCreated(std::vector<std::pair<df::MarkID, BookmarkData>> const & marks);
-  void OnBookmarksUpdated(std::vector<std::pair<df::MarkID, BookmarkData>> const & marks);
-  void OnBookmarksDeleted(std::vector<df::MarkID> const & marks);
+  void OnBookmarksCreated(std::vector<std::pair<kml::MarkId, kml::BookmarkData>> const & marks);
+  void OnBookmarksUpdated(std::vector<std::pair<kml::MarkId, kml::BookmarkData>> const & marks);
+  void OnBookmarksDeleted(std::vector<kml::MarkId> const & marks);
 
 private:
   struct SearchIntent
@@ -158,10 +155,7 @@ private:
   bool QueryMayBeSkipped(search::SearchParams const & prevParams,
                          search::SearchParams const & currParams) const;
 
-  void UpdateSponsoredMode(std::string const & query,
-                           booking::filter::availability::Params const & params);
-
-  Index & m_index;
+  DataSource & m_dataSource;
   storage::Storage const & m_storage;
   storage::CountryInfoGetter const & m_infoGetter;
   Delegate & m_delegate;
@@ -175,8 +169,4 @@ private:
 
   m2::RectD m_viewport;
   bool m_isViewportInitialized = false;
-
-  SponsoredMode m_sponsoredMode = SponsoredMode::None;
 };
-
-std::string DebugPrint(SearchAPI::SponsoredMode mode);

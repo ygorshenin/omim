@@ -108,14 +108,14 @@ public:
                       std::map<std::string, m2::PointF> const & transitSymbolSizes);
 
   void ProcessSubroute(std::vector<routing::RouteSegment> const & segments, df::Subroute & subroute);
-
+  void CreateTransitMarks();
 
   TransitRouteInfo const & GetRouteInfo();
 
 private:
   void CollectTransitDisplayInfo(std::vector<routing::RouteSegment> const & segments,
                                  TransitDisplayInfos & transitDisplayInfos);
-  void CreateTransitMarks(std::vector<TransitMarkInfo> const & transitMarks);
+  TransitMark * CreateMark(m2::PointD const & pt, FeatureID const & fid);
 
   TransitReadManager & m_transitReadManager;
   GetMwmIdFn m_getMwmIdFn;
@@ -124,6 +124,7 @@ private:
   std::map<std::string, m2::PointF> const & m_symbolSizes;
 
   TransitRouteInfo m_routeInfo;
+  std::vector<TransitMarkInfo> m_transitMarks;
 
   int m_subrouteIndex = 0;
   float m_maxSubrouteWidth = -1.0f;

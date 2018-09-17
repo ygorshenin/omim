@@ -11,7 +11,7 @@
 #include "base/assert.hpp"
 #include "base/levenshtein_dfa.hpp"
 
-#include "std/vector.hpp"
+using namespace std;
 
 namespace search
 {
@@ -51,19 +51,19 @@ CBV CategoriesCache::Load(MwmContext const & context) const
 }
 
 // StreetsCache ------------------------------------------------------------------------------------
-StreetsCache::StreetsCache(my::Cancellable const & cancellable)
+StreetsCache::StreetsCache(base::Cancellable const & cancellable)
   : CategoriesCache(ftypes::IsStreetChecker::Instance(), cancellable)
 {
 }
 
 // VillagesCache -----------------------------------------------------------------------------------
-VillagesCache::VillagesCache(my::Cancellable const & cancellable)
+VillagesCache::VillagesCache(base::Cancellable const & cancellable)
   : CategoriesCache(ftypes::IsVillageChecker::Instance(), cancellable)
 {
 }
 
 // HotelsCache -------------------------------------------------------------------------------------
-HotelsCache::HotelsCache(my::Cancellable const & cancellable)
+HotelsCache::HotelsCache(base::Cancellable const & cancellable)
   : CategoriesCache(ftypes::IsHotelChecker::Instance(), cancellable)
 {
 }

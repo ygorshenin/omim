@@ -1,16 +1,20 @@
 package com.mapswithme.maps.taxi;
 
-import android.support.annotation.IntDef;
+import android.content.Context;
+import android.location.Location;
 import android.support.annotation.MainThread;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
 import com.mapswithme.maps.bookmarks.data.MapObject;
+import com.mapswithme.maps.location.LocationHelper;
+import com.mapswithme.maps.routing.RoutingController;
 import com.mapswithme.util.NetworkPolicy;
+import com.mapswithme.util.SponsoredLinks;
+import com.mapswithme.util.Utils;
 import com.mapswithme.util.concurrency.UiThread;
+import com.mapswithme.util.statistics.Statistics;
 
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -18,14 +22,7 @@ import java.util.List;
 @MainThread
 public class TaxiManager
 {
-  public static final int PROVIDER_UBER = 0;
-  public static final int PROVIDER_YANDEX = 1;
-
   public static final TaxiManager INSTANCE = new TaxiManager();
-
-  @Retention(RetentionPolicy.SOURCE)
-  @IntDef({ PROVIDER_UBER, PROVIDER_YANDEX })
-  public @interface TaxiType {}
 
   @NonNull
   private final List<TaxiInfo> mProviders = new ArrayList<>();
@@ -36,7 +33,6 @@ public class TaxiManager
 
   private TaxiManager()
   {
-
   }
 
   // Called from JNI.
@@ -84,16 +80,33 @@ public class TaxiManager
   }
 
   @Nullable
-  public static TaxiLinks getTaxiLink(@NonNull String productId, @TaxiType int type,
-                        @Nullable MapObject startPoint, @Nullable MapObject endPoint)
+  public static SponsoredLinks getTaxiLink(@NonNull String productId, @NonNull TaxiType type,
+                                           @Nullable MapObject startPoint, @Nullable MapObject endPoint)
   {
     if (startPoint == null || endPoint == null)
       return null;
 
     return TaxiManager.INSTANCE.nativeGetTaxiLinks(NetworkPolicy.newInstance(true /* canUse */),
-                                                   type, productId, startPoint.getLat(),
+                                                   type.ordinal(), productId, startPoint.getLat(),
                                                    startPoint.getLon(), endPoint.getLat(),
                                                    endPoint.getLon());
+  }
+
+  public static void launchTaxiApp(@NonNull Context context, @NonNull SponsoredLinks links,
+                                   @NonNull TaxiType type)
+  {
+    Utils.openPartner(context, links, type.getPackageName(), type.getOpenMode());
+
+    boolean isTaxiInstalled = Utils.isAppInstalled(context, type.getPackageName());
+    trackTaxiStatistics(type.getProviderName(), isTaxiInstalled);
+  }
+
+  private static void trackTaxiStatistics(@NonNull String taxiName, boolean isTaxiAppInstalled)
+  {
+    MapObject from = RoutingController.get().getStartPoint();
+    MapObject to = RoutingController.get().getEndPoint();
+    Location location = LocationHelper.INSTANCE.getLastKnownLocation();
+    Statistics.INSTANCE.trackTaxiInRoutePlanning(from, to, location, taxiName, isTaxiAppInstalled);
   }
 
   public void setTaxiListener(@Nullable TaxiListener listener)
@@ -102,12 +115,12 @@ public class TaxiManager
   }
 
   public native void nativeRequestTaxiProducts(@NonNull NetworkPolicy policy, double srcLat,
-                                                      double srcLon, double dstLat, double dstLon);
+                                               double srcLon, double dstLat, double dstLon);
 
   @NonNull
-  public native TaxiLinks nativeGetTaxiLinks(@NonNull NetworkPolicy policy, @TaxiType int type,
-                                             @NonNull String productId, double srcLon,
-                                             double srcLat, double dstLat, double dstLon);
+  public native SponsoredLinks nativeGetTaxiLinks(@NonNull NetworkPolicy policy, int type,
+                                                  @NonNull String productId, double srcLon,
+                                                  double srcLat, double dstLat, double dstLon);
 
   public enum ErrorCode
   {
@@ -117,7 +130,9 @@ public class TaxiManager
   public interface TaxiListener
   {
     void onTaxiProviderReceived(@NonNull TaxiInfo provider);
+
     void onTaxiErrorReceived(@NonNull TaxiInfoError error);
+
     void onNoTaxiProviders();
   }
 }

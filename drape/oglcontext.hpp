@@ -1,19 +1,21 @@
 #pragma once
 
+#include "drape/graphics_context.hpp"
+
 namespace dp
 {
-
-class OGLContext
+class OGLContext: public GraphicsContext
 {
 public:
-  virtual ~OGLContext() {}
-  virtual void present() = 0;
-  virtual void makeCurrent() = 0;
-  virtual void doneCurrent() {}
-  virtual void setDefaultFramebuffer() = 0;
-  /// @ param w, h - pixel size of render target (logical size * visual scale)
-  virtual void resize(int /*w*/, int /*h*/) {}
-  virtual void setRenderingEnabled(bool /*enabled*/) {}
+  void Init(ApiVersion apiVersion) override;
+  void SetClearColor(dp::Color const & color) override;
+  void Clear(uint32_t clearBits) override;
+  void Flush() override;
+  void SetDepthTestEnabled(bool enabled) override;
+  void SetDepthTestFunction(TestFunction depthFunction) override;
+  void SetStencilTestEnabled(bool enabled) override;
+  void SetStencilFunction(StencilFace face, TestFunction stencilFunction) override;
+  void SetStencilActions(StencilFace face, StencilAction stencilFailAction, StencilAction depthFailAction,
+                         StencilAction passAction) override;
 };
-
-} // namespace dp
+}  // namespace dp

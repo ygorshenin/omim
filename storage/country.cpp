@@ -49,7 +49,7 @@ public:
   ~StoreCountriesSingleMwms()
   {
     for (auto & entry : m_affiliations)
-      my::SortUnique(entry.second);
+      base::SortUnique(entry.second);
   }
 
   // StoreSingleMwmInterface overrides:
@@ -329,9 +329,6 @@ int64_t LoadCountriesFromBuffer(string const & jsonBuffer, TCountryTree & countr
   {
     LOG(LERROR, (e.Msg()));
   }
-  stringstream ss;
-  ss << version;
-  GetPlatform().GetMarketingService().SendPushWooshTag(marketing::kMapVersion, ss.str());
   return version;
 }
 

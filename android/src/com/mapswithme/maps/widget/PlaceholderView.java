@@ -2,42 +2,46 @@ package com.mapswithme.maps.widget;
 
 import android.annotation.TargetApi;
 import android.content.Context;
-import android.content.res.Configuration;
 import android.content.res.Resources;
+import android.content.res.TypedArray;
 import android.os.Build;
 import android.support.annotation.DrawableRes;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.StringRes;
-import android.support.v4.view.ViewCompat;
-import android.support.v4.view.WindowInsetsCompat;
 import android.util.AttributeSet;
 import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
-import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.mapswithme.maps.R;
 import com.mapswithme.util.UiUtils;
 
-public class PlaceholderView extends FrameLayout
+public class PlaceholderView extends LinearLayout
 {
-  @Nullable
+  @SuppressWarnings("NullableProblems")
+  @NonNull
   private ImageView mImage;
-  @Nullable
+
+  @SuppressWarnings("NullableProblems")
+  @NonNull
   private TextView mTitle;
-  @Nullable
+
+  @SuppressWarnings("NullableProblems")
+  @NonNull
   private TextView mSubtitle;
 
-  private float mImageSizeFull;
-  private float mImageSizeSmall;
-  private float mPaddingImage;
-  private float mPaddingNoImage;
-  private float mScreenHeight;
-  private float mScreenWidth;
+  private int mImgMaxHeight;
+  private int mImgMinHeight;
 
-  private int mOrientation;
+  @DrawableRes
+  private int mImgSrcDefault;
+  @StringRes
+  private int mTitleResIdDefault;
+  @StringRes
+  private int mSubtitleResIdDefault;
 
   public PlaceholderView(Context context)
   {
@@ -53,7 +57,7 @@ public class PlaceholderView extends FrameLayout
   {
     super(context, attrs, defStyleAttr);
 
-    init(context);
+    init(context, attrs);
   }
 
   @TargetApi(Build.VERSION_CODES.LOLLIPOP)
@@ -61,20 +65,45 @@ public class PlaceholderView extends FrameLayout
                          int defStyleRes)
   {
     super(context, attrs, defStyleAttr, defStyleRes);
-
-    init(context);
+    init(context, attrs);
   }
 
-  private void init(Context context)
+  private void init(Context context, AttributeSet attrs)
   {
     Resources res = getResources();
-    mImageSizeFull = res.getDimension(R.dimen.placeholder_size);
-    mImageSizeSmall = res.getDimension(R.dimen.placeholder_size_small);
-    mPaddingImage = res.getDimension(R.dimen.placeholder_margin_top);
-    mPaddingNoImage = res.getDimension(R.dimen.placeholder_margin_top_no_image);
-    mScreenHeight = res.getDisplayMetrics().heightPixels;
-    mScreenWidth = res.getDisplayMetrics().widthPixels;
-    LayoutInflater.from(context).inflate(R.layout.placeholder, this, true);
+    mImgMaxHeight = res.getDimensionPixelSize(R.dimen.placeholder_size);
+    mImgMinHeight = res.getDimensionPixelSize(R.dimen.placeholder_size_small);
+    LayoutInflater inflater = LayoutInflater.from(context);
+    inflater.inflate(R.layout.placeholder_image, this, true);
+    inflater.inflate(R.layout.placeholder_title, this, true);
+    inflater.inflate(R.layout.placeholder_subtitle, this, true);
+
+    setOrientation(VERTICAL);
+    initDefaultValues(context, attrs);
+  }
+
+  private void initDefaultValues(Context context, AttributeSet attrs)
+  {
+    TypedArray attrsArray = null;
+    try
+    {
+      attrsArray =
+          context.getTheme().obtainStyledAttributes(attrs, R.styleable.PlaceholderView, 0, 0);
+      mImgSrcDefault = attrsArray.getResourceId(
+          R.styleable.PlaceholderView_imgSrcDefault,
+          UiUtils.NO_ID);
+      mTitleResIdDefault = attrsArray.getResourceId(
+          R.styleable.PlaceholderView_titleDefault,
+          UiUtils.NO_ID);
+      mSubtitleResIdDefault = attrsArray.getResourceId(
+          R.styleable.PlaceholderView_subTitleDefault,
+          UiUtils.NO_ID);
+    }
+    finally
+    {
+      if (attrsArray != null)
+        attrsArray.recycle();
+    }
   }
 
   @Override
@@ -82,83 +111,87 @@ public class PlaceholderView extends FrameLayout
   {
     super.onFinishInflate();
 
-    mImage = (ImageView) findViewById(R.id.image);
-    mTitle = (TextView) findViewById(R.id.title);
-    mSubtitle = (TextView) findViewById(R.id.subtitle);
+    mImage = findViewById(R.id.image);
+    mTitle = findViewById(R.id.title);
+    mSubtitle = findViewById(R.id.subtitle);
 
-    ViewCompat.setOnApplyWindowInsetsListener(this, new android.support.v4.view.OnApplyWindowInsetsListener()
+    setupDefaultContent();
+  }
+
+  private void setupDefaultContent()
+  {
+    if (isDefaultValueValid(mImgSrcDefault))
     {
-      @Override
-      public WindowInsetsCompat onApplyWindowInsets(View v, WindowInsetsCompat insets)
-      {
-        int height = (int) (mOrientation == Configuration.ORIENTATION_LANDSCAPE
-                            ? mScreenWidth : mScreenHeight);
-        int[] location = new int[2];
-        getLocationOnScreen(location);
-        ViewGroup.LayoutParams lp = getLayoutParams();
-        lp.height = height - insets.getSystemWindowInsetBottom() - location[1];
-        setLayoutParams(lp);
-        return insets;
-      }
-    });
+      mImage.setImageResource(mImgSrcDefault);
+    }
+    if (isDefaultValueValid(mTitleResIdDefault))
+    {
+      mTitle.setText(mTitleResIdDefault);
+    }
+    if (isDefaultValueValid(mSubtitleResIdDefault))
+    {
+      mSubtitle.setText(mSubtitleResIdDefault);
+    }
+  }
+
+  private static boolean isDefaultValueValid(int defaultResId)
+  {
+    return defaultResId != UiUtils.NO_ID;
   }
 
   @Override
   protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec)
   {
-    //isInEditMode() need for correct editor visualization
-    if (isInEditMode() || mImage == null)
-    {
-      super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-      return;
-    }
+    int childrenTextTotalHeight = calcTotalTextChildrenHeight(widthMeasureSpec, heightMeasureSpec);
 
-    if (mOrientation == Configuration.ORIENTATION_LANDSCAPE && !UiUtils.isTablet())
-    {
-      UiUtils.hide(mImage);
-      setPadding(getPaddingLeft(), (int) mPaddingNoImage, getPaddingRight(), getPaddingBottom());
-      super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-      return;
-    }
+    final int defHeight = getDefaultSize(getSuggestedMinimumHeight(), heightMeasureSpec);
+    MarginLayoutParams imgParams = (MarginLayoutParams) mImage.getLayoutParams();
+    int potentialHeight =
+        defHeight - getPaddingBottom() - getPaddingTop() - childrenTextTotalHeight -
+        imgParams.bottomMargin - imgParams.topMargin;
 
-    setPadding(getPaddingLeft(), (int) mPaddingImage, getPaddingRight(), getPaddingBottom());
-    UiUtils.show(mImage);
-    ViewGroup.LayoutParams lp = mImage.getLayoutParams();
-    lp.width = (int) mImageSizeFull;
-    lp.height = (int) mImageSizeFull;
-    mImage.setLayoutParams(lp);
 
-    super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
-    if (getMeasuredHeight() > MeasureSpec.getSize(heightMeasureSpec))
-    {
-      lp.width = (int) mImageSizeSmall;
-      lp.height = (int) mImageSizeSmall;
-      mImage.setLayoutParams(lp);
-      super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
-      if (getMeasuredHeight() > MeasureSpec.getSize(heightMeasureSpec))
-      {
-        UiUtils.hide(mImage);
-        setPadding(getPaddingLeft(), (int) mPaddingNoImage, getPaddingRight(), getPaddingBottom());
-      }
-    }
+    int imgSpaceRaw = Math.min(potentialHeight, mImgMaxHeight);
+    imgParams.height = imgSpaceRaw;
+    imgParams.width = imgSpaceRaw;
+    measureChildWithMargins(mImage, widthMeasureSpec, 0, heightMeasureSpec, 0);
 
-    super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    boolean isImageSpaceAllowed = imgSpaceRaw > mImgMinHeight;
+    int childrenTotalHeight = childrenTextTotalHeight;
+    if (isImageSpaceAllowed)
+      childrenTotalHeight += calcHeightWithMargins(mImage);
+
+    UiUtils.showIf(isImageSpaceAllowed, mImage);
+    final int height = childrenTotalHeight  + getPaddingTop() + getPaddingBottom();
+    final int width = getDefaultSize(getSuggestedMinimumWidth(), widthMeasureSpec);
+    setMeasuredDimension(width, height);
   }
 
-  @Override
-  protected void onConfigurationChanged(Configuration newConfig)
+  private int calcTotalTextChildrenHeight(int widthMeasureSpec, int heightMeasureSpec)
   {
-    mOrientation = newConfig.orientation;
+    int totalHeight = 0;
+    for (int index = 0; index < getChildCount(); index++)
+    {
+      View child = getChildAt(index);
+      if (child.getVisibility() == VISIBLE && child != mImage)
+      {
+        measureChildWithMargins(child, widthMeasureSpec , 0, heightMeasureSpec, 0);
+        totalHeight += calcHeightWithMargins(child);
+      }
+    }
+    return totalHeight;
+  }
+
+  private static int calcHeightWithMargins(@NonNull View view) {
+    MarginLayoutParams params = (MarginLayoutParams) view.getLayoutParams();
+    return view.getMeasuredHeight() + params.bottomMargin + params.topMargin;
   }
 
   public void setContent(@DrawableRes int imageRes, @StringRes int titleRes,
                          @StringRes int subtitleRes)
   {
-    if (mImage != null)
-      mImage.setImageResource(imageRes);
-    if (mTitle != null)
-      mTitle.setText(titleRes);
-    if (mSubtitle != null)
-      mSubtitle.setText(subtitleRes);
+    mImage.setImageResource(imageRes);
+    mTitle.setText(titleRes);
+    mSubtitle.setText(subtitleRes);
   }
 }

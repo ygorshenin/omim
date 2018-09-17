@@ -19,6 +19,8 @@
 #include <map>
 #include <vector>
 
+#include "defines.hpp"
+
 using namespace std;
 
 namespace
@@ -129,7 +131,7 @@ namespace feature
 
       vector<strings::UniString> tokens;
       search::SplitUniString(search::NormalizeAndSimplifyString(name),
-                             MakeBackInsertFunctor(tokens), search::Delimiters());
+                             base::MakeBackInsertFunctor(tokens), search::Delimiters());
 
       if (tokens.empty())
         return;
@@ -197,7 +199,8 @@ namespace feature
 
     FilesContainerR container(make_unique<FileReader>(fPath));
     feature::DataHeader header(container);
-    serial::CodingParams codingParams(trie::GetCodingParams(header.GetDefCodingParams()));
+    serial::GeometryCodingParams codingParams(
+        trie::GetGeometryCodingParams(header.GetDefGeometryCodingParams()));
 
     auto const trieRoot = trie::ReadTrie<ModelReaderPtr, ValueList<TValue>>(
         container.GetReader(SEARCH_INDEX_FILE_TAG), SingleValueSerializer<TValue>(codingParams));

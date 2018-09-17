@@ -1,16 +1,16 @@
 #pragma once
 
-#include "base/exception.hpp"
+#include "openlr/stats.hpp"
 
-#include <routing/road_graph.hpp>
+#include "indexer/data_source.hpp"
+
+#include "base/exception.hpp"
 
 #include <cstdint>
 #include <functional>
 #include <string>
 #include <unordered_set>
 #include <vector>
-
-class Index;
 
 namespace openlr
 {
@@ -19,10 +19,13 @@ struct DecodedPath;
 
 DECLARE_EXCEPTION(DecoderError, RootException);
 
+class Graph;
+class RoadInfoGetter;
+
 class OpenLRDecoder
 {
 public:
-  using CountryParentNameGetterFn = std::function<std::string(std::string const &)>;
+  using CountryParentNameGetter = std::function<std::string(std::string const &)>;
 
   class SegmentsFilter
   {
@@ -37,15 +40,22 @@ public:
     bool const m_multipointsOnly;
   };
 
-  OpenLRDecoder(std::vector<Index> const & indexes,
-                CountryParentNameGetterFn const & countryParentNameGetterFn);
+  OpenLRDecoder(std::vector<FrozenDataSource> const & dataSources,
+                CountryParentNameGetter const & countryParentNameGetter);
 
   // Maps partner segments to mwm paths. |segments| should be sorted by partner id.
+  void DecodeV1(std::vector<LinearSegment> const & segments, uint32_t const numThreads,
+                std::vector<DecodedPath> & paths);
+
+  void DecodeV2(std::vector<LinearSegment> const & segments, uint32_t const numThreads,
+                std::vector<DecodedPath> & paths);
+
+private:
+  template <typename Decoder, typename Stats>
   void Decode(std::vector<LinearSegment> const & segments, uint32_t const numThreads,
               std::vector<DecodedPath> & paths);
 
-private:
-  std::vector<Index> const & m_indexes;
-  CountryParentNameGetterFn m_countryParentNameGetterFn;
+  std::vector<FrozenDataSource> const & m_dataSources;
+  CountryParentNameGetter m_countryParentNameGetter;
 };
 }  // namespace openlr

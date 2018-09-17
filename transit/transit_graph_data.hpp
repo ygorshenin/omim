@@ -9,7 +9,7 @@
 #include "coding/writer.hpp"
 
 #include "base/exception.hpp"
-#include "base/osm_id.hpp"
+#include "base/geo_object_id.hpp"
 #include "base/visitor.hpp"
 
 #include "3party/jansson/myjansson.hpp"
@@ -25,7 +25,7 @@ namespace routing
 {
 namespace transit
 {
-using OsmIdToFeatureIdsMap = std::map<osm::Id, std::vector<FeatureId>>;
+using OsmIdToFeatureIdsMap = std::map<base::GeoObjectId, std::vector<FeatureId>>;
 
 class DeserializerFromJson
 {
@@ -134,7 +134,7 @@ public:
   void DeserializeForCrossMwm(Reader & reader);
   void AppendTo(GraphData const & rhs);
   void Clear();
-  bool IsValid() const;
+  void CheckValidSortedUnique() const;
   bool IsEmpty() const;
 
   /// \brief Sorts all class fields by their ids.
@@ -159,9 +159,6 @@ private:
                                   visitor(m_edges, "edges"), visitor(m_transfers, "transfers"),
                                   visitor(m_lines, "lines"), visitor(m_shapes, "shapes"),
                                   visitor(m_networks, "networks"))
-
-  bool IsUnique() const;
-  bool IsSorted() const;
 
   /// \brief Clipping |m_lines| with |borders|.
   /// \details After a call of the method the following stop ids in |m_lines| are left:

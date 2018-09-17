@@ -87,8 +87,10 @@ void FollowedPolyline::Update()
   ASSERT_GREATER(n, 1, ());
   --n;
 
-  m_segDistance.resize(n);
-  m_segProj.resize(n);
+  m_segDistance.clear();
+  m_segDistance.reserve(n);
+  m_segProj.clear();
+  m_segProj.reserve(n);
 
   double dist = 0.0;
   for (size_t i = 0; i < n; ++i)
@@ -98,43 +100,11 @@ void FollowedPolyline::Update()
 
     dist += MercatorBounds::DistanceOnEarth(p1, p2);
 
-    m_segDistance[i] = dist;
-    m_segProj[i].SetBounds(p1, p2);
+    m_segDistance.emplace_back(dist);
+    m_segProj.emplace_back(p1, p2);
   }
 
   m_current = Iter(m_poly.Front(), 0);
-}
-
-template <class DistanceFn>
-Iter FollowedPolyline::GetClosestProjectionInInterval(m2::RectD const & posRect,
-                                                      DistanceFn const & distFn, size_t startIdx,
-                                                      size_t endIdx) const
-{
-  CHECK_LESS_OR_EQUAL(endIdx, m_segProj.size(), ());
-  CHECK_LESS_OR_EQUAL(startIdx, endIdx, ());
-
-  Iter res;
-  double minDist = numeric_limits<double>::max();
-
-  m2::PointD const currPos = posRect.Center();
-
-  for (size_t i = startIdx; i < endIdx; ++i)
-  {
-    m2::PointD const pt = m_segProj[i](currPos);
-
-    if (!posRect.IsPointInside(pt))
-      continue;
-
-    Iter it(pt, i);
-    double const dp = distFn(it);
-    if (dp < minDist)
-    {
-      res = it;
-      minDist = dp;
-    }
-  }
-
-  return res;
 }
 
 template <class DistanceFn>
@@ -157,7 +127,7 @@ Iter FollowedPolyline::GetBestProjection(m2::RectD const & posRect,
 }
 
 Iter FollowedPolyline::UpdateProjectionByPrediction(m2::RectD const & posRect,
-                                                    double predictDistance) const
+                                                    double predictDistance)
 {
   ASSERT(m_current.IsValid(), ());
   ASSERT_LESS(m_current.m_ind, m_poly.GetSize() - 1, ());
@@ -176,7 +146,7 @@ Iter FollowedPolyline::UpdateProjectionByPrediction(m2::RectD const & posRect,
   return res;
 }
 
-Iter FollowedPolyline::UpdateProjection(m2::RectD const & posRect) const
+Iter FollowedPolyline::UpdateProjection(m2::RectD const & posRect)
 {
   ASSERT(m_current.IsValid(), ());
   ASSERT_LESS(m_current.m_ind, m_poly.GetSize() - 1, ());

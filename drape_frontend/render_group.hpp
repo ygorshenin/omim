@@ -2,8 +2,11 @@
 
 #include "drape_frontend/animation/opacity_animation.hpp"
 #include "drape_frontend/animation/value_mapping.hpp"
-#include "drape_frontend/render_state.hpp"
+#include "drape_frontend/frame_values.hpp"
+#include "drape_frontend/render_state_extension.hpp"
 #include "drape_frontend/tile_utils.hpp"
+
+#include "shaders/program_params.hpp"
 
 #include "drape/pointers.hpp"
 #include "drape/render_bucket.hpp"
@@ -14,36 +17,32 @@
 
 class ScreenBase;
 namespace dp { class OverlayTree; }
+namespace gpu { class ProgramManager; }
 
 namespace df
 {
+class DebugRectRenderer;
 
 class BaseRenderGroup
 {
 public:
-  BaseRenderGroup(dp::GLState const & state, TileKey const & tileKey)
+  BaseRenderGroup(dp::RenderState const & state, TileKey const & tileKey)
     : m_state(state)
     , m_tileKey(tileKey)
   {}
 
-  virtual ~BaseRenderGroup() {}
+  virtual ~BaseRenderGroup() = default;
 
-  void SetRenderParams(ref_ptr<dp::GpuProgram> shader, ref_ptr<dp::GpuProgram> shader3d,
-                       ref_ptr<dp::UniformValuesStorage> generalUniforms);
-
-  dp::GLState const & GetState() const { return m_state; }
+  dp::RenderState const & GetState() const { return m_state; }
   TileKey const & GetTileKey() const { return m_tileKey; }
-  dp::UniformValuesStorage const & GetUniforms() const { return m_uniforms; }
 
   virtual void UpdateAnimation();
-  virtual void Render(ScreenBase const & screen);
+  virtual void Render(ref_ptr<dp::GraphicsContext> context, ref_ptr<gpu::ProgramManager> mng, ScreenBase const & screen,
+                      FrameValues const & frameValues, ref_ptr<DebugRectRenderer> debugRectRenderer) = 0;
 
 protected:
-  dp::GLState m_state;
-  ref_ptr<dp::GpuProgram> m_shader;
-  ref_ptr<dp::GpuProgram> m_shader3d;
-  dp::UniformValuesStorage m_uniforms;
-  ref_ptr<dp::UniformValuesStorage> m_generalUniforms;
+  dp::RenderState m_state;
+  gpu::MapProgramParams m_params;
 
 private:
   TileKey m_tileKey;
@@ -54,14 +53,16 @@ class RenderGroup : public BaseRenderGroup
   using TBase = BaseRenderGroup;
   friend class BatchMergeHelper;
 public:
-  RenderGroup(dp::GLState const & state, TileKey const & tileKey);
+  RenderGroup(dp::RenderState const & state, TileKey const & tileKey);
   ~RenderGroup() override;
 
   void Update(ScreenBase const & modelView);
   void CollectOverlay(ref_ptr<dp::OverlayTree> tree);
   bool HasOverlayHandles() const;
   void RemoveOverlay(ref_ptr<dp::OverlayTree> tree);
-  void Render(ScreenBase const & screen) override;
+  void SetOverlayVisibility(bool isVisible);
+  void Render(ref_ptr<dp::GraphicsContext> context, ref_ptr<gpu::ProgramManager> mng, ScreenBase const & screen,
+              FrameValues const & frameValues, ref_ptr<DebugRectRenderer> debugRectRenderer) override;
 
   void AddBucket(drape_ptr<dp::RenderBucket> && bucket);
 
@@ -71,7 +72,8 @@ public:
   bool IsPendingOnDelete() const { return m_pendingOnDelete; }
   bool CanBeDeleted() const { return m_canBeDeleted; }
 
-  bool UpdateCanBeDeletedStatus(bool canBeDeleted, int currentZoom, ref_ptr<dp::OverlayTree> tree);
+  bool UpdateCanBeDeletedStatus(bool canBeDeleted, int currentZoom,
+                                ref_ptr<dp::OverlayTree> tree);
 
   bool IsOverlay() const;
   bool IsUserMark() const;
@@ -97,7 +99,7 @@ class UserMarkRenderGroup : public RenderGroup
   using TBase = RenderGroup;
 
 public:
-  UserMarkRenderGroup(dp::GLState const & state, TileKey const & tileKey);
+  UserMarkRenderGroup(dp::RenderState const & state, TileKey const & tileKey);
   ~UserMarkRenderGroup() override {}
 
   void UpdateAnimation() override;

@@ -1,12 +1,14 @@
 #include "search/feature_loader.hpp"
 
+#include "editor/editable_data_source.hpp"
+
 #include "indexer/feature_decl.hpp"
 
-#include "base/stl_add.hpp"
+#include <memory>
 
 namespace search
 {
-FeatureLoader::FeatureLoader(Index const & index) : m_index(index) {}
+FeatureLoader::FeatureLoader(DataSource const & dataSource) : m_dataSource(dataSource) {}
 
 bool FeatureLoader::Load(FeatureID const & id, FeatureType & ft)
 {
@@ -14,7 +16,7 @@ bool FeatureLoader::Load(FeatureID const & id, FeatureType & ft)
 
   auto const & mwmId = id.m_mwmId;
   if (!m_guard || m_guard->GetId() != mwmId)
-    m_guard = my::make_unique<Index::FeaturesLoaderGuard>(m_index, mwmId);
+    m_guard = std::make_unique<FeaturesLoaderGuard>(m_dataSource, mwmId);
   return m_guard->GetFeatureByIndex(id.m_index, ft);
 }
 

@@ -18,13 +18,13 @@
 
 #include "indexer/categories_holder.hpp"
 #include "indexer/classificator.hpp"
+#include "indexer/data_source.hpp"
 #include "indexer/feature.hpp"
 #include "indexer/feature_algo.hpp"
 #include "indexer/feature_covering.hpp"
 #include "indexer/feature_data.hpp"
 #include "indexer/feature_impl.hpp"
 #include "indexer/features_vector.hpp"
-#include "indexer/index.hpp"
 #include "indexer/scales.hpp"
 #include "indexer/search_delimiters.hpp"
 #include "indexer/search_string_utils.hpp"
@@ -44,13 +44,13 @@
 #include "base/logging.hpp"
 #include "base/macros.hpp"
 #include "base/scope_guard.hpp"
-#include "base/stl_add.hpp"
 #include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
 #include <algorithm>
 
 #include "3party/Alohalytics/src/alohalytics.h"
+#include "3party/open-location-code/openlocationcode.h"
 
 using namespace std;
 
@@ -139,22 +139,22 @@ void RemoveStopWordsIfNeeded(QueryTokens & tokens, strings::UniString & prefix)
 size_t const Processor::kPreResultsCount = 200;
 double const Processor::kMinViewportRadiusM = 5.0 * 1000;
 double const Processor::kMaxViewportRadiusM = 50.0 * 1000;
-double const Processor::kMinDistanceOnMapBetweenResultsM = 100.0;
 
-Processor::Processor(Index const & index, CategoriesHolder const & categories,
+Processor::Processor(DataSource const & dataSource, CategoriesHolder const & categories,
                      vector<Suggest> const & suggests,
                      storage::CountryInfoGetter const & infoGetter)
   : m_categories(categories)
   , m_infoGetter(infoGetter)
   , m_position(0, 0)
-  , m_villagesCache(static_cast<my::Cancellable const &>(*this))
-  , m_citiesBoundaries(index)
+  , m_villagesCache(static_cast<base::Cancellable const &>(*this))
+  , m_citiesBoundaries(dataSource)
   , m_keywordsScorer(LanguageTier::LANGUAGE_TIER_COUNT)
-  , m_ranker(index, m_citiesBoundaries, infoGetter, m_keywordsScorer, m_emitter, categories,
-             suggests, m_villagesCache, static_cast<my::Cancellable const &>(*this))
-  , m_preRanker(index, m_ranker)
-  , m_geocoder(index, infoGetter, categories, m_preRanker, m_villagesCache,
-               static_cast<my::Cancellable const &>(*this))
+  , m_ranker(dataSource, m_citiesBoundaries, infoGetter, m_keywordsScorer, m_emitter, categories,
+             suggests, m_villagesCache, static_cast<base::Cancellable const &>(*this))
+  , m_preRanker(dataSource, m_ranker)
+  , m_geocoder(dataSource, infoGetter, categories, m_citiesBoundaries, m_preRanker, m_villagesCache,
+               static_cast<base::Cancellable const &>(*this))
+  , m_bookmarksProcessor(m_emitter, static_cast<base::Cancellable const &>(*this))
 {
   // Current and input langs are to be set later.
   m_keywordsScorer.SetLanguages(
@@ -222,7 +222,7 @@ void Processor::SetQuery(string const & query)
   vector<strings::UniString> tokens;
   {
     search::DelimitersWithExceptions delims(vector<strings::UniChar>{'#'});
-    SplitUniString(NormalizeAndSimplifyString(query), MakeBackInsertFunctor(tokens), delims);
+    SplitUniString(NormalizeAndSimplifyString(query), base::MakeBackInsertFunctor(tokens), delims);
   }
 
   search::Delimiters delims;
@@ -237,7 +237,7 @@ void Processor::SetQuery(string const & query)
       // Splits |token| by hashtags, because all other delimiters are
       // already removed.
       subTokens.clear();
-      SplitUniString(token, MakeBackInsertFunctor(subTokens), delims);
+      SplitUniString(token, base::MakeBackInsertFunctor(subTokens), delims);
       if (subTokens.empty())
         continue;
 
@@ -274,11 +274,13 @@ void Processor::SetQuery(string const & query)
 
   // Get preferred types to show in results.
   m_preferredTypes.clear();
-  ForEachCategoryType(QuerySliceOnRawStrings<decltype(m_tokens)>(m_tokens, m_prefix),
-                      [&](size_t, uint32_t t)
-                      {
-                        m_preferredTypes.insert(t);
-                      });
+  auto const tokenSlice = QuerySliceOnRawStrings<decltype(m_tokens)>(m_tokens, m_prefix);
+  m_isCategorialRequest = FillCategories(tokenSlice, GetCategoryLocales(), m_categories, m_preferredTypes);
+
+  if (!m_isCategorialRequest)
+    ForEachCategoryType(tokenSlice, [&](size_t, uint32_t t) { m_preferredTypes.push_back(t); });
+
+  base::SortUnique(m_preferredTypes);
 }
 
 m2::PointD Processor::GetPivotPoint(bool viewportSearch) const
@@ -318,19 +320,25 @@ void Processor::LoadCitiesBoundaries()
 
 void Processor::LoadCountriesTree() { m_ranker.LoadCountriesTree(); }
 
-void Processor::OnBookmarksCreated(vector<pair<bookmarks::Id, bookmarks::Doc>> const & /* marks */)
+void Processor::OnBookmarksCreated(vector<pair<bookmarks::Id, bookmarks::Doc>> const & marks)
 {
-  // TODO(@y): do something useful with marks.
+  for (auto const & idDoc : marks)
+    m_bookmarksProcessor.Add(idDoc.first /* id */, idDoc.second /* doc */);
 }
 
-void Processor::OnBookmarksUpdated(vector<pair<bookmarks::Id, bookmarks::Doc>> const & /* marks */)
+void Processor::OnBookmarksUpdated(vector<pair<bookmarks::Id, bookmarks::Doc>> const & marks)
 {
-  // TODO(@y): do something useful with marks.
+  for (auto const & idDoc : marks)
+  {
+    m_bookmarksProcessor.Erase(idDoc.first /* id */);
+    m_bookmarksProcessor.Add(idDoc.first /* id */, idDoc.second /* doc */);
+  }
 }
 
-void Processor::OnBookmarksDeleted(vector<bookmarks::Id> const & /* marks */)
+void Processor::OnBookmarksDeleted(vector<bookmarks::Id> const & marks)
 {
-  // TODO(@y): do something useful with marks.
+  for (auto const & id : marks)
+    m_bookmarksProcessor.Erase(id);
 }
 
 Locales Processor::GetCategoryLocales() const
@@ -401,18 +409,26 @@ void Processor::Search(SearchParams const & params)
 
   try
   {
-    SearchCoordinates();
-
-    if (viewportSearch)
+    switch (params.m_mode)
     {
-      m_geocoder.GoInViewport();
-    }
-    else
-    {
-      if (m_tokens.empty())
-        m_ranker.SuggestStrings();
-
-      m_geocoder.GoEverywhere();
+    case Mode::Everywhere:  // fallthrough
+    case Mode::Viewport:    // fallthrough
+    case Mode::Downloader:
+      SearchCoordinates();
+      SearchPlusCode();
+      if (viewportSearch)
+      {
+        m_geocoder.GoInViewport();
+      }
+      else
+      {
+        if (m_tokens.empty())
+          m_ranker.SuggestStrings();
+        m_geocoder.GoEverywhere();
+      }
+      break;
+    case Mode::Bookmarks: SearchBookmarks(); break;
+    case Mode::Count: ASSERT(false, ("Invalid mode")); break;
     }
   }
   catch (CancelException const &)
@@ -437,7 +453,44 @@ void Processor::SearchCoordinates()
   m_emitter.Emit();
 }
 
-void Processor::InitParams(QueryParams & params)
+void Processor::SearchPlusCode()
+{
+  // Create a copy of the query to trim it in-place.
+  string query(m_query);
+  strings::Trim(query);
+
+  string code;
+
+  if (openlocationcode::IsFull(query))
+  {
+    code = query;
+  }
+  else if (openlocationcode::IsShort(query))
+  {
+    if (GetPosition().IsAlmostZero())
+      return;
+    ms::LatLon const latLon = MercatorBounds::ToLatLon(GetPosition());
+    code = openlocationcode::RecoverNearest(query, {latLon.lat, latLon.lon});
+  }
+
+  if (code.empty())
+    return;
+
+  openlocationcode::CodeArea const area = openlocationcode::Decode(code);
+  m_emitter.AddResultNoChecks(
+      m_ranker.MakeResult(RankerResult(area.GetCenter().latitude, area.GetCenter().longitude),
+                          true /* needAddress */, false /* needHighlighting */));
+  m_emitter.Emit();
+}
+
+void Processor::SearchBookmarks() const
+{
+  QueryParams params;
+  InitParams(params);
+  m_bookmarksProcessor.Search(params);
+}
+
+void Processor::InitParams(QueryParams & params) const
 {
   if (m_prefix.empty())
     params.InitNoPrefix(m_tokens.begin(), m_tokens.end());
@@ -451,12 +504,15 @@ void Processor::InitParams(QueryParams & params)
     params.GetTypeIndices(i).push_back(index);
   };
   auto const tokenSlice = QuerySliceOnRawStrings<decltype(m_tokens)>(m_tokens, m_prefix);
-  bool const isCategorialRequest =
-      IsCategorialRequest(tokenSlice, GetCategoryLocales(), m_categories);
-  params.SetCategorialRequest(isCategorialRequest);
-  if (isCategorialRequest)
+  params.SetCategorialRequest(m_isCategorialRequest);
+  if (m_isCategorialRequest)
   {
-    ForEachCategoryType(tokenSlice, addCategorySynonyms);
+    for (auto const type : m_preferredTypes)
+    {
+      uint32_t const index = c.GetIndexForType(type);
+      for (size_t i = 0; i < tokenSlice.Size(); ++i)
+        params.GetTypeIndices(i).push_back(index);
+    }
   }
   else
   {
@@ -474,7 +530,7 @@ void Processor::InitParams(QueryParams & params)
   }
 
   for (size_t i = 0; i < params.GetNumTokens(); ++i)
-    my::SortUnique(params.GetTypeIndices(i));
+    base::SortUnique(params.GetTypeIndices(i));
 
   m_keywordsScorer.ForEachLanguage(
       [&](int8_t lang) { params.GetLangs().Insert(static_cast<uint64_t>(lang)); });
@@ -488,9 +544,9 @@ void Processor::InitGeocoder(Geocoder::Params & geocoderParams, SearchParams con
 
   geocoderParams.m_mode = searchParams.m_mode;
   geocoderParams.m_pivot = GetPivotRect(viewportSearch);
+  geocoderParams.m_position = GetPosition();
   geocoderParams.m_categoryLocales = GetCategoryLocales();
   geocoderParams.m_hotelsFilter = searchParams.m_hotelsFilter;
-  geocoderParams.m_cianMode = searchParams.m_cianMode;
   geocoderParams.m_preferredTypes = m_preferredTypes;
   geocoderParams.m_tracer = searchParams.m_tracer;
 
@@ -505,15 +561,15 @@ void Processor::InitPreRanker(Geocoder::Params const & geocoderParams,
   PreRanker::Params params;
 
   if (viewportSearch)
-  {
-    params.m_viewport = GetViewport();
-    params.m_minDistanceOnMapBetweenResults =
-        searchParams.m_minDistanceOnMapBetweenResults;
-  }
+    params.m_minDistanceOnMapBetweenResults = searchParams.m_minDistanceOnMapBetweenResults;
+
+  params.m_viewport = GetViewport();
   params.m_accuratePivotCenter = GetPivotPoint(viewportSearch);
+  params.m_position = GetPosition();
   params.m_scale = geocoderParams.GetScale();
   params.m_limit = max(kPreResultsCount, searchParams.m_maxNumResults);
   params.m_viewportSearch = viewportSearch;
+  params.m_categorialRequest = geocoderParams.IsCategorialRequest();
 
   m_preRanker.Init(params);
 }
@@ -528,14 +584,7 @@ void Processor::InitRanker(Geocoder::Params const & geocoderParams,
   params.m_currentLocaleCode = m_currentLocaleCode;
 
   if (viewportSearch)
-  {
     params.m_viewport = GetViewport();
-    params.m_minDistanceOnMapBetweenResults = searchParams.m_minDistanceOnMapBetweenResults;
-  }
-  else
-  {
-    params.m_minDistanceOnMapBetweenResults = kMinDistanceOnMapBetweenResultsM;
-  }
 
   params.m_limit = searchParams.m_maxNumResults;
   params.m_position = GetPosition();

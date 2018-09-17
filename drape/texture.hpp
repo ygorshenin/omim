@@ -1,9 +1,8 @@
 #pragma once
 
-#include "drape/drape_global.hpp"
-#include "drape/glconstants.hpp"
 #include "drape/hw_texture.hpp"
 #include "drape/pointers.hpp"
+#include "drape/texture_types.hpp"
 
 #include "geometry/rect2d.hpp"
 
@@ -17,7 +16,7 @@ namespace dp
 class Texture
 {
 public:
-  enum ResourceType
+  enum class ResourceType : uint8_t
   {
     Symbol,
     Glyph,
@@ -29,15 +28,15 @@ public:
   class Key
   {
   public:
-    virtual ~Key() {}
+    virtual ~Key() = default;
     virtual ResourceType GetType() const = 0;
   };
 
   class ResourceInfo
   {
   public:
-    ResourceInfo(m2::RectF const & texRect);
-    virtual ~ResourceInfo() {}
+    explicit ResourceInfo(m2::RectF const & texRect);
+    virtual ~ResourceInfo() = default;
     virtual ResourceType GetType() const = 0;
     m2::RectF const & GetTexRect() const;
 
@@ -50,8 +49,7 @@ public:
 
   virtual ref_ptr<ResourceInfo> FindResource(Key const & key, bool & newResource) = 0;
   virtual void UpdateState() {}
-  virtual bool HasAsyncRoutines() const { return false; }
-  virtual bool HasEnoughSpace(uint32_t /*newKeysCount*/) const { return true; }
+  virtual bool HasEnoughSpace(uint32_t /* newKeysCount */) const { return true; }
   using Params = HWTexture::Params;
 
   virtual TextureFormat GetFormat() const;
@@ -64,13 +62,14 @@ public:
   virtual void Bind() const;
 
   // Texture must be bound before calling this method.
-  virtual void SetFilter(glConst filter);
+  virtual void SetFilter(TextureFilter filter);
 
-  void Create(Params const & params);
-  void Create(Params const & params, ref_ptr<void> data);
+  virtual void Create(Params const & params);
+  virtual void Create(Params const & params, ref_ptr<void> data);
   void UploadData(uint32_t x, uint32_t y, uint32_t width, uint32_t height, ref_ptr<void> data);
 
   static uint32_t GetMaxTextureSize();
+  static bool IsPowerOfTwo(uint32_t width, uint32_t height);
 
 protected:
   void Destroy();

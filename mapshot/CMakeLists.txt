@@ -18,6 +18,7 @@ omim_link_libraries(
   map
   software_renderer
   drape_frontend
+  shaders
   routing
   search
   storage
@@ -25,10 +26,11 @@ omim_link_libraries(
   traffic
   routing_common
   ugc
-  indexer
   drape
   partners_api
   local_ads
+  kml
+  indexer
   platform
   editor
   geometry

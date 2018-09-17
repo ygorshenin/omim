@@ -5,34 +5,67 @@
 #include "indexer/ftypes_matcher.hpp"
 
 #include "base/macros.hpp"
+#include "base/math.hpp"
 
 #include <algorithm>
+#include <sstream>
 
 using namespace std;
+
+namespace
+{
+template <double const & (*F)(double const &, double const &), typename WeightAndETA>
+WeightAndETA Pick(WeightAndETA const & lhs, WeightAndETA const & rhs)
+{
+  return {F(lhs.m_weight, rhs.m_weight), F(lhs.m_eta, rhs.m_eta)};
+};
+}  // namespace
 
 namespace routing
 {
 VehicleModel::AdditionalRoadType::AdditionalRoadType(Classificator const & c,
                                                      AdditionalRoadTags const & tag)
-  : m_type(c.GetTypeByPath(tag.m_hwtag)), m_speedKMpH(tag.m_speedKMpH)
+  : m_type(c.GetTypeByPath(tag.m_hwtag)), m_speed(tag.m_speed)
 {
 }
 
-VehicleModel::RoadLimits::RoadLimits(double speedKMpH, bool isPassThroughAllowed)
-  : m_speedKMpH(speedKMpH), m_isPassThroughAllowed(isPassThroughAllowed)
+VehicleModel::RoadLimits::RoadLimits(VehicleModel::SpeedKMpH const & speed,
+                                     bool isPassThroughAllowed)
+  : m_speed(speed), m_isPassThroughAllowed(isPassThroughAllowed)
 {
-  CHECK_GREATER(m_speedKMpH, 0.0, ());
+  CHECK_GREATER(m_speed.m_weight, 0.0, ());
+  CHECK_GREATER(m_speed.m_eta, 0.0, ());
 }
 
-VehicleModel::VehicleModel(Classificator const & c, InitListT const & featureTypeLimits)
-  : m_maxSpeedKMpH(0),
-    m_onewayType(c.GetTypeByPath({ "hwtag", "oneway" }))
+VehicleModel::VehicleModel(Classificator const & c, LimitsInitList const & featureTypeLimits,
+                           SurfaceInitList const & featureTypeSurface)
+  : m_onewayType(c.GetTypeByPath({"hwtag", "oneway"}))
 {
+  CHECK_EQUAL(m_surfaceFactors.size(), 4,
+              ("If you want to change the size of the container please take into account that it's "
+               "used with algorithm find() with linear complexity."));
+  CHECK_EQUAL(featureTypeSurface.size(), m_surfaceFactors.size(), ());
+
   for (auto const & v : featureTypeLimits)
   {
-    m_maxSpeedKMpH = max(m_maxSpeedKMpH, v.m_speedKMpH);
-    m_types.emplace(c.GetTypeByPath(vector<string>(v.m_types, v.m_types + 2)),
-                    RoadLimits(v.m_speedKMpH, v.m_isPassThroughAllowed));
+    m_maxSpeed = Pick<max>(m_maxSpeed, v.m_speed);
+    m_highwayTypes.emplace(c.GetTypeByPath(vector<string>(v.m_types, v.m_types + 2)),
+                           RoadLimits(v.m_speed, v.m_isPassThroughAllowed));
+  }
+
+  size_t i = 0;
+  for (auto const & v : featureTypeSurface)
+  {
+    auto const & speedFactor = v.m_factor;
+    CHECK_LESS_OR_EQUAL(speedFactor.m_weight, 1.0, ());
+    CHECK_LESS_OR_EQUAL(speedFactor.m_eta, 1.0, ());
+    CHECK_GREATER_OR_EQUAL(speedFactor.m_weight, 0.0, ());
+    CHECK_GREATER_OR_EQUAL(speedFactor.m_eta, 0.0, ());
+    double const weightFactor = my::clamp(speedFactor.m_weight, 0.0, 1.0);
+    double const etaFactor = my::clamp(speedFactor.m_eta, 0.0, 1.0);
+
+    m_surfaceFactors[i++] = {c.GetTypeByPath(vector<string>(v.m_types, v.m_types + 2)),
+                             {weightFactor, etaFactor}};
   }
 }
 
@@ -42,11 +75,11 @@ void VehicleModel::SetAdditionalRoadTypes(Classificator const & c,
   for (auto const & tag : additionalTags)
   {
     m_addRoadTypes.emplace_back(c, tag);
-    m_maxSpeedKMpH = max(m_maxSpeedKMpH, tag.m_speedKMpH);
+    m_maxSpeed = Pick<max>(m_maxSpeed, tag.m_speed);
   }
 }
 
-double VehicleModel::GetSpeed(FeatureType const & f) const
+VehicleModel::SpeedKMpH VehicleModel::GetSpeed(FeatureType & f) const
 {
   feature::TypesHolder const types(f);
 
@@ -56,35 +89,52 @@ double VehicleModel::GetSpeed(FeatureType const & f) const
   if (restriction != RoadAvailability::NotAvailable && HasRoadType(types))
     return GetMinTypeSpeed(types);
 
-  return 0.0 /* Speed */;
+  return {};
 }
 
-double VehicleModel::GetMinTypeSpeed(feature::TypesHolder const & types) const
+VehicleModel::SpeedKMpH VehicleModel::GetMinTypeSpeed(feature::TypesHolder const & types) const
 {
-  double speed = m_maxSpeedKMpH * 2;
+  VehicleModel::SpeedKMpH speed{m_maxSpeed.m_weight * 2.0, m_maxSpeed.m_eta * 2.0};
+  // Decreasing speed factor based on road surface (cover).
+  VehicleModel::SpeedFactor factor;
   for (uint32_t t : types)
   {
     uint32_t const type = ftypes::BaseChecker::PrepareToMatch(t, 2);
-    auto it = m_types.find(type);
-    if (it != m_types.end())
-      speed = min(speed, it->second.GetSpeedKMpH());
+    auto const itHighway = m_highwayTypes.find(type);
+    if (itHighway != m_highwayTypes.cend())
+      speed = Pick<min>(speed, itHighway->second.GetSpeed());
 
     auto const addRoadInfoIter = FindRoadType(t);
     if (addRoadInfoIter != m_addRoadTypes.cend())
-      speed = min(speed, addRoadInfoIter->m_speedKMpH);
-  }
-  if (speed <= m_maxSpeedKMpH)
-    return speed;
+      speed = Pick<min>(speed, addRoadInfoIter->m_speed);
 
-  return 0.0 /* Speed */;
+    auto const itFactor = find_if(m_surfaceFactors.cbegin(), m_surfaceFactors.cend(),
+                                  [t](TypeFactor const & v) { return v.m_type == t; });
+    if (itFactor != m_surfaceFactors.cend())
+      factor = Pick<min>(factor, itFactor->m_factor);
+  }
+
+  CHECK_LESS_OR_EQUAL(factor.m_weight, 1.0, ());
+  CHECK_LESS_OR_EQUAL(factor.m_eta, 1.0, ());
+  CHECK_GREATER_OR_EQUAL(factor.m_weight, 0.0, ());
+  CHECK_GREATER_OR_EQUAL(factor.m_eta, 0.0, ());
+
+  VehicleModel::SpeedKMpH ret;
+  if (speed.m_weight <= m_maxSpeed.m_weight)
+    ret.m_weight = speed.m_weight * factor.m_weight;
+
+  if (speed.m_eta <= m_maxSpeed.m_eta)
+    ret.m_eta = speed.m_eta * factor.m_eta;
+
+  return ret;
 }
 
-bool VehicleModel::IsOneWay(FeatureType const & f) const
+bool VehicleModel::IsOneWay(FeatureType & f) const
 {
   // It's a hotfix for release and this code shouldn't be merge to master.
   // According to osm documentation on roundabout it's implied that roundabout is one way
   // road execpt for rare cases. Only 0.3% (~1200) of roundabout in the world are two-way road.
-  // (http://wiki.openstreetmap.org/wiki/Tag:junction%3Droundabout)
+  // (https://wiki.openstreetmap.org/wiki/Tag:junction%3Droundabout)
   // It should be processed on map generation stage together with other implied one way features
   // rules like: motorway_link (if not set oneway == "no")
   // motorway (if not set oneway == "no"). Please see
@@ -99,7 +149,7 @@ bool VehicleModel::HasOneWayType(feature::TypesHolder const & types) const
   return types.Has(m_onewayType);
 }
 
-bool VehicleModel::IsRoad(FeatureType const & f) const
+bool VehicleModel::IsRoad(FeatureType & f) const
 {
   if (f.GetFeatureType() != feature::GEOM_LINE)
     return false;
@@ -111,7 +161,7 @@ bool VehicleModel::IsRoad(FeatureType const & f) const
   return HasRoadType(types);
 }
 
-bool VehicleModel::IsPassThroughAllowed(FeatureType const & f) const
+bool VehicleModel::IsPassThroughAllowed(FeatureType & f) const
 {
   feature::TypesHolder const types(f);
   // Allow pass through additional road types e.g. peer, ferry.
@@ -129,8 +179,8 @@ bool VehicleModel::HasPassThroughType(feature::TypesHolder const & types) const
   for (uint32_t t : types)
   {
     uint32_t const type = ftypes::BaseChecker::PrepareToMatch(t, 2);
-    auto it = m_types.find(type);
-    if (it != m_types.end() && it->second.IsPassThroughAllowed())
+    auto it = m_highwayTypes.find(type);
+    if (it != m_highwayTypes.end() && it->second.IsPassThroughAllowed())
       return true;
   }
 
@@ -140,7 +190,7 @@ bool VehicleModel::HasPassThroughType(feature::TypesHolder const & types) const
 bool VehicleModel::IsRoadType(uint32_t type) const
 {
   return FindRoadType(type) != m_addRoadTypes.cend() ||
-         m_types.find(ftypes::BaseChecker::PrepareToMatch(type, 2)) != m_types.end();
+         m_highwayTypes.find(ftypes::BaseChecker::PrepareToMatch(type, 2)) != m_highwayTypes.end();
 }
 
 VehicleModelInterface::RoadAvailability VehicleModel::GetRoadAvailability(feature::TypesHolder const & /* types */) const
@@ -204,8 +254,17 @@ string DebugPrint(VehicleModelInterface::RoadAvailability const l)
   case VehicleModelInterface::RoadAvailability::Unknown: return "Unknown";
   }
 
-  stringstream out;
+  ostringstream out;
   out << "Unknown VehicleModelInterface::RoadAvailability (" << static_cast<int>(l) << ")";
   return out.str();
+}
+
+std::string DebugPrint(VehicleModelInterface::SpeedKMpH const & speed)
+{
+  ostringstream oss;
+  oss << "SpeedKMpH [ ";
+  oss << "weight:" << speed.m_weight << ", ";
+  oss << "eta:" << speed.m_eta << " ]";
+  return oss.str();
 }
 }  // namespace routing

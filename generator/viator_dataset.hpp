@@ -4,12 +4,13 @@
 
 #include "search/city_finder.hpp"
 
-#include "indexer/index.hpp"
+#include "indexer/data_source.hpp"
 
 #include "geometry/latlon.hpp"
 
 #include "base/newtype.hpp"
 
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -34,7 +35,7 @@ struct ViatorCity
   std::string m_name;
 };
 
-ostream & operator<<(ostream & s, ViatorCity const & r);
+std::ostream & operator<<(std::ostream & s, ViatorCity const & r);
 
 NEWTYPE_SIMPLE_OUTPUT(ViatorCity::ObjectId);
 
@@ -50,7 +51,7 @@ public:
 
 private:
   SponsoredObjectStorage<ViatorCity> m_storage;
-  Index m_index;
+  FrozenDataSource m_dataSource;
   std::unique_ptr<search::CityFinder> m_cityFinder;
 };
 }  // namespace generator

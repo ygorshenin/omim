@@ -15,29 +15,47 @@ set(
   api_mark_point.hpp
   benchmark_tools.hpp
   benchmark_tools.cpp
-  booking_filter.cpp
+  booking_availability_filter.cpp
+  booking_availability_filter.hpp
   booking_filter.hpp
-  booking_filter_availability_params.hpp
   booking_filter_cache.cpp
   booking_filter_cache.hpp
-  bookmark_manager.cpp
-  bookmark_manager.hpp
+  booking_filter_params.hpp
+  booking_filter_processor.cpp
+  booking_filter_processor.hpp
   bookmark.cpp
   bookmark.hpp
+  bookmark_catalog.cpp
+  bookmark_catalog.hpp
+  bookmark_helpers.cpp
+  bookmark_helpers.hpp
+  bookmark_manager.cpp
+  bookmark_manager.hpp
+  bookmarks_search_params.hpp
   chart_generator.cpp
   chart_generator.hpp
+  cloud.cpp
+  cloud.hpp
   discovery/discovery_client_params.hpp
   discovery/discovery_manager.cpp
   discovery/discovery_manager.hpp
+  discovery/discovery_search.cpp
+  discovery/discovery_search.hpp
+  discovery/discovery_search_params.hpp
   displacement_mode_manager.cpp
   displacement_mode_manager.hpp
   displayed_categories_modifiers.cpp
   displayed_categories_modifiers.hpp
+  everywhere_search_callback.cpp
+  everywhere_search_callback.hpp
   everywhere_search_params.hpp
+  extrapolation/extrapolator.cpp
+  extrapolation/extrapolator.hpp
   feature_vec_model.cpp
   feature_vec_model.hpp
   framework.cpp
   framework.hpp
+  framework_light.hpp
   ge0_parser.cpp
   ge0_parser.hpp
   geourl_process.cpp
@@ -61,6 +79,8 @@ set(
   mwm_url.hpp
   place_page_info.cpp
   place_page_info.hpp
+  purchase.cpp
+  purchase.hpp
   reachable_by_taxi_checker.cpp
   reachable_by_taxi_checker.hpp
   routing_manager.cpp
@@ -71,8 +91,11 @@ set(
   search_api.hpp
   search_mark.cpp
   search_mark.hpp
+  search_product_info.hpp
   taxi_delegate.cpp
   taxi_delegate.hpp
+  tips_api.cpp
+  tips_api.hpp
   track.cpp
   track.hpp
   traffic_manager.cpp
@@ -83,19 +106,25 @@ set(
   transit/transit_reader.hpp
   user.cpp
   user.hpp
-  user_mark_container.cpp
-  user_mark_container.hpp
+  user_mark_id_storage.cpp
+  user_mark_id_storage.hpp
+  user_mark_layer.cpp
+  user_mark_layer.hpp
   user_mark.cpp
   user_mark.hpp
   viewport_search_params.hpp
+  viewport_search_callback.cpp
+  viewport_search_callback.hpp
 )
 
-add_library(${PROJECT_NAME} ${SRC})
+omim_add_library(${PROJECT_NAME} ${SRC})
 
+omim_add_test_subdirectory(map_integration_tests)
 omim_add_test_subdirectory(map_tests)
 omim_add_test_subdirectory(mwm_tests)
 omim_add_test_subdirectory(style_tests)
 
 if (PLATFORM_DESKTOP)
   add_subdirectory(benchmark_tool)
+  add_subdirectory(extrapolation_benchmark)
 endif()

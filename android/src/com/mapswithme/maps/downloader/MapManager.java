@@ -1,6 +1,7 @@
 package com.mapswithme.maps.downloader;
 
 import android.app.Activity;
+import android.app.Application;
 import android.content.DialogInterface;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
@@ -9,15 +10,13 @@ import android.support.annotation.UiThread;
 import android.support.v7.app.AlertDialog;
 import android.text.TextUtils;
 
-import java.lang.ref.WeakReference;
-import java.util.List;
-
-import com.mapswithme.maps.Framework;
 import com.mapswithme.maps.R;
-import com.mapswithme.maps.background.Notifier;
 import com.mapswithme.util.ConnectionState;
 import com.mapswithme.util.Utils;
 import com.mapswithme.util.statistics.Statistics;
+
+import java.lang.ref.WeakReference;
+import java.util.List;
 
 @UiThread
 public final class MapManager
@@ -136,34 +135,15 @@ public final class MapManager
                                        @Override
                                        public void onClick(DialogInterface dialog, int which)
                                        {
-                                         warn3gAndRetry(activity, errorData.countryId, new Runnable()
-                                         {
-                                           @Override
-                                           public void run()
-                                           {
-                                             Notifier.cancelDownloadFailed();
-
-                                             if (dialogClickListener != null)
-                                               dialogClickListener.invoke(true);
-                                           }
-                                         });
+                                         Application app = activity.getApplication();
+                                         RetryFailedDownloadConfirmationListener listener
+                                             = new ExpandRetryConfirmationListener(app, dialogClickListener);
+                                         warn3gAndRetry(activity, errorData.countryId, listener);
                                        }
                                      }).create();
     dlg.setCanceledOnTouchOutside(false);
     dlg.show();
     sCurrentErrorDialog = new WeakReference<>(dlg);
-  }
-
-  public static void checkUpdates()
-  {
-    if (!Framework.nativeIsDataVersionChanged())
-      return;
-
-    String countriesToUpdate = Framework.nativeGetOutdatedCountriesString();
-    if (!TextUtils.isEmpty(countriesToUpdate))
-      Notifier.notifyUpdateAvailable(countriesToUpdate);
-
-    Framework.nativeUpdateSavedDataVersion();
   }
 
   private static void notifyNoSpaceInternal(Activity activity)
@@ -404,6 +384,9 @@ public final class MapManager
    * Determines whether something is downloading now.
    */
   public static native boolean nativeIsDownloading();
+
+  @Nullable
+  public static native String nativeGetCurrentDownloadingCountryId();
 
   /**
    * Enqueues given {@code root} node and its children in downloader.

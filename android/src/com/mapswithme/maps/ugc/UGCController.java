@@ -11,15 +11,16 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.mapswithme.maps.R;
 import com.mapswithme.maps.bookmarks.data.MapObject;
 import com.mapswithme.maps.widget.RatingView;
 import com.mapswithme.maps.widget.placepage.PlacePageView;
 import com.mapswithme.maps.widget.recycler.ItemDecoratorFactory;
+import com.mapswithme.util.DateUtils;
 import com.mapswithme.util.UiUtils;
 
+import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -211,8 +212,9 @@ public class UGCController implements View.OnClickListener, UGC.UGCListener
     }
 
     Context context = mPlacePage.getContext();
-    mReviewCount.setText(context.getString(R.string.placepage_summary_rating_description,
-                                           String.valueOf(ugc.getBasedOnCount())));
+    int reviewsCount = ugc.getBasedOnCount();
+    mReviewCount.setText(context.getResources().getQuantityString(
+        R.plurals.placepage_summary_rating_description, reviewsCount, reviewsCount));
     ratingView.setRating(Impress.values()[impress], rating);
     setSummaryViews(ugc, impress, rating);
     setUserReviewAndRatingsView(ugcUpdate);
@@ -230,8 +232,9 @@ public class UGCController implements View.OnClickListener, UGC.UGCListener
     RatingView ratingView = (RatingView) mSummaryRootView.findViewById(R.id.rv__summary_rating);
     ratingView.setRating(Impress.values()[impress], rating);
     Context context = mPlacePage.getContext();
-    mSummaryReviewCount.setText(context.getString(R.string.placepage_summary_rating_description,
-                                           String.valueOf(ugc.getBasedOnCount())));
+    int reviewsCount = ugc.getBasedOnCount();
+    mSummaryReviewCount.setText(context.getResources().getQuantityString(
+        R.plurals.placepage_summary_rating_description, reviewsCount, reviewsCount));
     mUGCRatingRecordsAdapter.setItems(ugc.getRatings());
 
   }
@@ -269,11 +272,12 @@ public class UGCController implements View.OnClickListener, UGC.UGCListener
                    mUserRatingRecordsContainer);
     if (update == null)
       return;
-    TextView name = (TextView) mUserReviewView.findViewById(R.id.name);
-    TextView date = (TextView) mUserReviewView.findViewById(R.id.date);
+    TextView name = mUserReviewView.findViewById(R.id.name);
+    TextView date = mUserReviewView.findViewById(R.id.date);
     name.setText(R.string.placepage_reviews_your_comment);
-    date.setText(UGCReviewAdapter.DATE_FORMATTER.format(new Date(update.getTimeMillis())));
-    TextView review = (TextView) mUserReviewView.findViewById(R.id.review);
+    DateFormat formatter = DateUtils.getMediumDateFormatter();
+    date.setText(formatter.format(new Date(update.getTimeMillis())));
+    TextView review = mUserReviewView.findViewById(R.id.review);
     UiUtils.showIf(!TextUtils.isEmpty(update.getText()), review);
     review.setText(update.getText());
     mUGCUserRatingRecordsAdapter.setItems(update.getRatings());

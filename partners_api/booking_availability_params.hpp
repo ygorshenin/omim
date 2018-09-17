@@ -1,16 +1,19 @@
 #pragma once
 
+#include "partners_api/booking_params_base.hpp"
+
 #include "base/url_helpers.hpp"
 
 #include <chrono>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace booking
 {
 /// Params for checking availability of hotels.
 /// [m_hotelIds], [m_checkin], [m_checkout], [m_rooms] are required.
-struct AvailabilityParams
+struct AvailabilityParams : public ParamsBase
 {
   struct Room
   {
@@ -20,6 +23,9 @@ struct AvailabilityParams
 
     void SetAdultsCount(uint8_t adultsCount);
     void SetAgeOfChild(int8_t ageOfChild);
+
+    uint8_t GetAdultsCount() const;
+    int8_t GetAgeOfChild() const;
 
     std::string ToString() const;
 
@@ -31,16 +37,20 @@ struct AvailabilityParams
     int8_t m_ageOfChild = kNoChildren;
   };
 
-  using Clock = std::chrono::system_clock;
-  using Time = Clock::time_point;
   using Hotels = std::vector<std::string>;
   using Rooms = std::vector<Room>;
   using Stars = std::vector<std::string>;
 
-  base::url::Params Get() const;
-  bool IsEmpty() const;
-  bool operator!=(AvailabilityParams const & rhs) const;
-  bool operator==(AvailabilityParams const & rhs) const;
+  static AvailabilityParams MakeDefault();
+
+  using UrlFilter = std::unordered_set<std::string>;
+  base::url::Params Get(UrlFilter const & filter = {}) const;
+
+  // ParamsBase overrides:
+  bool IsEmpty() const override;
+  bool Equals(ParamsBase const & rhs) const override;
+  bool Equals(AvailabilityParams const & rhs) const override;
+  void Set(ParamsBase const & src) override;
 
   /// Limit the result list to the specified hotels where they have availability for the
   /// specified guests and dates.
@@ -60,5 +70,7 @@ struct AvailabilityParams
   double m_minReviewScore = {};
   /// Limit to hotels with the given number(s) of stars. Supported values 1-5.
   Stars m_stars;
+  /// Only show rates that are deals of types: smart, lastm.
+  bool m_dealsOnly = false;
 };
 }  // namespace booking

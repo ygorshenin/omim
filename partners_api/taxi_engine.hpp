@@ -1,8 +1,11 @@
 #pragma once
 
 #include "partners_api/taxi_base.hpp"
+#include "partners_api/taxi_delegate.hpp"
 
 #include "platform/safe_callback.hpp"
+
+#include "geometry/point2d.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -16,15 +19,6 @@ using SuccessCallback =
 
 using ErrorCallback =
     platform::SafeCallback<void(ErrorsContainer const & errors, uint64_t const requestId)>;
-
-class Delegate
-{
-public:
-  virtual ~Delegate() = default;
-
-  virtual storage::TCountriesVec GetCountryIds(ms::LatLon const & latlon) = 0;
-  virtual std::string GetCityName(ms::LatLon const & latlon) = 0;
-};
 
 /// This class is used to collect replies from all taxi apis and to call callback when all replies
 /// are collected. The methods are called in callbacks on different threads, so synchronization is
@@ -83,13 +77,14 @@ public:
   std::vector<Provider::Type> GetProvidersAtPos(ms::LatLon const & pos) const;
 
 private:
-  bool IsAvailableAtPos(Provider::Type type, ms::LatLon const & pos) const;
-  bool AreAllCountriesDisabled(Provider::Type type, ms::LatLon const & latlon) const;
-  bool IsAnyCountryEnabled(Provider::Type type, ms::LatLon const & latlon) const;
+  bool IsAvailableAtPos(Provider::Type type, m2::PointD const & point) const;
+  bool IsDisabledAtPos(Provider::Type type, m2::PointD const & point) const;
+  bool IsEnabledAtPos(Provider::Type type, m2::PointD const & point) const;
 
   template <typename ApiType>
-  void AddApi(std::vector<ProviderUrl> const & urls, Provider::Type type, Countries const & enabled,
-              Countries const & disabled);
+  void AddApi(std::vector<ProviderUrl> const & urls, Provider::Type type);
+
+  std::unique_ptr<Delegate> m_delegate;
 
   std::vector<ApiItem> m_apis;
 
@@ -98,7 +93,5 @@ private:
   // Use single instance of maker for all requests, for this reason,
   // all outdated requests will be ignored.
   std::shared_ptr<ResultMaker> m_maker = std::make_shared<ResultMaker>();
-
-  std::unique_ptr<Delegate> m_delegate;
 };
 }  // namespace taxi

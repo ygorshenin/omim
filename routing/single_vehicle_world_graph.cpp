@@ -102,6 +102,11 @@ RouteWeight SingleVehicleWorldGraph::CalcOffroadWeight(m2::PointD const & from,
   return RouteWeight(m_estimator->CalcOffroadWeight(from, to));
 }
 
+double SingleVehicleWorldGraph::CalcSegmentETA(Segment const & segment)
+{
+  return m_estimator->CalcSegmentETA(segment, GetRoadGeometry(segment.GetMwmId(), segment.GetFeatureId()));
+}
+
 bool SingleVehicleWorldGraph::LeapIsAllowed(NumMwmId mwmId) const
 {
   return m_estimator->LeapIsAllowed(mwmId);
@@ -114,9 +119,14 @@ vector<Segment> const & SingleVehicleWorldGraph::GetTransitions(NumMwmId numMwmI
 
 unique_ptr<TransitInfo> SingleVehicleWorldGraph::GetTransitInfo(Segment const &) { return {}; }
 
+std::vector<RouteSegment::SpeedCamera> SingleVehicleWorldGraph::GetSpeedCamInfo(Segment const & segment)
+{
+  return m_loader->GetSpeedCameraInfo(segment);
+}
+
 RoadGeometry const & SingleVehicleWorldGraph::GetRoadGeometry(NumMwmId mwmId, uint32_t featureId)
 {
-  return m_loader->GetIndexGraph(mwmId).GetGeometry().GetRoad(featureId);
+  return m_loader->GetGeometry(mwmId).GetRoad(featureId);
 }
 
 void SingleVehicleWorldGraph::GetTwinsInner(Segment const & segment, bool isOutgoing,

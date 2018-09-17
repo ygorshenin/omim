@@ -6,6 +6,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
+import com.mapswithme.maps.ClickMenuDelegate;
 import com.mapswithme.maps.MwmActivity;
 import com.mapswithme.maps.MwmApplication;
 import com.mapswithme.maps.R;
@@ -122,15 +123,106 @@ public class MainMenu extends BaseMenu
 
   public enum Item implements BaseMenu.Item
   {
-    TOGGLE(R.id.toggle),
-    ADD_PLACE(R.id.add_place),
-    SEARCH(R.id.search),
-    P2P(R.id.p2p),
-    DISCOVERY(R.id.discovery),
-    BOOKMARKS(R.id.bookmarks),
-    SHARE(R.id.share),
-    DOWNLOADER(R.id.download_maps),
-    SETTINGS(R.id.settings);
+    MENU(R.id.toggle)
+        {
+          @NonNull
+          @Override
+          public ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                       @NonNull Item item)
+          {
+            return new MwmActivity.MenuClickDelegate(activity, item);
+          }
+        },
+    ADD_PLACE(R.id.add_place)
+        {
+          @NonNull
+          @Override
+          public ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                       @NonNull Item item)
+          {
+            return new MwmActivity.AddPlaceDelegate(activity, item);
+          }
+        },
+    DOWNLOAD_GUIDES(R.id.download_guides)
+        {
+          @NonNull
+          @Override
+          public ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                       @NonNull Item item)
+          {
+            return new MwmActivity.DownloadGuidesDelegate(activity, item);
+          }
+        },
+    SEARCH(R.id.search)
+        {
+          @NonNull
+          @Override
+          public ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                       @NonNull Item item)
+          {
+            return new MwmActivity.SearchClickDelegate(activity, item);
+          }
+        },
+    POINT_TO_POINT(R.id.p2p)
+        {
+          @NonNull
+          @Override
+          public ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                       @NonNull Item item)
+          {
+            return new MwmActivity.PointToPointDelegate(activity, item);
+          }
+        },
+    DISCOVERY(R.id.discovery)
+        {
+          @NonNull
+          @Override
+          public ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                       @NonNull Item item)
+          {
+            return new MwmActivity.DiscoveryDelegate(activity, item);
+          }
+        },
+    BOOKMARKS(R.id.bookmarks)
+        {
+          @NonNull
+          @Override
+          public ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                       @NonNull Item item)
+          {
+            return new MwmActivity.BookmarksDelegate(activity, item);
+          }
+        },
+    SHARE_MY_LOCATION(R.id.share)
+        {
+          @NonNull
+          @Override
+          public ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                       @NonNull Item item)
+          {
+            return new MwmActivity.ShareMyLocationDelegate(activity, item);
+          }
+        },
+    DOWNLOAD_MAPS(R.id.download_maps)
+        {
+          @NonNull
+          @Override
+          public ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                       @NonNull Item item)
+          {
+            return new MwmActivity.DownloadMapsDelegate(activity, item);
+          }
+        },
+    SETTINGS(R.id.settings)
+        {
+          @NonNull
+          @Override
+          public ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                       @NonNull Item item)
+          {
+            return new MwmActivity.SettingsDelegate(activity, item);
+          }
+        };
 
     private final int mViewId;
 
@@ -144,6 +236,16 @@ public class MainMenu extends BaseMenu
     {
       return mViewId;
     }
+
+    public void onClicked(@NonNull MwmActivity activity, @NonNull Item item)
+    {
+      ClickMenuDelegate delegate = createClickDelegate(activity, item);
+      delegate.onMenuItemClick();
+    }
+
+    @NonNull
+    public abstract ClickMenuDelegate createClickDelegate(@NonNull MwmActivity activity,
+                                                          @NonNull Item item);
   }
 
   @Override
@@ -216,12 +318,13 @@ public class MainMenu extends BaseMenu
   private void init()
   {
     mapItem(Item.ADD_PLACE);
+    mapItem(Item.DOWNLOAD_GUIDES);
     mapItem(Item.SEARCH);
-    mapItem(Item.P2P);
+    mapItem(Item.POINT_TO_POINT);
     mapItem(Item.DISCOVERY);
     mapItem(Item.BOOKMARKS);
-    mapItem(Item.SHARE);
-    mapItem(Item.DOWNLOADER);
+    mapItem(Item.SHARE_MY_LOCATION);
+    mapItem(Item.DOWNLOAD_MAPS);
     mapItem(Item.SETTINGS);
 
     adjustCollapsedItems();
@@ -239,7 +342,7 @@ public class MainMenu extends BaseMenu
     mAnimationSymmetricalGap = mButtonsFrame.findViewById(R.id.symmetrical_gap);
 
     mToggle = new MenuToggle(mLineFrame, getHeightResId());
-    mapItem(Item.TOGGLE, mLineFrame);
+    mapItem(Item.MENU, mLineFrame);
 
     mNewsMarker = mButtonsFrame.findViewById(R.id.marker);
     mNewsCounter = (TextView) mContentFrame.findViewById(R.id.counter);

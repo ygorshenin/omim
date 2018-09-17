@@ -8,7 +8,9 @@
 #include "routing/restrictions_serialization.hpp"
 #include "routing/road_access.hpp"
 #include "routing/road_point.hpp"
+#include "routing/route.hpp"
 #include "routing/segment.hpp"
+#include "routing/speed_camera_ser_des.hpp"
 #include "routing/single_vehicle_world_graph.hpp"
 #include "routing/transit_graph_loader.hpp"
 #include "routing/transit_world_graph.hpp"
@@ -88,7 +90,13 @@ public:
   // IndexGraphLoader overrides:
   ~TestIndexGraphLoader() override = default;
 
+  Geometry & GetGeometry(NumMwmId mwmId) override { return GetIndexGraph(mwmId).GetGeometry(); }
   IndexGraph & GetIndexGraph(NumMwmId mwmId) override;
+  std::vector<RouteSegment::SpeedCamera> GetSpeedCameraInfo(Segment const & segment) override
+  {
+    return {};
+  }
+
   void Clear() override;
 
   void AddGraph(NumMwmId mwmId, unique_ptr<IndexGraph> graph);
@@ -131,6 +139,7 @@ public:
   ~WeightedEdgeEstimator() override = default;
 
   double CalcSegmentWeight(Segment const & segment, RoadGeometry const & /* road */) const override;
+  double CalcSegmentETA(Segment const & segment, RoadGeometry const & road) const override { return 0.0; }
   double GetUTurnPenalty() const override;
   bool LeapIsAllowed(NumMwmId /* mwmId */) const override;
 
@@ -155,8 +164,11 @@ public:
   // and the graph itself is built only after a call to FindPath.
   void AddDirectedEdge(Vertex from, Vertex to, double weight);
 
-  // Blocks a previously added edge without removing it from the graph.
-  void BlockEdge(Vertex from, Vertex to);
+  // Sets access for previously added edge.
+  void SetEdgeAccess(Vertex from, Vertex to, RoadAccess::Type type);
+
+  // Sets access type for previously added point.
+  void SetVertexAccess(Vertex v, RoadAccess::Type type);
 
   // Finds a path between the start and finish vertices. Returns true iff a path exists.
   bool FindPath(Vertex start, Vertex finish, double & pathWeight, vector<Edge> & pathEdges) const;
@@ -168,7 +180,12 @@ private:
     Vertex m_from = 0;
     Vertex m_to = 0;
     double m_weight = 0.0;
-    bool m_isBlocked = false;
+    // Access type for edge.
+    RoadAccess::Type m_accessType = RoadAccess::Type::Yes;
+    // Access type for vertex from.
+    RoadAccess::Type m_fromAccessType = RoadAccess::Type::Yes;
+    // Access type for vertex to.
+    RoadAccess::Type m_toAccessType = RoadAccess::Type::Yes;
 
     EdgeRequest(uint32_t id, Vertex from, Vertex to, double weight)
       : m_id(id), m_from(from), m_to(to), m_weight(weight)

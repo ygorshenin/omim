@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Virați strâns la stânga.",
 "make_a_u_turn":"Întoarceți-vă o sută optzeci de grade.",
 "go_straight":"Mergeți înainte.",
+"exit":"Ieșire.",
 "destination":"Veți sosi.",
 "you_have_reached_the_destination":"Ați ajuns.",
 "in_50_meters":"După cincizeci de metri",
@@ -61,5 +62,6 @@
 "in_5000_feet":"După cinci mii de picioare",
 "in_1_mile":"După o milă",
 "in_1_5_miles":"După o milă și jumătate",
-"in_2_miles":"După două mile"
+"in_2_miles":"După două mile",
+"unknown_camera":"Speed camera ahead"
 }

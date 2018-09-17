@@ -16,9 +16,8 @@ float const kLocalAdsSecondaryTextSize = 10.0f;
 float const kSecondaryOffsetY = 2.0;
 }  // namespace
 
-LocalAdsMark::LocalAdsMark(m2::PointD const & ptOrg,
-                           UserMarkContainer * container)
-  : UserMark(ptOrg, container)
+LocalAdsMark::LocalAdsMark(m2::PointD const & ptOrg)
+  : UserMark(ptOrg, Type::LOCAL_ADS)
 {
   m_titleDecl.m_anchor = dp::Top;
   m_titleDecl.m_primaryTextFont.m_color = df::GetColorConstant(kLocalAdsPrimaryText);
@@ -37,9 +36,9 @@ drape_ptr<df::UserPointMark::SymbolNameZoomInfo> LocalAdsMark::GetSymbolNames() 
   return symbol;
 }
 
-df::RenderState::DepthLayer LocalAdsMark::GetDepthLayer() const
+df::DepthLayer LocalAdsMark::GetDepthLayer() const
 {
-  return df::RenderState::LocalAdsMarkLayer;
+  return df::DepthLayer::LocalAdsMarkLayer;
 }
 
 drape_ptr<df::UserPointMark::TitlesInfo> LocalAdsMark::GetTitleDecl() const

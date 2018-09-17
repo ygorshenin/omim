@@ -1,10 +1,12 @@
 #pragma once
 
 #include "map/bookmark_manager.hpp"
+#include "map/extrapolation/extrapolator.hpp"
 #include "map/routing_mark.hpp"
 #include "map/transit/transit_display.hpp"
 #include "map/transit/transit_reader.hpp"
 
+#include "routing/routing_callbacks.hpp"
 #include "routing/route.hpp"
 #include "routing/routing_session.hpp"
 
@@ -39,7 +41,7 @@ namespace routing
 class NumMwmIds;
 }
 
-class Index;
+class DataSource;
 
 struct RoutePointInfo
 {
@@ -65,35 +67,31 @@ public:
 
   struct Callbacks
   {
-    using IndexGetterFn = std::function<Index &()>;
+    using DataSourceGetterFn = std::function<DataSource &()>;
     using CountryInfoGetterFn = std::function<storage::CountryInfoGetter &()>;
     using CountryParentNameGetterFn = std::function<std::string(std::string const &)>;
-    using FeatureCallback = std::function<void (FeatureType const &)>;
-    using ReadFeaturesFn = std::function<void (FeatureCallback const &, std::vector<FeatureID> const &)>;
     using GetStringsBundleFn = std::function<StringsBundle const &()>;
 
-    template <typename IndexGetter, typename CountryInfoGetter, typename CountryParentNameGetter,
-        typename FeatureReader, typename StringsBundleGetter>
-    Callbacks(IndexGetter && featureIndexGetter, CountryInfoGetter && countryInfoGetter,
+    template <typename DataSourceGetter, typename CountryInfoGetter,
+              typename CountryParentNameGetter, typename StringsBundleGetter>
+    Callbacks(DataSourceGetter && dataSourceGetter, CountryInfoGetter && countryInfoGetter,
               CountryParentNameGetter && countryParentNameGetter,
-              FeatureReader && readFeatures, StringsBundleGetter && stringsBundleGetter)
-      : m_indexGetter(std::forward<IndexGetter>(featureIndexGetter))
+              StringsBundleGetter && stringsBundleGetter)
+      : m_dataSourceGetter(std::forward<DataSourceGetter>(dataSourceGetter))
       , m_countryInfoGetter(std::forward<CountryInfoGetter>(countryInfoGetter))
       , m_countryParentNameGetterFn(std::forward<CountryParentNameGetter>(countryParentNameGetter))
-      , m_readFeaturesFn(std::forward<FeatureReader>(readFeatures))
       , m_stringsBundleGetter(std::forward<StringsBundleGetter>(stringsBundleGetter))
-    {}
+    {
+    }
 
-    IndexGetterFn m_indexGetter;
+    DataSourceGetterFn m_dataSourceGetter;
     CountryInfoGetterFn m_countryInfoGetter;
     CountryParentNameGetterFn m_countryParentNameGetterFn;
-    TReadFeaturesFn m_readFeaturesFn;
     GetStringsBundleFn m_stringsBundleGetter;
   };
 
   using RouteBuildingCallback =
-      std::function<void(routing::IRouter::ResultCode, storage::TCountriesVec const &)>;
-  using RouteProgressCallback = std::function<void(float)>;
+      std::function<void(routing::RouterResultCode, storage::TCountriesVec const &)>;
 
   enum class Recommendation
   {
@@ -107,6 +105,7 @@ public:
   RoutingManager(Callbacks && callbacks, Delegate & delegate);
 
   void SetBookmarkManager(BookmarkManager * bmManager);
+  void SetTransitManager(TransitReadManager * transitManager);
 
   routing::RoutingSession const & RoutingSession() const { return m_routingSession; }
   routing::RoutingSession & RoutingSession() { return m_routingSession; }
@@ -130,10 +129,10 @@ public:
 
   void SetRouteBuildingListener(RouteBuildingCallback const & buildingCallback)
   {
-    m_routingCallback = buildingCallback;
+    m_routingBuildingCallback = buildingCallback;
   }
   /// See warning above.
-  void SetRouteProgressListener(RouteProgressCallback const & progressCallback)
+  void SetRouteProgressListener(routing::ProgressCallback const & progressCallback)
   {
     m_routingSession.SetProgressCallback(progressCallback);
   }
@@ -177,15 +176,13 @@ public:
   {
     return m_routingSession.GetTurnNotificationsLocale();
   }
-  /// \brief When an end user is going to a turn he gets sound turn instructions.
-  /// If C++ part wants the client to pronounce an instruction GenerateTurnNotifications (in
-  /// turnNotifications) returns
-  /// an array of one of more strings. C++ part assumes that all these strings shall be pronounced
-  /// by the client's TTS.
-  /// For example if C++ part wants the client to pronounce "Make a right turn." this method returns
-  /// an array with one string "Make a right turn.". The next call of the method returns nothing.
-  /// GenerateTurnNotifications shall be called by the client when a new position is available.
-  void GenerateTurnNotifications(std::vector<std::string> & turnNotifications);
+  /// \brief Adds to @param notifications strings - notifications, which are ready to be
+  /// pronounced to end user right now.
+  /// Adds notifications about turns and speed camera on the road.
+  ///
+  /// \note Current notifications will be deleted after call and second call
+  /// will not return previous data, only newer.
+  void GenerateNotifications(std::vector<std::string> & notifications);
 
   void AddRoutePoint(RouteMarkData && markData);
   std::vector<RouteMarkData> GetRoutePoints() const;
@@ -204,12 +201,14 @@ public:
   void RemoveRoute(bool deactivateFollowing);
 
   void CheckLocationForRouting(location::GpsInfo const & info);
-  void CallRouteBuilded(routing::IRouter::ResultCode code,
+  void CallRouteBuilded(routing::RouterResultCode code,
                         storage::TCountriesVec const & absentCountries);
-  void OnBuildRouteReady(routing::Route const & route, routing::IRouter::ResultCode code);
-  void OnRebuildRouteReady(routing::Route const & route, routing::IRouter::ResultCode code);
+  void OnBuildRouteReady(routing::Route const & route, routing::RouterResultCode code);
+  void OnRebuildRouteReady(routing::Route const & route, routing::RouterResultCode code);
+  void OnNeedMoreMaps(uint64_t routeId, std::vector<std::string> const & absentCountries);
+  void OnRemoveRoute(routing::RouterResultCode code);
   void OnRoutePointPassed(RouteMarkType type, size_t intermediateIndex);
-  void OnLocationUpdate(location::GpsInfo & info);
+  void OnLocationUpdate(location::GpsInfo const & info);
   void SetAllowSendingPoints(bool isAllowed)
   {
     m_trackingReporter.SetAllowSendingPoints(isAllowed);
@@ -224,9 +223,16 @@ public:
   /// false otherwise.
   bool HasRouteAltitude() const;
 
+  /// \brief Fills altitude of current route points and distance in meters form the beginning
+  /// of the route point based on the route in RoutingSession.
+  bool GetRouteAltitudesAndDistancesM(std::vector<double> & routePointDistanceM,
+                                      feature::TAltitudes & altitudes) const;
+
   /// \brief Generates 4 bytes per point image (RGBA) and put the data to |imageRGBAData|.
   /// \param width is width of chart shall be generated in pixels.
   /// \param height is height of chart shall be generated in pixels.
+  /// \param altitudes route points altitude.
+  /// \param routePointDistanceM distance in meters from route beginning to route points.
   /// \param imageRGBAData is bits of result image in RGBA.
   /// \param minRouteAltitude is min altitude along the route in altitudeUnits.
   /// \param maxRouteAltitude is max altitude along the route in altitudeUnits.
@@ -236,8 +242,11 @@ public:
   /// |imageRGBAData| is not zero.
   /// \note If HasRouteAltitude() method returns true, GenerateRouteAltitudeChart(...)
   /// could return false if route was deleted or rebuilt between the calls.
-  bool GenerateRouteAltitudeChart(uint32_t width, uint32_t height, std::vector<uint8_t> & imageRGBAData,
-                                  int32_t & minRouteAltitude, int32_t & maxRouteAltitude,
+  bool GenerateRouteAltitudeChart(uint32_t width, uint32_t height,
+                                  feature::TAltitudes const & altitudes,
+                                  std::vector<double> const & routePointDistanceM,
+                                  std::vector<uint8_t> & imageRGBAData, int32_t & minRouteAltitude,
+                                  int32_t & maxRouteAltitude,
                                   measurement_utils::Units & altitudeUnits) const;
 
   uint32_t OpenRoutePointsTransaction();
@@ -248,10 +257,11 @@ public:
   /// \returns true if there are route points saved in file and false otherwise.
   bool HasSavedRoutePoints() const;
   /// \brief It loads road points from file and delete file after loading.
-  /// \returns true if route points loaded and false otherwise.
-  bool LoadRoutePoints();
+  /// The result of the loading will be sent via SafeCallback.
+  using LoadRouteHandler = platform::SafeCallback<void(bool success)>;
+  void LoadRoutePoints(LoadRouteHandler const & handler);
   /// \brief It saves route points to file.
-  void SaveRoutePoints() const;
+  void SaveRoutePoints();
   /// \brief It deletes file with saved route points if it exists.
   void DeleteSavedRoutePoints();
 
@@ -278,7 +288,11 @@ private:
 
   void CancelRecommendation(Recommendation recommendation);
 
-  RouteBuildingCallback m_routingCallback = nullptr;
+  std::vector<RouteMarkData> GetRoutePointsToSave() const;
+
+  void OnExtrapolatedLocationUpdate(location::GpsInfo const & info);
+
+  RouteBuildingCallback m_routingBuildingCallback = nullptr;
   RouteRecommendCallback m_routeRecommendCallback = nullptr;
   Callbacks m_callbacks;
   df::DrapeEngineSafePtr m_drapeEngine;
@@ -288,6 +302,7 @@ private:
   Delegate & m_delegate;
   tracking::Reporter m_trackingReporter;
   BookmarkManager * m_bmManager = nullptr;
+  extrapolation::Extrapolator m_extrapolator;
 
   std::vector<dp::DrapeID> m_drapeSubroutes;
   mutable std::mutex m_drapeSubroutesMutex;
@@ -304,7 +319,7 @@ private:
   std::chrono::steady_clock::time_point m_loadRoutePointsTimestamp;
   std::map<std::string, m2::PointF> m_transitSymbolSizes;
 
-  TransitReadManager m_transitReadManager;
+  TransitReadManager * m_transitReadManager = nullptr;
 
   DECLARE_THREAD_CHECKER(m_threadChecker);
 };

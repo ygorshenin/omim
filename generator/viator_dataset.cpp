@@ -45,7 +45,7 @@ ViatorCity::ViatorCity(std::string const & src)
   m_name = rec[FieldIndex(TsvFields::Name)];
 }
 
-ostream & operator<<(ostream & s, ViatorCity const & h)
+std::ostream & operator<<(std::ostream & s, ViatorCity const & h)
 {
   s << std::fixed << std::setprecision(7);
   return s << "Id: " << h.m_id << "\t Name: " << h.m_name << "\t lat: " << h.m_latLon.lat
@@ -56,10 +56,10 @@ ostream & operator<<(ostream & s, ViatorCity const & h)
 ViatorDataset::ViatorDataset(std::string const & dataPath)
   : m_storage(3000.0 /* distanceLimitMeters */, 3 /* maxSelectedElements */)
 {
-  LoadIndex(m_index);
-  m_cityFinder = make_unique<search::CityFinder>(m_index);
+  LoadDataSource(m_dataSource);
+  m_cityFinder = make_unique<search::CityFinder>(m_dataSource);
 
-  m_storage.LoadData(dataPath, "");
+  m_storage.LoadData(dataPath);
 }
 
 ViatorCity::ObjectId ViatorDataset::FindMatchingObjectId(FeatureBuilder1 const & fb) const

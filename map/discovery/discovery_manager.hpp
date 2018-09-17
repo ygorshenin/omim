@@ -3,15 +3,17 @@
 #include "search/city_finder.hpp"
 
 #include "map/discovery/discovery_client_params.hpp"
+#include "map/discovery/discovery_search.hpp"
+#include "map/discovery/discovery_search_params.hpp"
 #include "map/search_api.hpp"
+#include "map/search_product_info.hpp"
 
 #include "partners_api/booking_api.hpp"
 #include "partners_api/locals_api.hpp"
 #include "partners_api/viator_api.hpp"
 
+#include "platform/marketing_service.hpp"
 #include "platform/platform.hpp"
-
-#include "indexer/index.hpp"
 
 #include "geometry/point2d.hpp"
 #include "geometry/rect2d.hpp"
@@ -19,9 +21,12 @@
 #include "base/thread_checker.hpp"
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
+
+class DataSource;
 
 namespace discovery
 {
@@ -52,13 +57,15 @@ public:
 
   using ErrorCalback = std::function<void(uint32_t const requestId, ItemType const type)>;
 
-  Manager(Index const & index, search::CityFinder & cityFinder, APIs const & apis);
+  Manager(DataSource const & dataSource, search::CityFinder & cityFinder, APIs const & apis);
 
   template <typename ResultCallback>
   uint32_t Discover(Params && params, ResultCallback const & onResult, ErrorCalback const & onError)
   {
+    GetPlatform().GetMarketingService().SendPushWooshTag(marketing::kDiscoveryButtonDiscovered);
+
     uint32_t const requestId = ++m_requestCounter;
-    ASSERT_THREAD_CHECKER(m_threadChecker, ());
+    CHECK_THREAD_CHECKER(m_threadChecker, ());
     auto const & types = params.m_itemTypes;
     ASSERT(!types.empty(), ("Types must contain at least one element."));
 
@@ -72,7 +79,7 @@ public:
         if (sponsoredId.empty())
         {
           GetPlatform().RunTask(Platform::Thread::Gui,
-                                [requestId, onResult, type] {
+                                [requestId, onResult] {
                                     onResult(requestId, std::vector<viator::Product>());
                                 });
           break;
@@ -90,7 +97,7 @@ public:
             sponsoredId, params.m_curency,
             [this, requestId, sponsoredId, onResult, onError](std::string const & destId,
                                                      std::vector<viator::Product> const & products) {
-              ASSERT_THREAD_CHECKER(m_threadChecker, ());
+              CHECK_THREAD_CHECKER(m_threadChecker, ());
               if (destId == sponsoredId)
               {
                 if (products.empty())
@@ -106,23 +113,24 @@ public:
       }
       case ItemType::Attractions: // fallthrough
       case ItemType::Cafes:
+      case ItemType::Hotels:
       {
         auto p = GetSearchParams(params, type);
         auto const viewportCenter = params.m_viewportCenter;
-        p.m_onResults = [requestId, onResult, type, viewportCenter](search::Results const & results) {
-          if (!results.IsEndMarker())
-            return;
+        p.m_onResults =
+          [requestId, onResult, type, viewportCenter](search::Results const & results,
+                                                      std::vector<search::ProductInfo> const & productInfo) {
           GetPlatform().RunTask(Platform::Thread::Gui,
-                                [requestId, onResult, type, results, viewportCenter] {
-            onResult(requestId, results, type, viewportCenter);
+                                [requestId, onResult, type, results, productInfo, viewportCenter] {
+            onResult(requestId, results, productInfo, type, viewportCenter);
           });
         };
-        m_searchApi.GetEngine().Search(p);
-        break;
-      }
-      case ItemType::Hotels:
-      {
-        ASSERT(false, ("Discovering hotels isn't supported yet."));
+
+        if (type == ItemType::Hotels)
+          ProcessSearchIntent(std::make_shared<SearchHotels>(m_dataSource, p, m_searchApi));
+        else
+          ProcessSearchIntent(std::make_shared<SearchPopularPlaces>(m_dataSource, p, m_searchApi));
+
         break;
       }
       case ItemType::LocalExperts:
@@ -134,11 +142,11 @@ public:
             [this, requestId, onResult](uint64_t id, std::vector<locals::LocalExpert> const & locals,
                                         size_t /* pageNumber */, size_t /* countPerPage */,
                                         bool /* hasPreviousPage */, bool /* hasNextPage */) {
-              ASSERT_THREAD_CHECKER(m_threadChecker, ());
+              CHECK_THREAD_CHECKER(m_threadChecker, ());
               onResult(requestId, locals);
             },
             [this, requestId, onError, type](uint64_t id, int errorCode, std::string const & errorMessage) {
-              ASSERT_THREAD_CHECKER(m_threadChecker, ());
+              CHECK_THREAD_CHECKER(m_threadChecker, ());
               onError(requestId, type);
             });
         break;
@@ -152,10 +160,10 @@ public:
   std::string GetLocalExpertsUrl(m2::PointD const & point) const;
 
 private:
-  static search::SearchParams GetSearchParams(Params const & params, ItemType const type);
+  static DiscoverySearchParams GetSearchParams(Manager::Params const & params, ItemType const type);
   std::string GetCityViatorId(m2::PointD const & point) const;
 
-  Index const & m_index;
+  DataSource const & m_dataSource;
   search::CityFinder & m_cityFinder;
   SearchAPI & m_searchApi;
   viator::Api const & m_viatorApi;

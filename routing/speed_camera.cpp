@@ -1,64 +1,36 @@
 #include "routing/speed_camera.hpp"
 
-#include "indexer/classificator.hpp"
-#include "indexer/ftypes_matcher.hpp"
-#include "indexer/index.hpp"
-#include "indexer/scales.hpp"
-
-#include "coding/read_write_utils.hpp"
-#include "coding/reader.hpp"
-#include "coding/writer.hpp"
-
-#include "base/string_utils.hpp"
-#include "base/math.hpp"
-
-#include "std/limits.hpp"
-
-namespace
-{
-double constexpr kCameraCheckRadiusMeters = 2.0;
-double constexpr kCoordinateEqualityDelta = 0.000001;
-}  // namespace
+#include "routing/routing_helpers.hpp"
 
 namespace routing
 {
-uint8_t const kNoSpeedCamera = numeric_limits<uint8_t>::max();
-
-uint8_t ReadCameraRestriction(FeatureType & ft)
+bool SpeedCameraOnRoute::IsDangerous(double distanceToCameraMeters, double speedMpS) const
 {
-  using feature::Metadata;
-  feature::Metadata const & md = ft.GetMetadata();
-  string const & speed = md.Get(Metadata::FMD_MAXSPEED);
-  if (speed.empty())
-    return 0;
-  int result;
-  if (strings::to_int(speed, result))
-    return result;
-  return 0;
-}
+  if (distanceToCameraMeters < kInfluenceZoneMeters + kDistanceEpsilonMeters)
+    return true;
 
-uint8_t CheckCameraInPoint(m2::PointD const & point, Index const & index)
-{
-  uint32_t speedLimit = kNoSpeedCamera;
+  if (m_maxSpeedKmH == kNoSpeedInfo)
+    return distanceToCameraMeters < kInfluenceZoneMeters + kDistToReduceSpeedBeforeUnknownCameraM;
 
-  auto const f = [&point, &speedLimit](FeatureType & ft)
-  {
-    if (ft.GetFeatureType() != feature::GEOM_POINT)
-      return;
+  double const distToDangerousZone = distanceToCameraMeters - kInfluenceZoneMeters;
 
-    feature::TypesHolder hl = ft;
-    if (!ftypes::IsSpeedCamChecker::Instance()(hl))
-      return;
+  if (speedMpS < routing::KMPH2MPS(m_maxSpeedKmH))
+    return false;
 
-    if (my::AlmostEqualAbs(ft.GetCenter().x, point.x, kCoordinateEqualityDelta) &&
-        my::AlmostEqualAbs(ft.GetCenter().y, point.y, kCoordinateEqualityDelta))
-      speedLimit = ReadCameraRestriction(ft);
-  };
+  double timeToSlowSpeed =
+    (routing::KMPH2MPS(m_maxSpeedKmH) - speedMpS) / kAverageAccelerationOfBraking;
 
-  index.ForEachInRect(f,
-                      MercatorBounds::RectByCenterXYAndSizeInMeters(point,
-                                                                    kCameraCheckRadiusMeters),
-                      scales::GetUpperScale());
-  return speedLimit;
+  // Look to: https://en.wikipedia.org/wiki/Acceleration#Uniform_acceleration
+  // S = V_0 * t + at^2 / 2, where
+  //   V_0 - current speed
+  //   a - kAverageAccelerationOfBraking
+  double distanceNeedsToSlowDown = timeToSlowSpeed * speedMpS +
+                                   (kAverageAccelerationOfBraking * timeToSlowSpeed * timeToSlowSpeed) / 2;
+  distanceNeedsToSlowDown += kTimeForDecision * speedMpS;
+
+  if (distToDangerousZone < distanceNeedsToSlowDown + kDistanceEpsilonMeters)
+    return true;
+
+  return false;
 }
 }  // namespace routing

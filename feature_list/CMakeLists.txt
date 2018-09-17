@@ -14,9 +14,10 @@ omim_link_libraries(
   search search_quality
   storage
   ugc
+  kml
+  editor
   indexer
   platform
-  editor
   mwm_diff
   bsdiff
   geometry

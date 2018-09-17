@@ -9,12 +9,40 @@ import android.telephony.TelephonyManager;
 
 import com.mapswithme.maps.MwmApplication;
 
+import static com.mapswithme.util.ConnectionState.Type.NONE;
+
 public class ConnectionState
 {
   // values should correspond to ones from enum class EConnectionType (in platform/platform.hpp)
   private static final byte CONNECTION_NONE = 0;
   private static final byte CONNECTION_WIFI = 1;
   private static final byte CONNECTION_WWAN = 2;
+
+  public enum Type
+  {
+    NONE(CONNECTION_NONE, -1),
+    WIFI(CONNECTION_WIFI, ConnectivityManager.TYPE_WIFI),
+    WWAN(CONNECTION_WWAN, ConnectivityManager.TYPE_MOBILE);
+
+    private final byte mNativeRepresentation;
+    private final int mPlatformRepresentation;
+
+    Type(byte nativeRepresentation, int platformRepresentation)
+    {
+      mNativeRepresentation = nativeRepresentation;
+      mPlatformRepresentation = platformRepresentation;
+    }
+
+    public byte getNativeRepresentation()
+    {
+      return mNativeRepresentation;
+    }
+
+    public int getPlatformRepresentation()
+    {
+      return mPlatformRepresentation;
+    }
+  }
 
   private static boolean isNetworkConnected(int networkType)
   {
@@ -90,13 +118,21 @@ public class ConnectionState
     return info != null && info.isRoaming();
   }
 
+  // Called from JNI.
+  @SuppressWarnings("unused")
   public static byte getConnectionState()
   {
-    if (isWifiConnected())
-      return CONNECTION_WIFI;
-    else if (isMobileConnected())
-      return CONNECTION_WWAN;
+    return requestCurrentType().getNativeRepresentation();
+  }
 
-    return CONNECTION_NONE;
+  @NonNull
+  public static Type requestCurrentType()
+  {
+    for (ConnectionState.Type each : ConnectionState.Type.values())
+    {
+      if (isNetworkConnected(each.getPlatformRepresentation()))
+        return each;
+    }
+    return NONE;
   }
 }

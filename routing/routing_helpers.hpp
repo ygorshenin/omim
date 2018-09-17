@@ -1,7 +1,7 @@
 #pragma once
 
 #include "routing/directions_engine.hpp"
-#include "routing/road_graph.hpp"
+#include "routing/index_road_graph.hpp"
 #include "routing/route.hpp"
 #include "routing/traffic_stash.hpp"
 
@@ -20,12 +20,20 @@
 
 namespace routing
 {
-/// \returns true when there exists a routing mode where the feature with |types| can be used.
-template <class TTypes>
-bool IsRoad(TTypes const & types)
+inline double KMPH2MPS(double kmph) { return kmph * 1000.0 / (60 * 60); }
+inline double MilesPH2KMPH(double mph) { return mph / 0.621371192237334; }
+
+template <typename Types>
+bool IsCarRoad(Types const & types)
 {
-  return CarModel::AllLimitsInstance().HasRoadType(types) ||
-         PedestrianModel::AllLimitsInstance().HasRoadType(types) ||
+  return CarModel::AllLimitsInstance().HasRoadType(types);
+}
+
+/// \returns true when there exists a routing mode where the feature with |types| can be used.
+template <typename Types>
+bool IsRoad(Types const & types)
+{
+  return IsCarRoad(types) || PedestrianModel::AllLimitsInstance().HasRoadType(types) ||
          BicycleModel::AllLimitsInstance().HasRoadType(types);
 }
 
@@ -34,13 +42,13 @@ void FillSegmentInfo(std::vector<Segment> const & segments, std::vector<Junction
                      Route::TTimes const & times, std::shared_ptr<TrafficStash> const & trafficStash,
                      std::vector<RouteSegment> & routeSegment);
 
-void ReconstructRoute(IDirectionsEngine & engine, RoadGraphBase const & graph,
+void ReconstructRoute(IDirectionsEngine & engine, IndexRoadGraph const & graph,
                       std::shared_ptr<TrafficStash> const & trafficStash,
-                      my::Cancellable const & cancellable, std::vector<Junction> const & path,
+                      base::Cancellable const & cancellable, std::vector<Junction> const & path,
                       Route::TTimes && times, Route & route);
 
 /// \brief Converts |edge| to |segment|.
-/// \returns false if mwm of |edge| is not alive.
+/// \returns Segment() if mwm of |edge| is not alive.
 Segment ConvertEdgeToSegment(NumMwmIds const & numMwmIds, Edge const & edge);
 
 /// \brief Fills |times| according to max speed at |graph| and |path|.

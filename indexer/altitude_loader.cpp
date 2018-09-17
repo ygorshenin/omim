@@ -1,5 +1,7 @@
 #include "indexer/altitude_loader.hpp"
 
+#include "indexer/data_source.hpp"
+
 #include "coding/reader.hpp"
 #include "coding/succinct_mapper.hpp"
 
@@ -9,9 +11,11 @@
 
 #include "defines.hpp"
 
-#include "std/algorithm.hpp"
+#include <algorithm>
 
 #include "3party/succinct/mapper.hpp"
+
+using namespace std;
 
 namespace
 {
@@ -29,8 +33,8 @@ void LoadAndMap(size_t dataSize, ReaderSource<FilesContainerR::TReader> & src, T
 
 namespace feature
 {
-AltitudeLoader::AltitudeLoader(Index const & index, MwmSet::MwmId const & mwmId)
-  : m_handle(index.GetMwmHandleById(mwmId))
+AltitudeLoader::AltitudeLoader(DataSource const & dataSource, MwmSet::MwmId const & mwmId)
+  : m_handle(dataSource.GetMwmHandleById(mwmId))
 {
   if (!m_handle.IsAlive())
     return;

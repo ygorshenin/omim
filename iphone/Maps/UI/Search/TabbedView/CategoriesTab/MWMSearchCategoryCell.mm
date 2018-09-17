@@ -2,8 +2,6 @@
 #import "MWMCommon.h"
 #import "UIImageView+Coloring.h"
 
-extern NSString * const kCianCategory;
-
 @interface MWMSearchCategoryCell ()
 
 @property(weak, nonatomic) IBOutlet UIImageView * icon;
@@ -29,17 +27,8 @@ extern NSString * const kCianCategory;
   UILabel * label = self.label;
   label.textColor = [UIColor blackPrimaryText];
   self.icon.mwm_name = [NSString stringWithFormat:@"ic_%@", category];
-  if ([category isEqualToString:kCianCategory])
-  {
-    label.text = L(@"real_estate");
-    self.adIcon.hidden = NO;
-    self.adIcon.mwm_name = @"logo_cian";
-  }
-  else
-  {
-    label.text = L(category);
-    self.adIcon.hidden = YES;
-  }
+  label.text = L(category);
+  self.adIcon.hidden = YES;
 }
 
 @end

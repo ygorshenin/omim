@@ -3,10 +3,11 @@
 #include "generator/osm_element.hpp"
 
 #include "base/logging.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <set>
 #include <string>
@@ -18,7 +19,7 @@ class WaysParserHelper
 public:
   WaysParserHelper(std::map<uint64_t, std::string> & ways) : m_ways(ways) {}
 
-  void ParseStream(istream & input)
+  void ParseStream(std::istream & input)
   {
     std::string oneLine;
     while (std::getline(input, oneLine, '\n'))
@@ -43,7 +44,7 @@ class CapitalsParserHelper
 public:
   CapitalsParserHelper(std::set<uint64_t> & capitals) : m_capitals(capitals) {}
 
-  void ParseStream(istream & input)
+  void ParseStream(std::istream & input)
   {
     std::string oneLine;
     while (std::getline(input, oneLine, '\n'))
@@ -230,7 +231,7 @@ public:
     if (elements != m_elements.end())
     {
       for (OsmElement::Tag tag : elements->second)
-        p->AddTag(tag.key, tag.value);
+        p->UpdateTag(tag.key, [&tag](std::string & v) { v = tag.value; });
     }
   }
 };

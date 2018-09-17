@@ -1,17 +1,19 @@
-#include "geometry/geometry_tests/test_regions.hpp"
-
 #include "testing/testing.hpp"
 
+#include "geometry/geometry_tests/test_regions.hpp"
 #include "geometry/region2d/binary_operators.hpp"
 
-#include "base/logging.hpp"
+#include "base/macros.hpp"
 
+#include <vector>
+
+using namespace std;
 
 namespace
 {
-  typedef m2::PointI P;
-  typedef m2::RegionI R;
-}
+using P = m2::PointI;
+using R = m2::RegionI;
+}  // namespace
 
 UNIT_TEST(RegionIntersect_Smoke)
 {

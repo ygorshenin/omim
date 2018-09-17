@@ -1,5 +1,7 @@
 #include "map/search_api.hpp"
 
+#include "map/bookmarks_search_params.hpp"
+#include "map/discovery/discovery_search_params.hpp"
 #include "map/everywhere_search_params.hpp"
 #include "map/viewport_search_params.hpp"
 
@@ -10,13 +12,17 @@
 #include "storage/downloader_search_params.hpp"
 
 #include "platform/preferred_languages.hpp"
+#include "platform/safe_callback.hpp"
 
 #include "geometry/mercator.hpp"
 
+#include "base/scope_guard.hpp"
 #include "base/string_utils.hpp"
+#include "base/timer.hpp"
 
 #include <algorithm>
 #include <iterator>
+#include <map>
 #include <string>
 #include <type_traits>
 
@@ -37,27 +43,22 @@ void CancelQuery(weak_ptr<ProcessorHandle> & handle)
   handle.reset();
 }
 
-bool IsCianMode(string query)
+bookmarks::Id MarkIDToBookmarkId(kml::MarkId id)
 {
-  strings::Trim(query);
-  strings::AsciiToLower(query);
-  return query == "cian";
-}
-
-bookmarks::Id MarkIDToBookmarkId(df::MarkID id)
-{
-  static_assert(is_integral<df::MarkID>::value, "");
+  static_assert(is_integral<kml::MarkId>::value, "");
   static_assert(is_integral<bookmarks::Id>::value, "");
 
-  static_assert(is_unsigned<df::MarkID>::value, "");
+  static_assert(is_unsigned<kml::MarkId>::value, "");
   static_assert(is_unsigned<bookmarks::Id>::value, "");
 
-  static_assert(sizeof(bookmarks::Id) >= sizeof(df::MarkID), "");
+  static_assert(sizeof(bookmarks::Id) >= sizeof(kml::MarkId), "");
 
   return static_cast<bookmarks::Id>(id);
 }
 
-void AppendBookmarkIdDocs(vector<pair<df::MarkID, BookmarkData>> const & marks,
+kml::MarkId BookmarkIdToMarkID(bookmarks::Id id) { return static_cast<kml::MarkId>(id); }
+
+void AppendBookmarkIdDocs(vector<pair<kml::MarkId, kml::BookmarkData>> const & marks,
                           vector<BookmarkIdDoc> & result)
 {
   result.reserve(result.size() + marks.size());
@@ -66,25 +67,65 @@ void AppendBookmarkIdDocs(vector<pair<df::MarkID, BookmarkData>> const & marks,
   {
     auto const & id = mark.first;
     auto const & data = mark.second;
-    result.emplace_back(MarkIDToBookmarkId(id),
-                        bookmarks::Doc(data.GetName(), data.GetDescription(), data.GetType()));
+    result.emplace_back(MarkIDToBookmarkId(id), bookmarks::Doc(data));
   }
 }
 
-void AppendBookmarkIds(vector<df::MarkID> const & marks, vector<bookmarks::Id> & result)
+void AppendBookmarkIds(vector<kml::MarkId> const & marks, vector<bookmarks::Id> & result)
 {
   result.reserve(result.size() + marks.size());
   transform(marks.begin(), marks.end(), back_inserter(result), MarkIDToBookmarkId);
 }
+
+class BookmarksSearchCallback
+{
+public:
+  using OnResults = BookmarksSearchParams::OnResults;
+
+  explicit BookmarksSearchCallback(OnResults const & onResults) : m_onResults(onResults) {}
+
+  void operator()(Results const & results)
+  {
+    if (results.IsEndMarker())
+    {
+      if (results.IsEndedNormal())
+      {
+        m_status = BookmarksSearchParams::Status::Completed;
+      }
+      else
+      {
+        ASSERT(results.IsEndedCancelled(), ());
+        m_status = BookmarksSearchParams::Status::Cancelled;
+      }
+    }
+    else
+    {
+      ASSERT_EQUAL(m_status, BookmarksSearchParams::Status::InProgress, ());
+    }
+
+    auto const & rs = results.GetBookmarksResults();
+    ASSERT_LESS_OR_EQUAL(m_results.size(), rs.size(), ());
+
+    for (size_t i = m_results.size(); i < rs.size(); ++i)
+      m_results.emplace_back(BookmarkIdToMarkID(rs[i].m_id));
+    if (m_onResults)
+      m_onResults(m_results, m_status);
+  }
+
+private:
+  BookmarksSearchParams::Results m_results;
+  BookmarksSearchParams::Status m_status = BookmarksSearchParams::Status::InProgress;
+  OnResults m_onResults;
+};
 }  // namespace
 
-SearchAPI::SearchAPI(Index & index, storage::Storage const & storage,
+SearchAPI::SearchAPI(DataSource & dataSource, storage::Storage const & storage,
                      storage::CountryInfoGetter const & infoGetter, Delegate & delegate)
-  : m_index(index)
+  : m_dataSource(dataSource)
   , m_storage(storage)
   , m_infoGetter(infoGetter)
   , m_delegate(delegate)
-  , m_engine(m_index, GetDefaultCategories(), m_infoGetter,
+  , m_engine(m_dataSource, GetDefaultCategories(), m_infoGetter,
              Engine::Params(languages::GetCurrentTwine() /* locale */, 1 /* params.m_numThreads */))
 {
 }
@@ -114,8 +155,6 @@ void SearchAPI::OnViewportChanged(m2::RectD const & viewport)
 
 bool SearchAPI::SearchEverywhere(EverywhereSearchParams const & params)
 {
-  UpdateSponsoredMode(params.m_query, params.m_bookingFilterParams);
-
   SearchParams p;
   p.m_query = params.m_query;
   p.m_inputLocale = params.m_inputLocale;
@@ -127,29 +166,30 @@ bool SearchAPI::SearchEverywhere(EverywhereSearchParams const & params)
   p.m_needAddress = true;
   p.m_needHighlighting = true;
   p.m_hotelsFilter = params.m_hotelsFilter;
-  p.m_cianMode = m_sponsoredMode == SponsoredMode::Cian;
 
   p.m_onResults = EverywhereSearchCallback(
       static_cast<EverywhereSearchCallback::Delegate &>(*this),
-      [this, params](Results const & results, vector<bool> const & isLocalAdsCustomer) {
+      static_cast<ProductInfo::Delegate &>(*this),
+      params.m_bookingFilterTasks,
+      [this, params](Results const & results, vector<ProductInfo> const & productInfo) {
         if (params.m_onResults)
-          RunUITask([params, results, isLocalAdsCustomer] {
-            params.m_onResults(results, isLocalAdsCustomer);
+          RunUITask([params, results, productInfo] {
+            params.m_onResults(results, productInfo);
           });
-        if (results.IsEndedNormal() && !params.m_bookingFilterParams.IsEmpty())
-        {
-          m_delegate.FilterSearchResultsOnBooking(params.m_bookingFilterParams, results,
-                                                  false /* inViewport */);
-        }
       });
 
+  m_delegate.OnBookingFilterParamsUpdate(params.m_bookingFilterTasks);
+
+  LOG(LINFO, ("Search everywhere started."));
+  my::Timer timer;
+  MY_SCOPE_GUARD(printDuration, [&timer]() {
+    LOG(LINFO, ("Search everywhere ended. Time:", timer.ElapsedSeconds(), "seconds."));
+  });
   return Search(p, true /* forceSearch */);
 }
 
 bool SearchAPI::SearchInViewport(ViewportSearchParams const & params)
 {
-  UpdateSponsoredMode(params.m_query, params.m_bookingFilterParams);
-
   SearchParams p;
   p.m_query = params.m_query;
   p.m_inputLocale = params.m_inputLocale;
@@ -161,7 +201,6 @@ bool SearchAPI::SearchInViewport(ViewportSearchParams const & params)
   p.m_needAddress = false;
   p.m_needHighlighting = false;
   p.m_hotelsFilter = params.m_hotelsFilter;
-  p.m_cianMode = m_sponsoredMode == SponsoredMode::Cian;
 
   p.m_onStarted = [this, params] {
     if (params.m_onStarted)
@@ -170,26 +209,19 @@ bool SearchAPI::SearchInViewport(ViewportSearchParams const & params)
 
   p.m_onResults = ViewportSearchCallback(
       static_cast<ViewportSearchCallback::Delegate &>(*this),
+      params.m_bookingFilterTasks,
       [this, params](Results const & results) {
         if (results.IsEndMarker() && params.m_onCompleted)
           RunUITask([params, results] { params.m_onCompleted(results); });
-        if (results.IsEndedNormal() && !params.m_bookingFilterParams.IsEmpty())
-        {
-          m_delegate.FilterSearchResultsOnBooking(params.m_bookingFilterParams, results,
-                                                  true /* inViewport */);
-        }
       });
 
-  if (m_sponsoredMode == SponsoredMode::Booking)
-    m_delegate.OnBookingFilterParamsUpdate(params.m_bookingFilterParams.m_params);
+  m_delegate.OnBookingFilterParamsUpdate(params.m_bookingFilterTasks);
 
   return Search(p, false /* forceSearch */);
 }
 
 bool SearchAPI::SearchInDownloader(storage::DownloaderSearchParams const & params)
 {
-  m_sponsoredMode = SponsoredMode::None;
-
   SearchParams p;
   p.m_query = params.m_query;
   p.m_inputLocale = params.m_inputLocale;
@@ -202,7 +234,34 @@ bool SearchAPI::SearchInDownloader(storage::DownloaderSearchParams const & param
   p.m_needHighlighting = false;
 
   p.m_onResults = DownloaderSearchCallback(static_cast<DownloaderSearchCallback::Delegate &>(*this),
-                                           m_index, m_infoGetter, m_storage, params);
+                                           m_dataSource, m_infoGetter, m_storage, params);
+
+  return Search(p, true /* forceSearch */);
+}
+
+bool SearchAPI::SearchInBookmarks(search::BookmarksSearchParams const & params)
+{
+  SearchParams p;
+  p.m_query = params.m_query;
+  p.m_position = m_delegate.GetCurrentPosition();
+  SetViewportIfPossible(p);  // Search request will be delayed if viewport is not available.
+  p.m_maxNumResults = SearchParams::kDefaultNumBookmarksResults;
+  p.m_mode = Mode::Bookmarks;
+  p.m_suggestsEnabled = false;
+  p.m_needAddress = false;
+
+  auto const onStarted = params.m_onStarted;
+  p.m_onStarted = [this, onStarted]() {
+    if (onStarted)
+      RunUITask([onStarted]() { onStarted(); });
+  };
+
+  auto const onResults = params.m_onResults;
+  p.m_onResults = BookmarksSearchCallback([this, onResults](
+      BookmarksSearchParams::Results const & results, BookmarksSearchParams::Status status) {
+    if (onResults)
+      RunUITask([onResults, results, status]() { onResults(results, status); });
+  });
 
   return Search(p, true /* forceSearch */);
 }
@@ -225,8 +284,6 @@ void SearchAPI::CancelSearch(Mode mode)
 
   if (mode == Mode::Viewport)
   {
-    m_sponsoredMode = SponsoredMode::None;
-
     m_delegate.ClearViewportSearchResults();
     m_delegate.SetSearchDisplacementModeEnabled(false /* enabled */);
   }
@@ -254,32 +311,44 @@ bool SearchAPI::IsViewportSearchActive() const
   return !m_searchIntents[static_cast<size_t>(Mode::Viewport)].m_params.m_query.empty();
 }
 
-void SearchAPI::ShowViewportSearchResults(bool clear, search::Results::ConstIter begin,
-                                          search::Results::ConstIter end)
+void SearchAPI::ShowViewportSearchResults(Results::ConstIter begin, Results::ConstIter end,
+                                          bool clear)
 {
-  return m_delegate.ShowViewportSearchResults(clear, begin, end);
+  return m_delegate.ShowViewportSearchResults(begin, end, clear);
 }
 
-bool SearchAPI::IsLocalAdsCustomer(Result const & result) const
+void SearchAPI::ShowViewportSearchResults(Results::ConstIter begin, Results::ConstIter end,
+                                          bool clear, booking::filter::Types types)
 {
-  return m_delegate.IsLocalAdsCustomer(result);
+  return m_delegate.ShowViewportSearchResults(begin, end, clear, types);
 }
 
-void SearchAPI::OnBookmarksCreated(vector<pair<df::MarkID, BookmarkData>> const & marks)
+ProductInfo SearchAPI::GetProductInfo(Result const & result) const
+{
+  return m_delegate.GetProductInfo(result);
+}
+
+void SearchAPI::FilterResultsForHotelsQuery(booking::filter::Tasks const & filterTasks,
+                                            search::Results const & results, bool inViewport)
+{
+  m_delegate.FilterResultsForHotelsQuery(filterTasks, results, inViewport);
+}
+
+void SearchAPI::OnBookmarksCreated(vector<pair<kml::MarkId, kml::BookmarkData>> const & marks)
 {
   vector<BookmarkIdDoc> data;
   AppendBookmarkIdDocs(marks, data);
   m_engine.OnBookmarksCreated(data);
 }
 
-void SearchAPI::OnBookmarksUpdated(vector<pair<df::MarkID, BookmarkData>> const & marks)
+void SearchAPI::OnBookmarksUpdated(vector<pair<kml::MarkId, kml::BookmarkData>> const & marks)
 {
   vector<BookmarkIdDoc> data;
   AppendBookmarkIdDocs(marks, data);
   m_engine.OnBookmarksUpdated(data);
 }
 
-void SearchAPI::OnBookmarksDeleted(vector<df::MarkID> const & marks)
+void SearchAPI::OnBookmarksDeleted(vector<kml::MarkId> const & marks)
 {
   vector<bookmarks::Id> data;
   AppendBookmarkIds(marks, data);
@@ -357,25 +426,4 @@ bool SearchAPI::QueryMayBeSkipped(SearchParams const & prevParams,
     return false;
 
   return true;
-}
-
-void SearchAPI::UpdateSponsoredMode(string const & query,
-                                    booking::filter::availability::Params const & params)
-{
-  m_sponsoredMode = SponsoredMode::None;
-  // TODO: delete me after Cian project is finished.
-  if (IsCianMode(query))
-    m_sponsoredMode = SponsoredMode::Cian;
-  if (!params.IsEmpty())
-    m_sponsoredMode = SponsoredMode::Booking;
-}
-
-string DebugPrint(SearchAPI::SponsoredMode mode)
-{
-  switch (mode)
-  {
-  case SearchAPI::SponsoredMode::None: return "None";
-  case SearchAPI::SponsoredMode::Cian: return "Cian";
-  case SearchAPI::SponsoredMode::Booking: return "Booking";
-  }
 }

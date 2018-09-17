@@ -7,8 +7,8 @@
 #include "storage/downloading_policy.hpp"
 #include "storage/index.hpp"
 #include "storage/map_files_downloader.hpp"
+#include "storage/pinger.hpp"
 #include "storage/queued_country.hpp"
-#include "storage/storage_defines.hpp"
 #include "storage/storage_defines.hpp"
 
 #include "platform/local_country_file.hpp"
@@ -17,7 +17,6 @@
 #include "base/thread_checker.hpp"
 #include "base/worker_thread.hpp"
 
-#include <future>
 #include "std/function.hpp"
 #include "std/list.hpp"
 #include "std/shared_ptr.hpp"
@@ -25,6 +24,8 @@
 #include "std/unique_ptr.hpp"
 #include "std/utility.hpp"
 #include "std/vector.hpp"
+
+#include <boost/optional.hpp>
 
 namespace storage
 {
@@ -250,7 +251,8 @@ private:
   diffs::Manager m_diffManager;
   vector<platform::LocalCountryFile> m_notAppliedDiffs;
 
-  vector<vector<string>> m_deferredDownloads;
+  bool m_needToStartDeferredDownloading = false;
+  boost::optional<vector<string>> m_sessionServerList;
 
   StartDownloadingCallback m_startDownloadingCallback;
 
@@ -263,13 +265,14 @@ private:
   void ReportProgressForHierarchy(TCountryId const & countryId,
                                   MapFilesDownloader::TProgress const & leafProgress);
 
-  /// Called on the main thread by MapFilesDownloader when list of
-  /// suitable servers is received.
-  void OnServerListDownloaded(vector<string> const & urls);
+  void DoDownload();
+  void SetDeferDownloading();
+  void DoDeferredDownloadIfNeeded();
 
   /// Called on the main thread by MapFilesDownloader when
   /// downloading of a map file succeeds/fails.
-  void OnMapFileDownloadFinished(bool success, MapFilesDownloader::TProgress const & progress);
+  void OnMapFileDownloadFinished(downloader::HttpRequest::Status status,
+                                 MapFilesDownloader::TProgress const & progress);
 
   /// Periodically called on the main thread by MapFilesDownloader
   /// during the downloading process.
@@ -277,7 +280,9 @@ private:
 
   void RegisterDownloadedFiles(TCountryId const & countryId, MapOptions files);
 
-  void OnMapDownloadFinished(TCountryId const & countryId, bool success, MapOptions files);
+  void OnMapDownloadFinished(TCountryId const & countryId,
+                             downloader::HttpRequest::Status status,
+                             MapOptions files);
 
   /// Initiates downloading of the next file from the queue.
   void DownloadNextFile(QueuedCountry const & country);
@@ -458,7 +463,7 @@ public:
   //@}
 
   /// \returns real (not fake) local maps contained in countries.txt.
-  /// So this method does not return custom user local maps and World and WorldCoosts country id.
+  /// So this method does not return custom user local maps and World and WorldCoasts country id.
   void GetLocalRealMaps(TCountriesVec & localMaps) const;
 
   /// Do we have downloaded countries
@@ -588,6 +593,9 @@ private:
   // Returns true when country is first in the downloader's queue.
   bool IsCountryFirstInQueue(TCountryId const & countryId) const;
 
+  // Returns true if we started the diff applying procedure for an mwm with countryId.
+  bool IsDiffApplyingInProgressToCountry(TCountryId const & countryId) const;
+
   // Returns local country files of a particular version, or wrapped
   // nullptr if there're no country files corresponding to the
   // version.
@@ -670,6 +678,10 @@ private:
   // Should be called once on startup, downloading process should be suspended until this method
   // was not called. Do not call this method manually.
   void OnDiffStatusReceived(diffs::Status const status) override;
+
+  void LoadServerListForSession();
+  void LoadServerListForTesting();
+  void PingServerList(vector<string> const & urls);
 };
 
 void GetQueuedCountries(Storage::TQueue const & queue, TCountriesSet & resultCountries);

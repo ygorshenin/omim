@@ -1,57 +1,38 @@
 #pragma once
 
-#include "transit/transit_types.hpp"
+#include "transit/transit_display_info.hpp"
 
+#include "drape_frontend/drape_engine_safe_ptr.hpp"
+
+#include "geometry/screenbase.hpp"
+
+#include "indexer/data_source.hpp"
 #include "indexer/feature_decl.hpp"
-#include "indexer/index.hpp"
 
 #include "base/thread.hpp"
 #include "base/thread_pool.hpp"
 
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
-struct TransitFeatureInfo
-{
-  bool m_isGate = false;
-  std::string m_gateSymbolName;
-  std::string m_title;
-  m2::PointD m_point;
-};
+class DataSource;
 
-using TransitFeaturesInfo = std::map<FeatureID, TransitFeatureInfo>;
-
-using TransitStopsInfo = std::map<routing::transit::StopId, routing::transit::Stop>;
-using TransitTransfersInfo = std::map<routing::transit::TransferId, routing::transit::Transfer>;
-using TransitShapesInfo = std::map<routing::transit::ShapeId, routing::transit::Shape>;
-using TransitLinesInfo = std::map<routing::transit::LineId, routing::transit::Line>;
-using TransitNetworksInfo = std::map<routing::transit::NetworkId, routing::transit::Network>;
-
-struct TransitDisplayInfo
-{
-  TransitNetworksInfo m_networks;
-  TransitLinesInfo m_lines;
-  TransitStopsInfo m_stops;
-  TransitTransfersInfo m_transfers;
-  TransitShapesInfo m_shapes;
-  TransitFeaturesInfo m_features;
-};
-
-template <typename T> using TReadCallback = std::function<void (T const &)>;
-using TReadFeaturesFn = std::function<void (TReadCallback<FeatureType> const & , std::vector<FeatureID> const &)>;
+using FeatureCallback = std::function<void(FeatureType &)>;
+using TReadFeaturesFn = std::function<void (FeatureCallback const & , std::vector<FeatureID> const &)>;
 
 class ReadTransitTask: public threads::IRoutine
 {
 public:
-  ReadTransitTask(Index & index,
-                  TReadFeaturesFn const & readFeaturesFn)
-    : m_index(index), m_readFeaturesFn(readFeaturesFn)
+  ReadTransitTask(DataSource & dataSource, TReadFeaturesFn const & readFeaturesFn)
+    : m_dataSource(dataSource), m_readFeaturesFn(readFeaturesFn)
   {}
 
   void Init(uint64_t id, MwmSet::MwmId const & mwmId,
@@ -83,7 +64,7 @@ private:
     }
   };
 
-  Index & m_index;
+  DataSource & m_dataSource;
   TReadFeaturesFn m_readFeaturesFn;
 
   uint64_t m_id = 0;
@@ -95,24 +76,43 @@ private:
   bool m_success = false;
 };
 
-using TransitDisplayInfos = std::map<MwmSet::MwmId, unique_ptr<TransitDisplayInfo>>;
-
 class TransitReadManager
 {
 public:
-  TransitReadManager(Index & index, TReadFeaturesFn const & readFeaturesFn);
+  enum class TransitSchemeState
+  {
+    Disabled,
+    Enabled,
+    NoData,
+  };
+
+  using GetMwmsByRectFn = std::function<vector<MwmSet::MwmId>(m2::RectD const &)>;
+  using TransitStateChangedFn = std::function<void(TransitSchemeState)>;
+
+  TransitReadManager(DataSource & dataSource, TReadFeaturesFn const & readFeaturesFn,
+                     GetMwmsByRectFn const & getMwmsByRectFn);
   ~TransitReadManager();
 
   void Start();
   void Stop();
 
+  void SetDrapeEngine(ref_ptr<df::DrapeEngine> engine);
+  void SetStateListener(TransitStateChangedFn const & onStateChangedFn);
+
   bool GetTransitDisplayInfo(TransitDisplayInfos & transitDisplayInfos);
 
-  // TODO(@darina) Clear cache for deleted mwm.
-  //void OnMwmDeregistered(MwmSet::MwmId const & mwmId);
+  void EnableTransitSchemeMode(bool enable);
+  void BlockTransitSchemeMode(bool isBlocked);
+  void UpdateViewport(ScreenBase const & screen);
+  void OnMwmDeregistered(platform::LocalCountryFile const & countryFile);
+  void Invalidate();
 
 private:
   void OnTaskCompleted(threads::IRoutine * task);
+
+  void ChangeState(TransitSchemeState newState);
+  void ShrinkCacheToAllowableSize();
+  void ClearCache(MwmSet::MwmId const & mwmId);
 
   std::unique_ptr<threads::ThreadPool> m_threadsPool;
 
@@ -122,8 +122,31 @@ private:
   uint64_t m_nextTasksGroupId = 0;
   std::map<uint64_t, size_t> m_tasksGroups;
 
-  Index & m_index;
+  DataSource & m_dataSource;
   TReadFeaturesFn m_readFeaturesFn;
-  // TODO(@darina) In case of reading the whole mwm transit section, save it in the cache for transit scheme rendering.
-  //TransitDisplayInfos m_transitDisplayCache;
+
+  df::DrapeEngineSafePtr m_drapeEngine;
+
+  TransitSchemeState m_state = TransitSchemeState::Disabled;
+  TransitStateChangedFn m_onStateChangedFn;
+
+  struct CacheEntry
+  {
+    CacheEntry(std::chrono::time_point<std::chrono::steady_clock> const & activeTime)
+      : m_lastActiveTime(activeTime)
+    {}
+
+    bool m_isLoaded = false;
+    size_t m_dataSize = 0;
+    std::chrono::time_point<std::chrono::steady_clock> m_lastActiveTime;
+  };
+
+  GetMwmsByRectFn m_getMwmsByRectFn;
+  std::set<MwmSet::MwmId> m_lastActiveMwms;
+  std::map<MwmSet::MwmId, CacheEntry> m_mwmCache;
+  size_t m_cacheSize = 0;
+  bool m_isSchemeMode = false;
+  bool m_isSchemeModeBlocked = false;
+  pair<ScreenBase, bool> m_currentModelView = {ScreenBase(), false /* initialized */};
+  bool m_trackFirstSchemeData = false;
 };

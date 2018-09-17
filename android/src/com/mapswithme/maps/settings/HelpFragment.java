@@ -20,7 +20,6 @@ import com.mapswithme.util.statistics.Statistics;
 
 public class HelpFragment extends BaseSettingsFragment
 {
-  private WebContainerDelegate mDelegate;
 
   @Override
   protected int getLayoutRes()
@@ -31,9 +30,9 @@ public class HelpFragment extends BaseSettingsFragment
   @Override
   public View onCreateView(LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState)
   {
-    super.onCreateView(inflater, container, savedInstanceState);
+    View root = super.onCreateView(inflater, container, savedInstanceState);
 
-    mDelegate = new WebContainerDelegate(mFrame, Constants.Url.FAQ)
+    new WebContainerDelegate(root, Constants.Url.FAQ)
     {
       @Override
       protected void doStartActivity(Intent intent)
@@ -42,7 +41,7 @@ public class HelpFragment extends BaseSettingsFragment
       }
     };
 
-    TextView feedback = (TextView)mFrame.findViewById(R.id.feedback);
+    TextView feedback = root.findViewById(R.id.feedback);
     feedback.setOnClickListener(new View.OnClickListener()
     {
       @Override
@@ -86,6 +85,6 @@ public class HelpFragment extends BaseSettingsFragment
       }
     });
 
-    return mFrame;
+    return root;
   }
 }

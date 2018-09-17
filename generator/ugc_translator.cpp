@@ -18,7 +18,7 @@ UGCTranslator::UGCTranslator() : m_db(":memory:") {}
 
 UGCTranslator::UGCTranslator(std::string const & dbFilename) : m_db(dbFilename) {}
 
-bool UGCTranslator::TranslateUGC(osm::Id const & id, ugc::UGC & ugc)
+bool UGCTranslator::TranslateUGC(base::GeoObjectId const & id, ugc::UGC & ugc)
 {
   std::vector<uint8_t> src;
 
@@ -36,7 +36,7 @@ bool UGCTranslator::TranslateUGC(osm::Id const & id, ugc::UGC & ugc)
 
   if (size > 1)
   {
-    LOG(LWARNING, ("Osm id duplication in UGC database", id.EncodedId()));
+    LOG(LWARNING, ("Osm id duplication in UGC database", id.GetEncodedId()));
     return false;
   }
 

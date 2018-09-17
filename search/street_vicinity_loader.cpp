@@ -1,15 +1,14 @@
 #include "search/street_vicinity_loader.hpp"
 
+#include "indexer/cell_id.hpp"
 #include "indexer/feature_covering.hpp"
 #include "indexer/feature_decl.hpp"
-#include "indexer/index.hpp"
 
 #include "geometry/mercator.hpp"
-
 #include "geometry/point2d.hpp"
 
 #include "base/math.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 
 namespace search
 {
@@ -51,15 +50,15 @@ void StreetVicinityLoader::LoadStreet(uint32_t featureId, Street & street)
     return;
 
   vector<m2::PointD> points;
-  feature.ForEachPoint(MakeBackInsertFunctor(points), FeatureType::BEST_GEOMETRY);
+  feature.ForEachPoint(base::MakeBackInsertFunctor(points), FeatureType::BEST_GEOMETRY);
   ASSERT(!points.empty(), ());
 
   for (auto const & point : points)
     street.m_rect.Add(MercatorBounds::RectByCenterXYAndSizeInMeters(point, m_offsetMeters));
 
   covering::CoveringGetter coveringGetter(street.m_rect, covering::ViewportWithLowLevels);
-  auto const & intervals = coveringGetter.Get(m_scale);
-  m_context->ForEachIndex(intervals, m_scale, MakeBackInsertFunctor(street.m_features));
+  auto const & intervals = coveringGetter.Get<RectId::DEPTH_LEVELS>(m_scale);
+  m_context->ForEachIndex(intervals, m_scale, base::MakeBackInsertFunctor(street.m_features));
 
   street.m_calculator = make_unique<ProjectionOnStreetCalculator>(points);
 }

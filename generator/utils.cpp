@@ -9,8 +9,8 @@
 
 namespace generator
 {
-// SingleMwmIndex ---------------------------------------------------------------------------------
-SingleMwmIndex::SingleMwmIndex(std::string const & mwmPath)
+// SingleMwmDataSource -----------------------------------------------------------------------------
+SingleMwmDataSource::SingleMwmDataSource(std::string const & mwmPath)
 {
   m_countryFile = platform::LocalCountryFile::MakeTemporary(mwmPath);
   m_countryFile.SyncWithDisk();
@@ -18,13 +18,13 @@ SingleMwmIndex::SingleMwmIndex(std::string const & mwmPath)
       m_countryFile.GetFiles(), MapOptions::MapWithCarRouting,
       ("No correct mwm corresponding to local country file:", m_countryFile, ". Path:", mwmPath));
 
-  auto const result = m_index.Register(m_countryFile);
+  auto const result = m_dataSource.Register(m_countryFile);
   CHECK_EQUAL(result.second, MwmSet::RegResult::Success, ());
   CHECK(result.first.IsAlive(), ());
   m_mwmId = result.first;
 }
 
-void LoadIndex(Index & index)
+void LoadDataSource(DataSource & dataSource)
 {
   vector<platform::LocalCountryFile> localFiles;
 
@@ -36,7 +36,7 @@ void LoadIndex(Index & index)
     LOG(LINFO, ("Found mwm:", localFile));
     try
     {
-      index.RegisterMap(localFile);
+      dataSource.RegisterMap(localFile);
     }
     catch (RootException const & ex)
     {

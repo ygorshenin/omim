@@ -30,6 +30,17 @@ enum AdBannerContainerType: Int {
   case search
 }
 
+private func attributedTitle(title: String, indent: CGFloat) -> NSAttributedString {
+  let paragraphStyle = NSMutableParagraphStyle()
+  paragraphStyle.firstLineHeadIndent = indent
+  paragraphStyle.lineBreakMode = .byTruncatingTail
+  return NSAttributedString(string: title,
+                        attributes: [NSAttributedStringKey.paragraphStyle: paragraphStyle,
+                                     NSAttributedStringKey.font: UIFont.bold12(),
+                                     NSAttributedStringKey.foregroundColor: UIColor.blackSecondaryText()
+                                    ])
+}
+
 @objc(MWMAdBanner)
 final class AdBanner: UITableViewCell {
   @IBOutlet private var detailedModeConstraints: [NSLayoutConstraint]!
@@ -37,10 +48,12 @@ final class AdBanner: UITableViewCell {
   @IBOutlet private weak var adIconImageView: UIImageView!
   @IBOutlet private weak var adTitleLabel: UILabel!
   @IBOutlet private weak var adBodyLabel: UILabel!
+  @IBOutlet private weak var DAAImage: UIImageView!
+  @IBOutlet private weak var DAAImageWidth: NSLayoutConstraint!
+  @IBOutlet private weak var adPrivacyImage: UIImageView!
   @IBOutlet private weak var adCallToActionButtonCompact: UIButton!
   @IBOutlet private weak var adCallToActionButtonDetailed: UIButton!
   @IBOutlet private weak var adCallToActionButtonCustom: UIButton!
-  @IBOutlet private weak var adPrivacyButton: UIButton!
   @IBOutlet private weak var nativeAdView: UIView!
   @IBOutlet private weak var fallbackAdView: UIView!
   @IBOutlet private var nativeAdViewBottom: NSLayoutConstraint!
@@ -68,7 +81,6 @@ final class AdBanner: UITableViewCell {
   @objc var state = AdBannerState.unset {
     didSet {
       guard state != .unset else {
-        adPrivacyButton.isHidden = true
         adCallToActionButtonCustom.isHidden = true
         mpNativeAd = nil
         nativeAd = nil
@@ -76,12 +88,12 @@ final class AdBanner: UITableViewCell {
       }
       guard state != oldValue else { return }
       let config = state.config()
-      adTitleLabel.numberOfLines = config.numberOfTitleLines
-      adBodyLabel.numberOfLines = config.numberOfBodyLines
-      detailedModeConstraints.forEach { $0.priority = config.priority }
-      setNeedsLayout()
-      UIView.animate(withDuration: kDefaultAnimationDuration) { self.layoutIfNeeded() }
-      refreshBannerIfNeeded()
+      animateConstraints(animations: {
+        self.adTitleLabel.numberOfLines = config.numberOfTitleLines
+        self.adBodyLabel.numberOfLines = config.numberOfBodyLines
+        self.detailedModeConstraints.forEach { $0.priority = config.priority }
+        self.refreshBannerIfNeeded()
+      })
     }
   }
 
@@ -99,9 +111,16 @@ final class AdBanner: UITableViewCell {
 
   @IBAction
   private func privacyAction() {
-    if let ad = nativeAd as? MopubBanner, let urlStr = ad.privacyInfoURL, let url = URL(string: urlStr) {
-      UIViewController.topViewController().open(url)
+    let url: URL?
+    if let ad = nativeAd as? FacebookBanner {
+      url = ad.nativeAd.adChoicesLinkURL
+    } else if let ad = nativeAd as? MopubBanner, let u = ad.privacyInfoURL {
+      url = u
+    } else {
+      return
     }
+
+    UIViewController.topViewController().open(url)
   }
 
   override func layoutSubviews() {
@@ -135,31 +154,17 @@ final class AdBanner: UITableViewCell {
     default: assert(false)
     }
   }
-
-  @objc func highlightButton() {
-    adCallToActionButtonDetailed.setBackgroundImage(nil, for: .normal)
-    adCallToActionButtonCompact.setBackgroundImage(nil, for: .normal)
-
-    adCallToActionButtonDetailed.backgroundColor = UIColor.bannerButtonBackground()
-    adCallToActionButtonCompact.backgroundColor = UIColor.bannerBackground()
-    let duration = 0.5 * kDefaultAnimationDuration
-    let darkerPercent: CGFloat = 0.2
-    UIView.animate(withDuration: duration, animations: {
-      self.adCallToActionButtonDetailed.backgroundColor = UIColor.bannerButtonBackground().darker(percent: darkerPercent)
-      self.adCallToActionButtonCompact.backgroundColor = UIColor.bannerBackground().darker(percent: darkerPercent)
-    }, completion: { _ in
-      UIView.animate(withDuration: duration, animations: {
-        self.adCallToActionButtonDetailed.backgroundColor = UIColor.bannerButtonBackground()
-        self.adCallToActionButtonCompact.backgroundColor = UIColor.bannerBackground()
-      }, completion: { _ in
-        self.adCallToActionButtonDetailed.setBackgroundColor(UIColor.bannerButtonBackground(), for: .normal)
-        self.adCallToActionButtonCompact.setBackgroundColor(UIColor.bannerBackground(), for: .normal)
-      })
-    })
+  
+  override func setHighlighted(_ highlighted: Bool, animated: Bool) {
+      adCallToActionButtonCompact.isHighlighted = highlighted;
+      adCallToActionButtonDetailed.isHighlighted = highlighted;
   }
 
   private func configFBBanner(ad: FBNativeAd) {
     adType = .native
+    DAAImageWidth.constant = adPrivacyImage.width;
+    DAAImage.isHidden = false;
+
     let adCallToActionButtons: [UIView]
     if state == .search {
       adCallToActionButtons = [self, adCallToActionButtonCompact]
@@ -171,17 +176,8 @@ final class AdBanner: UITableViewCell {
     ad.icon?.loadAsync { [weak self] image in
       self?.adIconImageView.image = image
     }
-
-    let paragraphStyle = NSMutableParagraphStyle()
-    paragraphStyle.firstLineHeadIndent = 24
-    paragraphStyle.lineBreakMode = .byTruncatingTail
-    let adTitle = NSAttributedString(string: ad.title ?? "",
-                                     attributes: [
-                                       NSAttributedStringKey.paragraphStyle: paragraphStyle,
-                                       NSAttributedStringKey.font: UIFont.bold12(),
-                                       NSAttributedStringKey.foregroundColor: UIColor.blackSecondaryText(),
-    ])
-    adTitleLabel.attributedText = adTitle
+    adTitleLabel.attributedText = attributedTitle(title: ad.title ?? "",
+                                                  indent: adPrivacyImage.width + DAAImageWidth.constant)
     adBodyLabel.text = ad.body ?? ""
     let config = state.config()
     adTitleLabel.numberOfLines = config.numberOfTitleLines
@@ -192,19 +188,12 @@ final class AdBanner: UITableViewCell {
   private func configRBBanner(ad: MTRGNativeAd) {
     guard let banner = ad.banner else { return }
     adType = .native
+    DAAImageWidth.constant = 0;
+    DAAImage.isHidden = true;
 
     MTRGNativeAd.loadImage(banner.icon, to: adIconImageView)
-
-    let paragraphStyle = NSMutableParagraphStyle()
-    paragraphStyle.firstLineHeadIndent = 24
-    paragraphStyle.lineBreakMode = .byTruncatingTail
-    let adTitle = NSAttributedString(string: banner.title ?? "",
-                                     attributes: [
-                                       NSAttributedStringKey.paragraphStyle: paragraphStyle,
-                                       NSAttributedStringKey.font: UIFont.bold12(),
-                                       NSAttributedStringKey.foregroundColor: UIColor.blackSecondaryText(),
-    ])
-    adTitleLabel.attributedText = adTitle
+    adTitleLabel.attributedText = attributedTitle(title: banner.title,
+                                                  indent: adPrivacyImage.width + DAAImageWidth.constant)
     adBodyLabel.text = banner.descriptionText ?? ""
     let config = state.config()
     adTitleLabel.numberOfLines = config.numberOfTitleLines
@@ -218,6 +207,9 @@ final class AdBanner: UITableViewCell {
     mpNativeAd = ad.nativeAd
     adType = .native
 
+    DAAImageWidth.constant = adPrivacyImage.width;
+    DAAImage.isHidden = false;
+
     let adCallToActionButtons: [UIButton]
     if state == .search {
       adCallToActionButtonCustom.isHidden = false
@@ -228,25 +220,19 @@ final class AdBanner: UITableViewCell {
     }
     mpNativeAd?.setAdView(self, actionButtons: adCallToActionButtons)
 
-    let paragraphStyle = NSMutableParagraphStyle()
-    paragraphStyle.firstLineHeadIndent = 24
-    paragraphStyle.lineBreakMode = .byTruncatingTail
-    let adTitle = NSAttributedString(string: ad.title,
-                                     attributes: [
-                                       NSAttributedStringKey.paragraphStyle: paragraphStyle,
-                                       NSAttributedStringKey.font: UIFont.bold12(),
-                                       NSAttributedStringKey.foregroundColor: UIColor.blackSecondaryText(),
-    ])
-    adTitleLabel.attributedText = adTitle
+    adTitleLabel.attributedText = attributedTitle(title: ad.title,
+                                                  indent: adPrivacyImage.width + DAAImageWidth.constant)
     adBodyLabel.text = ad.text
     if let url = URL(string: ad.iconURL) {
       adIconImageView.af_setImage(withURL: url)
     }
-    adPrivacyButton.isHidden = ad.privacyInfoURL == nil
   }
 
   private func configGoogleFallbackBanner(ad: GoogleFallbackBanner) {
     adType = .fallback
+    DAAImageWidth.constant = adPrivacyImage.width;
+    DAAImage.isHidden = false;
+
     fallbackAdView.subviews.forEach { $0.removeFromSuperview() }
     fallbackAdView.addSubview(ad)
     updateFallbackBannerLayout(ad: ad)

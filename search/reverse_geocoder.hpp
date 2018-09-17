@@ -12,14 +12,15 @@
 
 
 class FeatureType;
-class Index;
+class DataSource;
 
 namespace search
 {
+class MwmContext;
 
 class ReverseGeocoder
 {
-  Index const & m_index;
+  DataSource const & m_dataSource;
 
   struct Object
   {
@@ -42,7 +43,7 @@ public:
   /// All "Nearby" functions work in this lookup radius.
   static int constexpr kLookupRadiusM = 500;
 
-  explicit ReverseGeocoder(Index const & index);
+  explicit ReverseGeocoder(DataSource const & dataSource);
 
   using Street = Object;
 
@@ -76,33 +77,37 @@ public:
   friend string DebugPrint(Address const & addr);
 
   /// @return Sorted by distance streets vector for the specified MwmId.
-  //@{
+  static void GetNearbyStreets(search::MwmContext & context, m2::PointD const & center,
+                               vector<Street> & streets);
   void GetNearbyStreets(MwmSet::MwmId const & id, m2::PointD const & center,
                         vector<Street> & streets) const;
   void GetNearbyStreets(FeatureType & ft, vector<Street> & streets) const;
-  //@}
+  void GetNearbyOriginalStreets(MwmSet::MwmId const & id, m2::PointD const & center,
+                                vector<Street> & streets) const;
 
   /// @returns [a lot of] nearby feature's streets and an index of a feature's street.
   /// Returns a value greater than vector size when there are no Street the feature belongs to.
   /// @note returned vector can contain duplicated street segments.
   pair<vector<Street>, uint32_t> GetNearbyFeatureStreets(FeatureType & ft) const;
+  /// Same as GetNearbyFeatureStreets but returns streets from MWM only.
+  pair<vector<Street>, uint32_t> GetNearbyOriginalFeatureStreets(FeatureType & ft) const;
 
   /// @return The nearest exact address where building has house number and valid street match.
   void GetNearbyAddress(m2::PointD const & center, Address & addr) const;
   /// @param addr (out) the exact address of a feature.
   /// @returns false if  can't extruct address or ft have no house number.
-  bool GetExactAddress(FeatureType const & ft, Address & addr) const;
+  bool GetExactAddress(FeatureType & ft, Address & addr) const;
 
 private:
 
   /// Helper class to incapsulate house 2 street table reloading.
   class HouseTable
   {
-    Index const & m_index;
+    DataSource const & m_dataSource;
     unique_ptr<search::HouseToStreetTable> m_table;
     MwmSet::MwmHandle m_handle;
   public:
-    explicit HouseTable(Index const & index) : m_index(index) {}
+    explicit HouseTable(DataSource const & dataSource) : m_dataSource(dataSource) {}
     bool Get(FeatureID const & fid, uint32_t & streetIndex);
   };
 
@@ -111,8 +116,7 @@ private:
   /// @return Sorted by distance houses vector with valid house number.
   void GetNearbyBuildings(m2::PointD const & center, vector<Building> & buildings) const;
 
-  static Building FromFeature(FeatureType const & ft, double distMeters);
-  static m2::RectD GetLookupRect(m2::PointD const & center, double radiusM);
+  static Building FromFeature(FeatureType & ft, double distMeters);
 };
 
 } // namespace search

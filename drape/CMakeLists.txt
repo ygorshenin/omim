@@ -35,10 +35,10 @@ set(
   ${DRAPE_ROOT}/data_buffer.cpp
   ${DRAPE_ROOT}/data_buffer.hpp
   ${DRAPE_ROOT}/data_buffer_impl.hpp
-  ${DRAPE_ROOT}/debug_rect_renderer.cpp
-  ${DRAPE_ROOT}/debug_rect_renderer.hpp
+  ${DRAPE_ROOT}/debug_renderer.hpp
   ${DRAPE_ROOT}/drape_diagnostics.hpp
   ${DRAPE_ROOT}/drape_global.hpp
+  ${DRAPE_ROOT}/drape_routine.hpp
   ${DRAPE_ROOT}/dynamic_texture.hpp
   ${DRAPE_ROOT}/font_texture.cpp
   ${DRAPE_ROOT}/font_texture.hpp
@@ -52,17 +52,17 @@ set(
   ${DRAPE_ROOT}/glIncludes.hpp
   ${DRAPE_ROOT}/glsl_func.hpp
   ${DRAPE_ROOT}/glsl_types.hpp
-  ${DRAPE_ROOT}/glstate.cpp
-  ${DRAPE_ROOT}/glstate.hpp
+  ${DRAPE_ROOT}/glyph_generator.cpp
+  ${DRAPE_ROOT}/glyph_generator.hpp
   ${DRAPE_ROOT}/glyph_manager.cpp
   ${DRAPE_ROOT}/glyph_manager.hpp
   ${DRAPE_ROOT}/gpu_buffer.cpp
   ${DRAPE_ROOT}/gpu_buffer.hpp
   ${DRAPE_ROOT}/gpu_program.cpp
   ${DRAPE_ROOT}/gpu_program.hpp
-  ${DRAPE_ROOT}/gpu_program_info.hpp
-  ${DRAPE_ROOT}/gpu_program_manager.cpp
-  ${DRAPE_ROOT}/gpu_program_manager.hpp
+  ${DRAPE_ROOT}/graphics_context.hpp
+  ${DRAPE_ROOT}/graphics_context_factory.cpp
+  ${DRAPE_ROOT}/graphics_context_factory.hpp
   ${DRAPE_ROOT}/hw_texture.cpp
   ${DRAPE_ROOT}/hw_texture.hpp
   ${DRAPE_ROOT}/index_buffer.cpp
@@ -71,10 +71,11 @@ set(
   ${DRAPE_ROOT}/index_buffer_mutator.hpp
   ${DRAPE_ROOT}/index_storage.cpp
   ${DRAPE_ROOT}/index_storage.hpp
+  ${DRAPE_ROOT}/mesh_object.cpp
+  ${DRAPE_ROOT}/mesh_object.hpp
   ${DRAPE_ROOT}/object_pool.hpp
+  ${DRAPE_ROOT}/oglcontext.cpp
   ${DRAPE_ROOT}/oglcontext.hpp
-  ${DRAPE_ROOT}/oglcontextfactory.cpp
-  ${DRAPE_ROOT}/oglcontextfactory.hpp
   ${DRAPE_ROOT}/overlay_handle.cpp
   ${DRAPE_ROOT}/overlay_handle.hpp
   ${DRAPE_ROOT}/overlay_tree.cpp
@@ -83,6 +84,8 @@ set(
   ${DRAPE_ROOT}/pointers.hpp
   ${DRAPE_ROOT}/render_bucket.cpp
   ${DRAPE_ROOT}/render_bucket.hpp
+  ${DRAPE_ROOT}/render_state.cpp
+  ${DRAPE_ROOT}/render_state.hpp
   ${DRAPE_ROOT}/shader.cpp
   ${DRAPE_ROOT}/shader.hpp
   ${DRAPE_ROOT}/static_texture.cpp
@@ -99,10 +102,9 @@ set(
   ${DRAPE_ROOT}/texture_manager.hpp
   ${DRAPE_ROOT}/texture_of_colors.cpp
   ${DRAPE_ROOT}/texture_of_colors.hpp
+  ${DRAPE_ROOT}/texture_types.hpp
   ${DRAPE_ROOT}/uniform_value.cpp
   ${DRAPE_ROOT}/uniform_value.hpp
-  ${DRAPE_ROOT}/uniform_values_storage.cpp
-  ${DRAPE_ROOT}/uniform_values_storage.hpp
   ${DRAPE_ROOT}/utils/glyph_usage_tracker.cpp
   ${DRAPE_ROOT}/utils/glyph_usage_tracker.hpp
   ${DRAPE_ROOT}/utils/gpu_mem_tracker.cpp
@@ -131,6 +133,6 @@ if (PLATFORM_IPHONE)
   )
 endif()
 
-add_library(${PROJECT_NAME} ${DRAPE_COMMON_SRC} ${SRC})
+omim_add_library(${PROJECT_NAME} ${DRAPE_COMMON_SRC} ${SRC})
 
 omim_add_test_subdirectory(drape_tests)

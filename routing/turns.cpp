@@ -2,10 +2,18 @@
 
 #include "geometry/angles.hpp"
 
-#include "base/internal/message.hpp"
+#include "platform/country_file.hpp"
 
-#include "std/array.hpp"
-#include "std/utility.hpp"
+#include "base/internal/message.hpp"
+#include "base/stl_helpers.hpp"
+#include "base/string_utils.hpp"
+
+#include <algorithm>
+#include <array>
+#include <sstream>
+#include <utility>
+
+using namespace std;
 
 namespace
 {
@@ -28,23 +36,24 @@ array<pair<LaneWay, char const *>, static_cast<size_t>(LaneWay::Count)> const g_
 static_assert(g_laneWayNames.size() == static_cast<size_t>(LaneWay::Count),
               "Check the size of g_laneWayNames");
 
-array<pair<CarDirection, char const *>, static_cast<size_t>(CarDirection::Count)> const g_turnNames = {
-    {{CarDirection::None, "None"},
-     {CarDirection::GoStraight, "GoStraight"},
-     {CarDirection::TurnRight, "TurnRight"},
-     {CarDirection::TurnSharpRight, "TurnSharpRight"},
-     {CarDirection::TurnSlightRight, "TurnSlightRight"},
-     {CarDirection::TurnLeft, "TurnLeft"},
-     {CarDirection::TurnSharpLeft, "TurnSharpLeft"},
-     {CarDirection::TurnSlightLeft, "TurnSlightLeft"},
-     {CarDirection::UTurnLeft, "UTurnLeft"},
-     {CarDirection::UTurnRight, "UTurnRight"},
-     {CarDirection::TakeTheExit, "TakeTheExit"},
-     {CarDirection::EnterRoundAbout, "EnterRoundAbout"},
-     {CarDirection::LeaveRoundAbout, "LeaveRoundAbout"},
-     {CarDirection::StayOnRoundAbout, "StayOnRoundAbout"},
-     {CarDirection::StartAtEndOfStreet, "StartAtEndOfStreet"},
-     {CarDirection::ReachedYourDestination, "ReachedYourDestination"}}};
+array<pair<CarDirection, char const *>, static_cast<size_t>(CarDirection::Count)> const
+    g_turnNames = {{{CarDirection::None, "None"},
+                    {CarDirection::GoStraight, "GoStraight"},
+                    {CarDirection::TurnRight, "TurnRight"},
+                    {CarDirection::TurnSharpRight, "TurnSharpRight"},
+                    {CarDirection::TurnSlightRight, "TurnSlightRight"},
+                    {CarDirection::TurnLeft, "TurnLeft"},
+                    {CarDirection::TurnSharpLeft, "TurnSharpLeft"},
+                    {CarDirection::TurnSlightLeft, "TurnSlightLeft"},
+                    {CarDirection::UTurnLeft, "UTurnLeft"},
+                    {CarDirection::UTurnRight, "UTurnRight"},
+                    {CarDirection::EnterRoundAbout, "EnterRoundAbout"},
+                    {CarDirection::LeaveRoundAbout, "LeaveRoundAbout"},
+                    {CarDirection::StayOnRoundAbout, "StayOnRoundAbout"},
+                    {CarDirection::StartAtEndOfStreet, "StartAtEndOfStreet"},
+                    {CarDirection::ReachedYourDestination, "ReachedYourDestination"},
+                    {CarDirection::ExitHighwayToLeft, "ExitHighwayToLeft"},
+                    {CarDirection::ExitHighwayToRight, "ExitHighwayToRight"}}};
 static_assert(g_turnNames.size() == static_cast<size_t>(CarDirection::Count),
               "Check the size of g_turnNames");
 }  // namespace
@@ -53,18 +62,19 @@ namespace routing
 {
 // SegmentRange -----------------------------------------------------------------------------------
 SegmentRange::SegmentRange(FeatureID const & featureId, uint32_t startSegId, uint32_t endSegId,
-                     bool forward)
-  : m_featureId(featureId)
-  , m_startSegId(startSegId)
-  , m_endSegId(endSegId)
-  , m_forward(forward)
+                           bool forward, m2::PointD const & start, m2::PointD const & end)
+  : m_featureId(featureId), m_startSegId(startSegId), m_endSegId(endSegId), m_forward(forward),
+    m_start(start), m_end(end)
 {
+  if (m_startSegId != m_endSegId)
+    CHECK_EQUAL(m_forward, m_startSegId < m_endSegId, (*this));
 }
 
 bool SegmentRange::operator==(SegmentRange const & rhs) const
 {
   return m_featureId == rhs.m_featureId && m_startSegId == rhs.m_startSegId &&
-         m_endSegId == rhs.m_endSegId && m_forward == rhs.m_forward;
+         m_endSegId == rhs.m_endSegId && m_forward == rhs.m_forward && m_start == rhs.m_start &&
+         m_end == rhs.m_end;
 }
 
 bool SegmentRange::operator<(SegmentRange const & rhs) const
@@ -78,7 +88,13 @@ bool SegmentRange::operator<(SegmentRange const & rhs) const
   if (m_endSegId != rhs.m_endSegId)
     return m_endSegId < rhs.m_endSegId;
 
-  return m_forward < rhs.m_forward;
+  if (m_forward != rhs.m_forward)
+    return m_forward < rhs.m_forward;
+
+  if (m_start != rhs.m_start)
+    return m_start < rhs.m_start;
+
+  return m_end < rhs.m_end;
 }
 
 void SegmentRange::Clear()
@@ -87,6 +103,14 @@ void SegmentRange::Clear()
   m_startSegId = 0;
   m_endSegId = 0;
   m_forward = true;
+  m_start = m2::PointD::Zero();
+  m_end = m2::PointD::Zero();
+}
+
+bool SegmentRange::IsEmpty() const
+{
+  return !m_featureId.IsValid() && m_startSegId == 0 && m_endSegId == 0 && m_forward &&
+         m_start == m2::PointD::Zero() && m_end == m2::PointD::Zero();
 }
 
 FeatureID const & SegmentRange::GetFeature() const
@@ -97,6 +121,40 @@ FeatureID const & SegmentRange::GetFeature() const
 bool SegmentRange::IsCorrect() const
 {
   return (m_forward && m_startSegId <= m_endSegId) || (!m_forward && m_endSegId <= m_startSegId);
+}
+
+bool SegmentRange::GetFirstSegment(NumMwmIds const & numMwmIds, Segment & segment) const
+{
+  return GetSegmentBySegId(m_startSegId, numMwmIds, segment);
+}
+
+bool SegmentRange::GetLastSegment(NumMwmIds const & numMwmIds, Segment & segment) const
+{
+  return GetSegmentBySegId(m_endSegId, numMwmIds, segment);
+}
+
+bool SegmentRange::GetSegmentBySegId(uint32_t segId, NumMwmIds const & numMwmIds,
+                                     Segment & segment) const
+{
+  if (!m_featureId.IsValid())
+    return false;
+
+  segment = Segment(numMwmIds.GetId(platform::CountryFile(m_featureId.GetMwmName())),
+                    m_featureId.m_index, segId, m_forward);
+  return true;
+}
+
+string DebugPrint(SegmentRange const & segmentRange)
+{
+  stringstream out;
+  out << "SegmentRange [ m_featureId = " << DebugPrint(segmentRange.m_featureId)
+      << ", m_startSegId = " << segmentRange.m_startSegId
+      << ", m_endSegId = " << segmentRange.m_endSegId
+      << ", m_forward = " << segmentRange.m_forward
+      << ", m_start = " << DebugPrint(segmentRange.m_start)
+      << ", m_end = " << DebugPrint(segmentRange.m_end)
+      << "]" << endl;
+  return out.str();
 }
 
 namespace turns
@@ -256,9 +314,8 @@ bool ParseLanes(string lanesString, vector<SingleLaneInfo> & lanes)
   if (lanesString.empty())
     return false;
   lanes.clear();
-  transform(lanesString.begin(), lanesString.end(), lanesString.begin(), tolower);
-  lanesString.erase(remove_if(lanesString.begin(), lanesString.end(), isspace),
-                         lanesString.end());
+  strings::AsciiToLower(lanesString);
+  base::EraseIf(lanesString, [](char c) { return isspace(c); });
 
   vector<string> SplitLanesStrings;
   SingleLaneInfo lane;

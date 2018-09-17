@@ -11,19 +11,20 @@
 
 #include "base/timer.hpp"
 
-#include "std/array.hpp"
-#include "std/bitset.hpp"
-#include "std/function.hpp"
-#include "std/mutex.hpp"
-#include "std/list.hpp"
+#include <array>
+#include <bitset>
+#include <functional>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <string>
 
 namespace df
 {
-
 int const kDoNotChangeZoom = -1;
 double const kDoNotAutoZoom = -1.0;
 
-using TAnimationCreator = function<drape_ptr<Animation>(ref_ptr<Animation>)>;
+using TAnimationCreator = std::function<drape_ptr<Animation>(ref_ptr<Animation>)>;
 
 class UserEvent
 {
@@ -42,7 +43,7 @@ public:
     VisibleViewport
   };
 
-  virtual ~UserEvent() {}
+  virtual ~UserEvent() = default;
   virtual EventType GetType() const = 0;
 };
 
@@ -60,8 +61,7 @@ public:
     : m_type(TOUCH_CANCEL)
     , m_timeStamp(my::Timer::LocalTime())
     , m_pointersMask(0xFFFF)
-  {
-  }
+  {}
 
   enum ETouchType
   {
@@ -81,7 +81,7 @@ public:
   double GetTimeStamp() const { return m_timeStamp; }
   void SetTimeStamp(double timeStamp) { m_timeStamp = timeStamp; }
 
-  array<Touch, 2> const & GetTouches() const { return m_touches; }
+  std::array<Touch, 2> const & GetTouches() const { return m_touches; }
 
   Touch const & GetFirstTouch() const { return m_touches[0]; }
   Touch const & GetSecondTouch() const { return m_touches[1]; }
@@ -89,7 +89,7 @@ public:
   void SetFirstTouch(Touch const & touch);
   void SetSecondTouch(Touch const & touch);
 
-  void PrepareTouches(array<Touch, 2> const & previousToches);
+  void PrepareTouches(std::array<Touch, 2> const & previousToches);
 
   /// Methods for work with current touches
   /// For example : user put down one finger. We will have one touch in m_touches
@@ -108,7 +108,7 @@ private:
   void Swap();
 
   ETouchType m_type;
-  array<Touch, 2> m_touches; // array of all touches
+  std::array<Touch, 2> m_touches;  // array of all touches
   double m_timeStamp; // seconds
   uint16_t m_pointersMask;
 };
@@ -120,8 +120,7 @@ public:
     : m_factor(factor)
     , m_pxPoint(pxPoint)
     , m_isAnim(isAnim)
-  {
-  }
+  {}
 
   EventType GetType() const override { return UserEvent::EventType::Scale; }
 
@@ -146,8 +145,7 @@ public:
     , m_isAnim(isAnim)
     , m_trackVisibleViewport(trackVisibleViewport)
     , m_parallelAnimCreator(parallelAnimCreator)
-  {
-  }
+  {}
 
   EventType GetType() const override { return UserEvent::EventType::SetCenter; }
 
@@ -175,8 +173,7 @@ public:
     , m_zoom(zoom)
     , m_isAnim(isAnim)
     , m_parallelAnimCreator(parallelAnimCreator)
-  {
-  }
+  {}
 
   EventType GetType() const override { return UserEvent::EventType::SetRect; }
 
@@ -216,7 +213,8 @@ class FollowAndRotateEvent : public UserEvent
 {
 public:
   FollowAndRotateEvent(m2::PointD const & userPos, m2::PointD const & pixelZero,
-                       double azimuth, double autoScale, TAnimationCreator const & parallelAnimCreator = nullptr)
+                       double azimuth, double autoScale,
+                       TAnimationCreator const & parallelAnimCreator)
     : m_userPos(userPos)
     , m_pixelZero(pixelZero)
     , m_azimuth(azimuth)
@@ -224,13 +222,14 @@ public:
     , m_autoScale(autoScale)
     , m_isAutoScale(true)
     , m_isAnim(true)
+    , m_onFinishAction(nullptr)
     , m_parallelAnimCreator(parallelAnimCreator)
-  {
-  }
+  {}
 
   FollowAndRotateEvent(m2::PointD const & userPos, m2::PointD const & pixelZero,
                        double azimuth, int preferredZoomLevel,
-                       bool isAnim, TAnimationCreator const & parallelAnimCreator = nullptr)
+                       bool isAnim, Animation::TAction const & onFinishAction,
+                       TAnimationCreator const & parallelAnimCreator)
     : m_userPos(userPos)
     , m_pixelZero(pixelZero)
     , m_azimuth(azimuth)
@@ -238,6 +237,7 @@ public:
     , m_autoScale(kDoNotAutoZoom)
     , m_isAutoScale(false)
     , m_isAnim(isAnim)
+    , m_onFinishAction(onFinishAction)
     , m_parallelAnimCreator(parallelAnimCreator)
   {}
 
@@ -251,6 +251,7 @@ public:
   bool IsAutoScale() const { return m_isAutoScale; }
   bool IsAnim() const { return m_isAnim; }
   TAnimationCreator const & GetParallelAnimCreator() const { return m_parallelAnimCreator; }
+  Animation::TAction const & GetOnFinishAction() const { return m_onFinishAction; }
 
 private:
   m2::PointD m_userPos;
@@ -260,13 +261,14 @@ private:
   double m_autoScale;
   bool m_isAutoScale;
   bool m_isAnim;
+  Animation::TAction m_onFinishAction;
   TAnimationCreator m_parallelAnimCreator;
 };
 
 class SetAutoPerspectiveEvent : public UserEvent
 {
 public:
-  SetAutoPerspectiveEvent(bool isAutoPerspective)
+  explicit SetAutoPerspectiveEvent(bool isAutoPerspective)
     : m_isAutoPerspective(isAutoPerspective)
   {}
 
@@ -281,7 +283,7 @@ private:
 class RotateEvent : public UserEvent
 {
 public:
-  RotateEvent(double targetAzimut, TAnimationCreator const & parallelAnimCreator = nullptr)
+  explicit RotateEvent(double targetAzimut, TAnimationCreator const & parallelAnimCreator = nullptr)
     : m_targetAzimut(targetAzimut)
     , m_parallelAnimCreator(parallelAnimCreator)
   {}
@@ -314,7 +316,7 @@ private:
 class SetVisibleViewportEvent : public UserEvent
 {
 public:
-  SetVisibleViewportEvent(m2::RectD const & rect)
+  explicit SetVisibleViewportEvent(m2::RectD const & rect)
     : m_rect(rect)
   {}
 
@@ -332,7 +334,7 @@ public:
   class Listener
   {
   public:
-    virtual ~Listener() {}
+    virtual ~Listener() = default;
 
     virtual void OnTap(m2::PointD const & pt, bool isLong) = 0;
     virtual void OnForceTap(m2::PointD const & pt) = 0;
@@ -350,9 +352,10 @@ public:
     virtual void OnScaleEnded() = 0;
     virtual void OnAnimatedScaleEnded() = 0;
 
-    virtual void OnTouchMapAction() = 0;
+    virtual void OnTouchMapAction(TouchEvent::ETouchType touchType) = 0;
 
-    virtual bool OnNewVisibleViewport(m2::RectD const & oldViewport, m2::RectD const & newViewport, m2::PointD & gOffset) = 0;
+    virtual bool OnNewVisibleViewport(m2::RectD const & oldViewport, m2::RectD const & newViewport,
+                                      m2::PointD & gOffset) = 0;
   };
 
   UserEventStream();
@@ -390,7 +393,7 @@ public:
   static char const * DOUBLE_TAP_AND_HOLD;
   static char const * END_DOUBLE_TAP_AND_HOLD;
 
-  using TTestBridge = function<void (char const * action)>;
+  using TTestBridge = std::function<void (char const * action)>;
   void SetTestBridge(TTestBridge const & fn) { m_testFn = fn; }
 #endif
 
@@ -412,7 +415,7 @@ private:
                  TAnimationCreator const & parallelAnimCreator = nullptr);
   bool SetFollowAndRotate(m2::PointD const & userPos, m2::PointD const & pixelPos,
                           double azimuth, int preferredZoomLevel, double autoScale,
-                          bool isAnim, bool isAutoScale,
+                          bool isAnim, bool isAutoScale, Animation::TAction const & onFinishAction = nullptr,
                           TAnimationCreator const & parallelAnimCreator = nullptr);
   void SetAutoPerspective(bool isAutoPerspective);
   void CheckAutoRotate();
@@ -421,11 +424,11 @@ private:
 
   bool ProcessTouch(TouchEvent const & touch);
 
-  bool TouchDown(array<Touch, 2> const & touches);
-  bool TouchMove(array<Touch, 2> const & touches);
-  bool TouchCancel(array<Touch, 2> const & touches);
-  bool TouchUp(array<Touch, 2> const & touches);
-  void UpdateTouches(array<Touch, 2> const & touches);
+  bool TouchDown(std::array<Touch, 2> const & touches);
+  bool TouchMove(std::array<Touch, 2> const & touches);
+  bool TouchCancel(std::array<Touch, 2> const & touches);
+  bool TouchUp(std::array<Touch, 2> const & touches);
+  void UpdateTouches(std::array<Touch, 2> const & touches);
 
   void BeginDrag(Touch const & t);
   void Drag(Touch const & t);
@@ -458,15 +461,16 @@ private:
 
   void ApplyAnimations();
   void ResetAnimations(Animation::Type animType, bool rewind = true, bool finishAll = false);
-  void ResetAnimations(Animation::Type animType, string const & customType, bool rewind = true, bool finishAll = false);
+  void ResetAnimations(Animation::Type animType, std::string const & customType,
+                       bool rewind = true, bool finishAll = false);
   void ResetMapPlaneAnimations();
   bool InterruptFollowAnimations(bool force);
 
-  bool CheckDrag(array<Touch, 2> const & touches, double threshold) const;
+  bool CheckDrag(std::array<Touch, 2> const & touches, double threshold) const;
 
-  using TEventsList = list<drape_ptr<UserEvent>>;
+  using TEventsList = std::list<drape_ptr<UserEvent>>;
   TEventsList m_events;
-  mutable mutex m_lock;
+  mutable std::mutex m_lock;
 
   m2::RectD m_visibleViewport;
   m2::PointD m_trackedCenter;
@@ -487,13 +491,11 @@ private:
     STATE_SCALE
   } m_state;
 
-  array<Touch, 2> m_touches;
+  std::array<Touch, 2> m_touches;
 
   AnimationSystem & m_animationSystem;
 
   bool m_modelViewChanged = false;
-
-  unique_ptr<UserEvent> m_pendingEvent;
 
   ref_ptr<Listener> m_listener;
 
@@ -501,12 +503,11 @@ private:
   TTestBridge m_testFn;
 #endif
   m2::PointD m_startDragOrg;
-  array<m2::PointF, 2> m_twoFingersTouches;
+  std::array<m2::PointF, 2> m_twoFingersTouches;
   m2::PointD m_startDoubleTapAndHold;
 
   KineticScroller m_scroller;
   my::Timer m_kineticTimer;
   bool m_kineticScrollEnabled = true;
 };
-
-}
+}  // namespace df

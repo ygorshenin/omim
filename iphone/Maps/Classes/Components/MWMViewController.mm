@@ -14,6 +14,16 @@
 
 @implementation MWMViewController
 
+- (NSString *)localizedTitle
+{
+  return L(self.title);
+}
+
+- (void)setLocalizedTitle:(NSString *)localizedTitle
+{
+  self.title = L(localizedTitle);
+}
+
 - (BOOL)prefersStatusBarHidden
 {
   return NO;
@@ -24,7 +34,7 @@
   [self.navigationController.navigationBar mwm_refreshUI];
   [self.view mwm_refreshUI];
   if (![self isKindOfClass:[MapViewController class]])
-    [[MapViewController controller] mwm_refreshUI];
+    [[MapViewController sharedController] mwm_refreshUI];
 }
 
 - (void)viewDidLoad

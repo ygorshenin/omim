@@ -24,8 +24,12 @@ set(
   road_graph_builder.hpp
   road_graph_nearest_edges_test.cpp
   route_tests.cpp
+  routing_algorithm.cpp
+  routing_algorithm.hpp
   routing_helpers_tests.cpp
   routing_session_test.cpp
+  speed_cameras_tests.cpp
+  tools.hpp
   turns_generator_test.cpp
   turns_sound_test.cpp
   turns_tts_text_tests.cpp
@@ -36,12 +40,13 @@ omim_add_test(${PROJECT_NAME} ${SRC})
 omim_link_libraries(
   ${PROJECT_NAME}
   routing
-  indexer
   platform_tests_support
-  editor
   traffic
   routing_common
   transit
+  kml
+  editor
+  indexer
   platform
   oauthcpp
   geometry

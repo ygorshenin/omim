@@ -12,12 +12,17 @@
 
 #include "routing_common/car_model.hpp"
 
+#include "editor/editable_data_source.hpp"
+
 #include "indexer/ftypes_matcher.hpp"
-#include "indexer/index.hpp"
 #include "indexer/scales.hpp"
 
+#include "coding/multilang_utf8_string.hpp"
+
+#include "geometry/mercator.hpp"
 #include "geometry/point2d.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <numeric>
 #include <utility>
@@ -50,10 +55,12 @@ public:
   // turns::IRoutingResult overrides:
   TUnpackedPathSegments const & GetSegments() const override { return m_pathSegments; }
 
-  void GetPossibleTurns(SegmentRange const & segmentRange, m2::PointD const & /* ingoingPoint */,
-                        m2::PointD const & /* junctionPoint */, size_t & ingoingCount,
-                        TurnCandidates & outgoingTurns) const override
+  void GetPossibleTurns(SegmentRange const & segmentRange, m2::PointD const & junctionPoint,
+                        size_t & ingoingCount, TurnCandidates & outgoingTurns) const override
   {
+    CHECK(!segmentRange.IsEmpty(), ("SegmentRange presents a fake feature.",
+                                    "junctionPoint:", MercatorBounds::ToLatLon(junctionPoint)));
+
     ingoingCount = 0;
     outgoingTurns.candidates.clear();
 
@@ -145,17 +152,28 @@ bool IsJoint(IRoadGraph::TEdgeVector const & ingoingEdges,
 
 namespace routing
 {
-BicycleDirectionsEngine::BicycleDirectionsEngine(Index const & index, shared_ptr<NumMwmIds> numMwmIds)
-  : m_index(index), m_numMwmIds(numMwmIds)
+// BicycleDirectionsEngine::AdjacentEdges ---------------------------------------------------------
+bool BicycleDirectionsEngine::AdjacentEdges::IsAlmostEqual(AdjacentEdges const & rhs) const
+{
+  return m_outgoingTurns.IsAlmostEqual(rhs.m_outgoingTurns) &&
+         m_ingoingTurnsCount == rhs.m_ingoingTurnsCount;
+}
+
+// BicycleDirectionsEngine ------------------------------------------------------------------------
+BicycleDirectionsEngine::BicycleDirectionsEngine(DataSource const & dataSource,
+                                                 shared_ptr<NumMwmIds> numMwmIds)
+  : m_dataSource(dataSource), m_numMwmIds(numMwmIds)
 {
   CHECK(m_numMwmIds, ());
 }
 
-bool BicycleDirectionsEngine::Generate(RoadGraphBase const & graph, vector<Junction> const & path,
-                                       my::Cancellable const & cancellable, Route::TTurns & turns,
+bool BicycleDirectionsEngine::Generate(IndexRoadGraph const & graph, vector<Junction> const & path,
+                                       base::Cancellable const & cancellable, Route::TTurns & turns,
                                        Route::TStreets & streetNames,
                                        vector<Junction> & routeGeometry, vector<Segment> & segments)
 {
+  CHECK(m_numMwmIds, ());
+
   m_adjacentEdges.clear();
   m_pathSegments.clear();
   turns.clear();
@@ -165,15 +183,11 @@ bool BicycleDirectionsEngine::Generate(RoadGraphBase const & graph, vector<Junct
   
   size_t const pathSize = path.size();
   // Note. According to Route::IsValid() method route of zero or one point is invalid.
-  if (pathSize < 1)
+  if (pathSize <= 1)
     return false;
 
   IRoadGraph::TEdgeVector routeEdges;
-  if (!ReconstructPath(graph, path, routeEdges, cancellable))
-  {
-    LOG(LWARNING, ("Can't reconstruct path."));
-    return false;
-  }
+  graph.GetRouteEdges(routeEdges);
 
   if (routeEdges.empty())
     return false;
@@ -186,10 +200,10 @@ bool BicycleDirectionsEngine::Generate(RoadGraphBase const & graph, vector<Junct
   if (cancellable.IsCancelled())
     return false;
 
-  RoutingResult resultGraph(routeEdges, m_adjacentEdges, m_pathSegments);
+  ::RoutingResult resultGraph(routeEdges, m_adjacentEdges, m_pathSegments);
   RouterDelegate delegate;
 
-  MakeTurnAnnotation(resultGraph, delegate, routeGeometry, turns, streetNames, segments);
+  MakeTurnAnnotation(resultGraph, *m_numMwmIds, delegate, routeGeometry, turns, streetNames, segments);
   CHECK_EQUAL(routeGeometry.size(), pathSize, ());
   // In case of bicycle routing |m_pathSegments| may have an empty
   // |LoadedPathSegment::m_segments| fields. In that case |segments| is empty
@@ -199,10 +213,10 @@ bool BicycleDirectionsEngine::Generate(RoadGraphBase const & graph, vector<Junct
   return true;
 }
 
-Index::FeaturesLoaderGuard & BicycleDirectionsEngine::GetLoader(MwmSet::MwmId const & id)
+FeaturesLoaderGuard & BicycleDirectionsEngine::GetLoader(MwmSet::MwmId const & id)
 {
   if (!m_loader || id != m_loader->GetId())
-    m_loader = make_unique<Index::FeaturesLoaderGuard>(m_index, id);
+    m_loader = make_unique<FeaturesLoaderGuard>(m_dataSource, id);
   return *m_loader;
 }
 
@@ -215,13 +229,13 @@ void BicycleDirectionsEngine::LoadPathAttributes(FeatureID const & featureId, Lo
   if(!GetLoader(featureId.m_mwmId).GetFeatureByIndex(featureId.m_index, ft))
     return;
 
-  auto const highwayClass = ftypes::GetHighwayClass(ft);
+  auto const highwayClass = ftypes::GetHighwayClass(feature::TypesHolder(ft));
   ASSERT_NOT_EQUAL(highwayClass, ftypes::HighwayClass::Error, ());
   ASSERT_NOT_EQUAL(highwayClass, ftypes::HighwayClass::Undefined, ());
 
   pathSegment.m_highwayClass = highwayClass;
   pathSegment.m_isLink = ftypes::IsLinkChecker::Instance()(ft);
-  ft.GetName(FeatureType::DEFAULT_LANG, pathSegment.m_name);
+  ft.GetName(StringUtf8Multilang::kDefaultCode, pathSegment.m_name);
   pathSegment.m_onRoundabout = ftypes::IsRoundAboutChecker::Instance()(ft);
 }
 
@@ -231,7 +245,8 @@ void BicycleDirectionsEngine::GetSegmentRangeAndAdjacentEdges(
 {
   outgoingTurns.isCandidatesAngleValid = true;
   outgoingTurns.candidates.reserve(outgoingEdges.size());
-  segmentRange = SegmentRange(inEdge.GetFeatureId(), startSegId, endSegId, inEdge.IsForward());
+  segmentRange = SegmentRange(inEdge.GetFeatureId(), startSegId, endSegId, inEdge.IsForward(),
+                              inEdge.GetStartPoint(), inEdge.GetEndPoint());
   CHECK(segmentRange.IsCorrect(), ());
   m2::PointD const & ingoingPoint = inEdge.GetStartJunction().GetPoint();
   m2::PointD const & junctionPoint = inEdge.GetEndJunction().GetPoint();
@@ -246,9 +261,11 @@ void BicycleDirectionsEngine::GetSegmentRangeAndAdjacentEdges(
     if (!GetLoader(outFeatureId.m_mwmId).GetFeatureByIndex(outFeatureId.m_index, ft))
       continue;
 
-    auto const highwayClass = ftypes::GetHighwayClass(ft);
+    auto const highwayClass = ftypes::GetHighwayClass(feature::TypesHolder(ft));
     ASSERT_NOT_EQUAL(highwayClass, ftypes::HighwayClass::Error, ());
     ASSERT_NOT_EQUAL(highwayClass, ftypes::HighwayClass::Undefined, ());
+
+    bool const isLink = ftypes::IsLinkChecker::Instance()(ft);
 
     double angle = 0;
 
@@ -268,8 +285,12 @@ void BicycleDirectionsEngine::GetSegmentRangeAndAdjacentEdges(
       // should not be used for turn generation.
       outgoingTurns.isCandidatesAngleValid = false;
     }
-    outgoingTurns.candidates.emplace_back(angle, segmentRange, highwayClass);
+    outgoingTurns.candidates.emplace_back(angle, ConvertEdgeToSegment(*m_numMwmIds, edge),
+                                          highwayClass, isLink);
   }
+
+  if (outgoingTurns.isCandidatesAngleValid)
+    sort(outgoingTurns.candidates.begin(), outgoingTurns.candidates.end(), base::LessBy(&TurnCandidate::m_angle));
 }
 
 void BicycleDirectionsEngine::GetEdges(RoadGraphBase const & graph, Junction const & currJunction,
@@ -284,8 +305,8 @@ void BicycleDirectionsEngine::GetEdges(RoadGraphBase const & graph, Junction con
 }
 
 void BicycleDirectionsEngine::FillPathSegmentsAndAdjacentEdgesMap(
-    RoadGraphBase const & graph, vector<Junction> const & path,
-    IRoadGraph::TEdgeVector const & routeEdges, my::Cancellable const & cancellable)
+    IndexRoadGraph const & graph, vector<Junction> const & path,
+    IRoadGraph::TEdgeVector const & routeEdges, base::Cancellable const & cancellable)
 {
   size_t const pathSize = path.size();
   CHECK_GREATER(pathSize, 1, ());
@@ -327,7 +348,8 @@ void BicycleDirectionsEngine::FillPathSegmentsAndAdjacentEdgesMap(
       continue;
     }
 
-    CHECK_EQUAL(prevJunctions.size(), abs(static_cast<int32_t>(inSegId - startSegId)) + 1, ());
+    CHECK_EQUAL(prevJunctions.size(), static_cast<size_t>(
+                    abs(static_cast<int32_t>(inSegId - startSegId)) + 1), ());
 
     prevJunctions.push_back(currJunction);
 
@@ -348,9 +370,18 @@ void BicycleDirectionsEngine::FillPathSegmentsAndAdjacentEdgesMap(
     CHECK_EQUAL(prevSegments.size() + 1, prevJunctionSize, ());
     pathSegment.m_segments = move(prevSegments);
 
-    auto const it = m_adjacentEdges.insert(make_pair(segmentRange, move(adjacentEdges)));
-    ASSERT(it.second, ());
-    UNUSED_VALUE(it);
+    if (!segmentRange.IsEmpty())
+    {
+      auto const it = m_adjacentEdges.find(segmentRange);
+      // A route may be built through intermediate points. So it may contain the same |segmentRange|
+      // several times. But in that case |adjacentEdges| corresponding to |segmentRange|
+      // should be the same.
+      ASSERT(it == m_adjacentEdges.cend() || it->second.IsAlmostEqual(adjacentEdges),
+             ("segmentRange:", segmentRange, "corresponds to adjacent edges which aren't equal."));
+
+      m_adjacentEdges.insert(it, make_pair(segmentRange, move(adjacentEdges)));
+    }
+
     m_pathSegments.push_back(move(pathSegment));
 
     prevJunctions.clear();

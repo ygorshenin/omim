@@ -6,6 +6,7 @@
 @import("../include/Roads.mapcss");
 @import("../include/Roads_label.mapcss");
 @import("../include/Icons.mapcss");
+@import("../include/Subways.mapcss");
 
 
 canvas
@@ -81,14 +82,45 @@ colors
   PoiDeletedMask-color: #FFFFFF;
   PoiDeletedMask-opacity: 0.3;
   DefaultTrackColor-color: #1E96F0;
-  RouteMarkPrimaryText-color: #FFFFFF;
+  RouteMarkPrimaryText-color: #888888;
   RouteMarkPrimaryTextOutline-color: #000000;
-  RouteMarkSecondaryText-color: #FFFFFF;
+  RouteMarkSecondaryText-color: #888888;
   RouteMarkSecondaryTextOutline-color: #000000;
-  LocalAdsPrimaryText-color: #FFFFFF;
+  TransitMarkPrimaryText-color: #888888;
+  TransitMarkPrimaryTextOutline-color: #000000;
+  TransitMarkSecondaryText-color: #888888;
+  TransitMarkSecondaryTextOutline-color: #000000;
+  TransitTransferOuterMarker-color: #000000;
+  TransitTransferInnerMarker-color: #888888;
+  TransitStopInnerMarker-color: #000000;
+  LocalAdsPrimaryText-color: #888888;
   LocalAdsPrimaryTextOutline-color: #000000;
-  LocalAdsSecondaryText-color: #FFFFFF;
+  LocalAdsSecondaryText-color: #888888;
   LocalAdsSecondaryTextOutline-color: #000000;
   TransitBackground-color: #000000;
   TransitBackground-opacity: 0.4;
+  BookmarkRed-color: #E51B23;
+  BookmarkPink-color: #FF4182;
+  BookmarkPurple-color: #9C27B0;
+  BookmarkDeepPurple-color: #673AB7;
+  BookmarkBlue-color: #006EC7;
+  BookmarkLightBlue-color: #03A9F4;
+  BookmarkCyan-color: #01BCD4;
+  BookmarkTeal-color: #009588;
+  BookmarkGreen-color: #388E3C;
+  BookmarkLime-color: #7EBF39;
+  BookmarkYellow-color: #FFC800;
+  BookmarkOrange-color: #FFA000;
+  BookmarkDeepOrange-color: #607D8B;
+  BookmarkBrown-color: #795548;
+  BookmarkGray-color: #757575;
+  BookmarkBlueGray-color: #607D8B;
+  RatingNone-color: #597380;
+  RatingHorrible-color: #E63C2D;
+  RatingBad-color: #F06432;
+  RatingNormal-color: #FFC800;
+  RatingGood-color: #93BF39;
+  RatingExcellent-color: #3C8C3C;
+  RatingLocalAds-color: #4BB9E6;
+  RatingText-color: #FFFFFF;
 }

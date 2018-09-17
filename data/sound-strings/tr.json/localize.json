@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Tam sola.",
 "make_a_u_turn":"U dönüşü yapın.",
 "go_straight":"Düz ilerleyin.",
+"exit":"çıkış.",
 "destination":"Varacaksınız.",
 "you_have_reached_the_destination":"Vardınız.",
 "in_50_meters":"Elli metre sonra",
@@ -61,5 +62,6 @@
 "in_5000_feet":"Beş bin fit sonra",
 "in_1_mile":"Bir mil sonra",
 "in_1_5_miles":"Bir buçuk mil sonra",
-"in_2_miles":"İki mil sonra"
+"in_2_miles":"İki mil sonra",
+"unknown_camera":"Speed camera ahead"
 }

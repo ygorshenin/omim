@@ -1,39 +1,40 @@
 #pragma once
 
-#include "indexer/indexer_tests_support/helpers.hpp"
-#include "indexer/indexer_tests_support/test_with_custom_mwms.hpp"
+#include "editor/editable_data_source.hpp"
+#include "editor/editor_tests_support/helpers.hpp"
+
+#include "generator/generator_tests_support/test_with_custom_mwms.hpp"
 
 #include "search/editor_delegate.hpp"
 
 #include "indexer/feature.hpp"
-#include "indexer/index.hpp"
 
 #include "base/assert.hpp"
-#include "base/stl_add.hpp"
 
+#include <memory>
 #include <utility>
 
 namespace search
 {
 namespace tests_support
 {
-class TestWithCustomMwms : public indexer::tests_support::TestWithCustomMwms
+class TestWithCustomMwms : public generator::tests_support::TestWithCustomMwms
 {
 public:
   TestWithCustomMwms()
   {
-    indexer::tests_support::SetUpEditorForTesting(my::make_unique<EditorDelegate>(m_index));
+    editor::tests_support::SetUpEditorForTesting(std::make_unique<EditorDelegate>(m_dataSource));
   }
 
-  ~TestWithCustomMwms() override { indexer::tests_support::TearDownEditorForTesting(); }
+  ~TestWithCustomMwms() override { editor::tests_support::TearDownEditorForTesting(); }
 
   template <typename EditorFn>
   void EditFeature(FeatureID const & id, EditorFn && fn)
   {
-    Index::FeaturesLoaderGuard loader(m_index, id.m_mwmId);
+    FeaturesLoaderGuard loader(m_dataSource, id.m_mwmId);
     FeatureType ft;
     CHECK(loader.GetFeatureByIndex(id.m_index, ft), ());
-    indexer::tests_support::EditFeature(ft, std::forward<EditorFn>(fn));
+    editor::tests_support::EditFeature(ft, std::forward<EditorFn>(fn));
   }
 };
 }  // namespace tests_support

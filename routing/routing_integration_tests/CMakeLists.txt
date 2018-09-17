@@ -18,6 +18,7 @@ set(
   route_test.cpp
   routing_test_tools.cpp
   routing_test_tools.hpp
+  speed_camera_notifications_tests.cpp
   street_names_test.cpp
   turn_test.cpp
 )
@@ -26,16 +27,18 @@ omim_add_test(${PROJECT_NAME} ${SRC})
 
 omim_link_libraries(
   ${PROJECT_NAME}
+  editor_tests_support
   map
   routing
   search
   storage
   mwm_diff
-  indexer
-  editor
   traffic
   routing_common
   transit
+  kml
+  editor
+  indexer
   platform
   oauthcpp
   geometry

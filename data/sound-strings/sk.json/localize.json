@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Ostro doľava.",
 "make_a_u_turn":"Otočte sa o stoosemdesiat stupňov.",
 "go_straight":"Choďte rovno.",
+"exit":"Výjazd.",
 "destination":"Dorazíte.",
 "you_have_reached_the_destination":"Dorazili ste do cieľa.",
 "in_50_meters":"Po päťdesiatich metroch",
@@ -61,5 +62,6 @@
 "in_5000_feet":"Po päťtisíc stopách",
 "in_1_mile":"Po jednej míli",
 "in_1_5_miles":"Po jeden a pol míli",
-"in_2_miles":"Po dvoch míľach"
+"in_2_miles":"Po dvoch míľach",
+"unknown_camera":"Speed camera ahead"
 }

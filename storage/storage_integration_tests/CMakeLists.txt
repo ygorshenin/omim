@@ -5,6 +5,7 @@ add_definitions("-DOMIM_UNIT_TEST_WITH_QT_EVENT_LOOP")
 
 set(
   SRC
+  lightweight_matching_tests.cpp
   migrate_tests.cpp
   storage_3levels_tests.cpp
   storage_downloading_tests.cpp
@@ -19,8 +20,10 @@ omim_add_test(${PROJECT_NAME} ${SRC})
 
 omim_link_libraries(
   ${PROJECT_NAME}
+  platform_tests_support
   map
   drape_frontend
+  shaders
   routing
   routing_common
   transit
@@ -29,13 +32,14 @@ omim_link_libraries(
   tracking
   traffic
   ugc
-  indexer
   drape
   partners_api
   local_ads
-  platform_tests_support
-  platform
+  kml
   editor
+  indexer
+  metrics
+  platform
   opening_hours
   mwm_diff
   bsdiff

@@ -7,24 +7,26 @@
 #include "drape_frontend/backend_renderer.hpp"
 #include "drape_frontend/base_renderer.hpp"
 #include "drape_frontend/drape_api_renderer.hpp"
+#include "drape_frontend/frame_values.hpp"
 #include "drape_frontend/gps_track_renderer.hpp"
 #include "drape_frontend/my_position_controller.hpp"
 #include "drape_frontend/navigator.hpp"
 #include "drape_frontend/overlays_tracker.hpp"
 #include "drape_frontend/render_group.hpp"
-#include "drape_frontend/render_state.hpp"
+#include "drape_frontend/render_state_extension.hpp"
 #include "drape_frontend/requested_tiles.hpp"
 #include "drape_frontend/route_renderer.hpp"
 #include "drape_frontend/postprocess_renderer.hpp"
 #include "drape_frontend/threads_commutator.hpp"
 #include "drape_frontend/tile_info.hpp"
 #include "drape_frontend/traffic_renderer.hpp"
+#include "drape_frontend/transit_scheme_renderer.hpp"
 #include "drape_frontend/user_event_stream.hpp"
 
-#include "drape/gpu_program_manager.hpp"
+#include "shaders/program_manager.hpp"
+
 #include "drape/overlay_tree.hpp"
 #include "drape/pointers.hpp"
-#include "drape/uniform_values_storage.hpp"
 #include "drape/vertex_array_buffer.hpp"
 
 #include "platform/location.hpp"
@@ -46,6 +48,8 @@ class RenderBucket;
 
 namespace df
 {
+class DebugRectRenderer;
+class DrapeNotifier;
 class ScenarioManager;
 class ScreenQuadRenderer;
 class SelectionShape;
@@ -75,7 +79,7 @@ public:
   struct Params : BaseRenderer::Params
   {
     Params(dp::ApiVersion apiVersion, ref_ptr<ThreadsCommutator> commutator,
-           ref_ptr<dp::OGLContextFactory> factory, ref_ptr<dp::TextureManager> texMng,
+           ref_ptr<dp::GraphicsContextFactory> factory, ref_ptr<dp::TextureManager> texMng,
            MyPositionController::Params && myPositionParams, dp::Viewport viewport,
            TModelViewChanged const & modelViewChangedFn, TTapEventInfoFn const & tapEventFn,
            TUserPositionChangedFn const & positionChangedFn, ref_ptr<RequestedTiles> requestedTiles,
@@ -124,11 +128,10 @@ public:
   void ChangeModelView(m2::RectD const & rect,
                        TAnimationCreator const & parallelAnimCreator) override;
   void ChangeModelView(m2::PointD const & userPos, double azimuth, m2::PointD const & pxZero,
-                       int preferredZoomLevel,
+                       int preferredZoomLevel, Animation::TAction const & onFinishAction,
                        TAnimationCreator const & parallelAnimCreator) override;
   void ChangeModelView(double autoScale, m2::PointD const & userPos, double azimuth,
-                       m2::PointD const & pxZero,
-                       TAnimationCreator const & parallelAnimCreator) override;
+                       m2::PointD const & pxZero, TAnimationCreator const & parallelAnimCreator) override;
 
   drape_ptr<ScenarioManager> const & GetScenarioManager() const;
 
@@ -140,10 +143,10 @@ protected:
 
 private:
   void OnResize(ScreenBase const & screen);
-  void RenderScene(ScreenBase const & modelView);
-  void PrepareBucket(dp::GLState const & state, drape_ptr<dp::RenderBucket> & bucket);
-  void MergeBuckets();
-  void RenderSingleGroup(ScreenBase const & modelView, ref_ptr<BaseRenderGroup> group);
+  void RenderScene(ScreenBase const & modelView, bool activeFrame);
+  void PrepareBucket(dp::RenderState const & state, drape_ptr<dp::RenderBucket> & bucket);
+  void RenderSingleGroup(ref_ptr<dp::GraphicsContext> context, ScreenBase const & modelView,
+                         ref_ptr<BaseRenderGroup> group);
   void RefreshProjection(ScreenBase const & screen);
   void RefreshZScale(ScreenBase const & screen);
   void RefreshPivotTransform(ScreenBase const & screen);
@@ -161,11 +164,16 @@ private:
   void Render3dLayer(ScreenBase const & modelView, bool useFramebuffer);
   void RenderOverlayLayer(ScreenBase const & modelView);
   void RenderNavigationOverlayLayer(ScreenBase const & modelView);
-  void RenderUserMarksLayer(ScreenBase const & modelView, RenderState::DepthLayer layerId);
+  void RenderUserMarksLayer(ScreenBase const & modelView, DepthLayer layerId);
+  void RenderTransitSchemeLayer(ScreenBase const & modelView);
   void RenderTrafficLayer(ScreenBase const & modelView);
   void RenderRouteLayer(ScreenBase const & modelView);
+  void RenderSearchMarksLayer(ScreenBase const & modelView);
+  void RenderTransitBackground();
+  void RenderEmptyFrame();
 
-  bool HasTransitData();
+  bool HasTransitRouteData() const;
+  bool HasRouteData() const;
 
   ScreenBase const & ProcessEvents(bool & modelViewChanged, bool & viewportChanged);
   void PrepareScene(ScreenBase const & modelView);
@@ -196,7 +204,7 @@ private:
   void CorrectGlobalScalePoint(m2::PointD & pt) const override;
   void OnScaleEnded() override;
   void OnAnimatedScaleEnded() override;
-  void OnTouchMapAction() override;
+  void OnTouchMapAction(TouchEvent::ETouchType touchType) override;
   bool OnNewVisibleViewport(m2::RectD const & oldViewport, m2::RectD const & newViewport,
                             m2::PointD & gOffset) override;
 
@@ -218,7 +226,7 @@ private:
   void EndUpdateOverlayTree();
 
   template<typename TRenderGroup>
-  void AddToRenderGroup(dp::GLState const & state, drape_ptr<dp::RenderBucket> && renderBucket,
+  void AddToRenderGroup(dp::RenderState const & state, drape_ptr<dp::RenderBucket> && renderBucket,
                         TileKey const & newTile);
 
   using TRenderGroupRemovePredicate = std::function<bool(drape_ptr<RenderGroup> const &)>;
@@ -246,15 +254,19 @@ private:
 
   void CheckAndRunFirstLaunchAnimation();
 
-  drape_ptr<dp::GpuProgramManager> m_gpuProgramManager;
+  void ScheduleOverlayCollecting();
 
-  std::array<RenderLayer, RenderState::LayersCount> m_layers;
+  drape_ptr<gpu::ProgramManager> m_gpuProgramManager;
+
+  std::array<RenderLayer, static_cast<size_t>(DepthLayer::LayersCount)> m_layers;
 
   drape_ptr<gui::LayerRenderer> m_guiRenderer;
+  gui::TWidgetsLayoutInfo m_lastWidgetsLayout;
   drape_ptr<MyPositionController> m_myPositionController;
   drape_ptr<SelectionShape> m_selectionShape;
   drape_ptr<RouteRenderer> m_routeRenderer;
   drape_ptr<TrafficRenderer> m_trafficRenderer;
+  drape_ptr<TransitSchemeRenderer> m_transitSchemeRenderer;
   drape_ptr<dp::Framebuffer> m_buildingsFramebuffer;
   drape_ptr<ScreenQuadRenderer> m_screenQuadRenderer;
   drape_ptr<GpsTrackRenderer> m_gpsTrackRenderer;
@@ -262,7 +274,7 @@ private:
 
   drape_ptr<dp::OverlayTree> m_overlayTree;
 
-  dp::UniformValuesStorage m_generalUniforms;
+  FrameValues m_frameValues;
 
   bool m_enablePerspectiveInNavigation;
   bool m_enable3dBuildings;
@@ -286,7 +298,6 @@ private:
   ref_ptr<RequestedTiles> m_requestedTiles;
   uint64_t m_maxGeneration;
   uint64_t m_maxUserMarksGeneration;
-  int m_mergeBucketsCounter = 0;
 
   int m_lastRecacheRouteId = 0;
 
@@ -312,6 +323,7 @@ private:
   bool m_needRestoreSize;
 
   bool m_trafficEnabled;
+  bool m_transitSchemeEnabled = false;
 
   drape_ptr<OverlaysTracker> m_overlaysTracker;
   OverlaysShowStatsCallback m_overlaysShowStatsCallback;
@@ -319,7 +331,11 @@ private:
   bool m_forceUpdateScene;
   bool m_forceUpdateUserMarks;
 
+  bool m_isAntialiasingEnabled = false;
   drape_ptr<PostprocessRenderer> m_postprocessRenderer;
+
+  bool m_isDebugRectRenderingEnabled = false;
+  drape_ptr<DebugRectRenderer> m_debugRectRenderer;
 
   drape_ptr<ScenarioManager> m_scenarioManager;
 
@@ -329,6 +345,8 @@ private:
 
   bool m_finishTexturesInitialization = false;
   drape_ptr<ScreenQuadRenderer> m_transitBackground;
+
+  drape_ptr<DrapeNotifier> m_notifier;
 
 #ifdef DEBUG
   bool m_isTeardowned;

@@ -1,12 +1,14 @@
 #pragma once
 
 #include "drape/color.hpp"
+#include "drape/glyph_generator.hpp"
 #include "drape/glyph_manager.hpp"
 #include "drape/pointers.hpp"
 #include "drape/texture.hpp"
 #include "drape/font_texture.hpp"
 
 #include "base/string_utils.hpp"
+#include "base/timer.hpp"
 
 #include <atomic>
 #include <list>
@@ -72,19 +74,20 @@ public:
   struct Params
   {
     std::string m_resPostfix;
-    double m_visualScale;
+    double m_visualScale = 1.0;
     std::string m_colors;
     std::string m_patterns;
     GlyphManager::Params m_glyphMngParams;
   };
 
-  TextureManager();
+  explicit TextureManager(ref_ptr<GlyphGenerator> glyphGenerator);
   void Release();
 
   void Init(Params const & params);
   void OnSwitchMapStyle();
 
   void GetSymbolRegion(std::string const & symbolName, SymbolRegion & region);
+  bool HasSymbolRegion(std::string const & symbolName) const;
 
   typedef buffer_vector<uint8_t, 8> TStipplePattern;
   void GetStippleRegion(TStipplePattern const & pen, StippleRegion & region);
@@ -143,6 +146,9 @@ private:
   ref_ptr<Texture> AllocateGlyphTexture();
   void GetRegionBase(ref_ptr<Texture> tex, TextureManager::BaseRegion & region, Texture::Key const & key);
 
+  void GetGlyphsRegions(ref_ptr<FontTexture> tex, strings::UniString const & text,
+                        int fixedHeight, TGlyphsBuffer & regions);
+
   size_t FindGlyphsGroup(strings::UniChar const & c) const;
   size_t FindGlyphsGroup(strings::UniString const & text) const;
   size_t FindGlyphsGroup(TMultilineText const & text) const;
@@ -164,13 +170,7 @@ private:
     if (group.m_texture == nullptr)
       group.m_texture = AllocateGlyphTexture();
 
-    regions.reserve(text.size());
-    for (strings::UniChar const & c : text)
-    {
-      GlyphRegion reg;
-      GetRegionBase(group.m_texture, reg, GlyphKey(c, fixedHeight));
-      regions.push_back(reg);
-    }
+    GetGlyphsRegions(group.m_texture, text, fixedHeight, regions);
   }
 
   template<typename TGlyphGroup>
@@ -233,6 +233,7 @@ private:
   static constexpr size_t GetInvalidGlyphGroup();
 
 private:
+  ref_ptr<GlyphGenerator> m_glyphGenerator;
   std::string m_resPostfix;
   std::vector<drape_ptr<Texture>> m_symbolTextures;
   drape_ptr<Texture> m_stipplePenTexture;
@@ -251,8 +252,8 @@ private:
   buffer_vector<GlyphGroup, 64> m_glyphGroups;
   buffer_vector<HybridGlyphGroup, 4> m_hybridGlyphGroups;
 
+  my::Timer m_uploadTimer;
   std::atomic_flag m_nothingToUpload;
   std::mutex m_calcGlyphsMutex;
 };
-
-} // namespace dp
+}  // namespace dp

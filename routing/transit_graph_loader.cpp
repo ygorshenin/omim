@@ -7,15 +7,16 @@
 #include "transit/transit_serdes.hpp"
 #include "transit/transit_types.hpp"
 
+#include "indexer/data_source.hpp"
 #include "indexer/mwm_set.hpp"
 
 #include "platform/country_file.hpp"
 
 #include "coding/file_container.hpp"
 
-#include "base/stl_add.hpp"
 #include "base/timer.hpp"
 
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -26,7 +27,7 @@ namespace routing
 class TransitGraphLoaderImpl : public TransitGraphLoader
 {
 public:
-  TransitGraphLoaderImpl(Index & index, shared_ptr<NumMwmIds> numMwmIds,
+  TransitGraphLoaderImpl(DataSource & dataSource, shared_ptr<NumMwmIds> numMwmIds,
                          shared_ptr<EdgeEstimator> estimator);
 
   // TransitGraphLoader overrides.
@@ -38,15 +39,16 @@ public:
 private:
   unique_ptr<TransitGraph> CreateTransitGraph(NumMwmId mwmId, IndexGraph & indexGraph) const;
 
-  Index & m_index;
+  DataSource & m_dataSource;
   shared_ptr<NumMwmIds> m_numMwmIds;
   shared_ptr<EdgeEstimator> m_estimator;
   unordered_map<NumMwmId, unique_ptr<TransitGraph>> m_graphs;
 };
 
-TransitGraphLoaderImpl::TransitGraphLoaderImpl(Index & index, shared_ptr<NumMwmIds> numMwmIds,
+TransitGraphLoaderImpl::TransitGraphLoaderImpl(DataSource & dataSource,
+                                               shared_ptr<NumMwmIds> numMwmIds,
                                                shared_ptr<EdgeEstimator> estimator)
-  : m_index(index), m_numMwmIds(numMwmIds), m_estimator(estimator)
+  : m_dataSource(dataSource), m_numMwmIds(numMwmIds), m_estimator(estimator)
 {
 }
 
@@ -67,12 +69,12 @@ unique_ptr<TransitGraph> TransitGraphLoaderImpl::CreateTransitGraph(NumMwmId num
                                                                     IndexGraph & indexGraph) const
 {
   platform::CountryFile const & file = m_numMwmIds->GetFile(numMwmId);
-  MwmSet::MwmHandle handle = m_index.GetMwmHandleByCountryFile(file);
+  MwmSet::MwmHandle handle = m_dataSource.GetMwmHandleByCountryFile(file);
   if (!handle.IsAlive())
     MYTHROW(RoutingException, ("Can't get mwm handle for", file));
 
   my::Timer timer;
-  auto graph = my::make_unique<TransitGraph>(numMwmId, m_estimator);
+  auto graph = make_unique<TransitGraph>(numMwmId, m_estimator);
   MwmValue const & mwmValue = *handle.GetValue<MwmValue>();
   if (!mwmValue.m_cont.IsExist(TRANSIT_FILE_TAG))
     return graph;
@@ -100,11 +102,11 @@ unique_ptr<TransitGraph> TransitGraphLoaderImpl::CreateTransitGraph(NumMwmId num
 }
 
 // static
-unique_ptr<TransitGraphLoader> TransitGraphLoader::Create(Index & index,
+unique_ptr<TransitGraphLoader> TransitGraphLoader::Create(DataSource & dataSource,
                                                           shared_ptr<NumMwmIds> numMwmIds,
                                                           shared_ptr<EdgeEstimator> estimator)
 {
-  return my::make_unique<TransitGraphLoaderImpl>(index, numMwmIds, estimator);
+  return make_unique<TransitGraphLoaderImpl>(dataSource, numMwmIds, estimator);
 }
 
 }  // namespace routing

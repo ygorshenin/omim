@@ -7,8 +7,8 @@
 
 - (void)routeFrom;
 - (void)routeTo;
-- (void)addStop;
-- (void)removeStop;
+- (void)routeAddStop;
+- (void)routeRemoveStop;
 
 - (void)share;
 
@@ -19,7 +19,7 @@
 - (void)book:(BOOL)isDecription;
 - (void)searchBookingHotels;
 
-- (void)openThor;
+- (void)openPartner;
 
 - (void)apiBack;
 - (void)downloadSelectedArea;

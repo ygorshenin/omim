@@ -13,8 +13,11 @@
 #include "storage/storage.hpp"
 
 #include "coding/file_name_utils.hpp"
+#include "coding/file_reader.hpp"
 
 #include "geometry/mercator.hpp"
+
+#include "base/timer.hpp"
 
 using namespace routing;
 using namespace std;

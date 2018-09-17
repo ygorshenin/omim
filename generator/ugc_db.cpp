@@ -21,7 +21,7 @@ namespace generator
 static int callback(void * results_ptr, int argc, char ** argv, char ** azColName)
 {
   Results & results = *reinterpret_cast<Results *>(results_ptr);
-  for (size_t i = 0; i < argc; i++)
+  for (int i = 0; i < argc; i++)
   {
     if (results.empty)
       results.empty = false;
@@ -51,7 +51,7 @@ UGCDB::~UGCDB()
     sqlite3_close(m_db);
 }
 
-bool UGCDB::Get(osm::Id const & id, std::vector<uint8_t> & blob)
+bool UGCDB::Get(base::GeoObjectId const & id, std::vector<uint8_t> & blob)
 {
   if (!m_db)
     return false;
@@ -59,7 +59,7 @@ bool UGCDB::Get(osm::Id const & id, std::vector<uint8_t> & blob)
   results.values << "[";
 
   std::ostringstream cmd;
-  cmd << "SELECT value FROM ratings WHERE key=" << id.EncodedId() << ";";
+  cmd << "SELECT value FROM ratings WHERE key=" << id.GetEncodedId() << ";";
 
   char * zErrMsg = nullptr;
   auto rc = sqlite3_exec(m_db, cmd.str().c_str(), callback, &results, &zErrMsg);

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "map/user_mark_container.hpp"
+#include "map/user_mark_layer.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -19,13 +19,11 @@ struct LocalAdsMarkData
 class LocalAdsMark : public UserMark
 {
 public:
-  LocalAdsMark(m2::PointD const & ptOrg, UserMarkContainer * container);
-  virtual ~LocalAdsMark() {}
+  explicit LocalAdsMark(m2::PointD const & ptOrg);
 
-  df::RenderState::DepthLayer GetDepthLayer() const override;
+  df::DepthLayer GetDepthLayer() const override;
 
   drape_ptr<SymbolNameZoomInfo> GetSymbolNames() const override;
-  UserMark::Type GetMarkType() const override { return Type::LOCAL_ADS; }
 
   drape_ptr<TitlesInfo> GetTitleDecl() const override;
   uint16_t GetPriority() const override { return m_data.m_priority; }

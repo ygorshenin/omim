@@ -29,28 +29,30 @@ class Stylist;
 class RuleDrawer
 {
 public:
-  using TDrawerCallback = std::function<void(FeatureType const &, Stylist &)>;
+  using TDrawerCallback = std::function<void(FeatureType &, Stylist &)>;
   using TCheckCancelledCallback = std::function<bool()>;
   using TIsCountryLoadedByNameFn = std::function<bool(std::string const &)>;
   using TInsertShapeFn = function<void(drape_ptr<MapShape> && shape)>;
+  using TFilterFeatureFn = std::function<bool(FeatureType &)>;
 
   RuleDrawer(TDrawerCallback const & drawerFn,
              TCheckCancelledCallback const & checkCancelled,
              TIsCountryLoadedByNameFn const & isLoadedFn,
+             TFilterFeatureFn const & filterFn,
              ref_ptr<EngineContext> engineContext);
   ~RuleDrawer();
 
-  void operator()(FeatureType const & f);
+  void operator()(FeatureType & f);
 
 private:
-  void ProcessAreaStyle(FeatureType const & f, Stylist const & s, TInsertShapeFn const & insertShape,
+  void ProcessAreaStyle(FeatureType & f, Stylist const & s, TInsertShapeFn const & insertShape,
                         int & minVisibleScale);
-  void ProcessLineStyle(FeatureType const & f, Stylist const & s, TInsertShapeFn const & insertShape,
+  void ProcessLineStyle(FeatureType & f, Stylist const & s, TInsertShapeFn const & insertShape,
                         int & minVisibleScale);
-  void ProcessPointStyle(FeatureType const & f, Stylist const & s, TInsertShapeFn const & insertShape,
+  void ProcessPointStyle(FeatureType & f, Stylist const & s, TInsertShapeFn const & insertShape,
                          int & minVisibleScale);
 
-  bool CheckCoastlines(FeatureType const & f, Stylist const & s);
+  bool CheckCoastlines(FeatureType & f, Stylist const & s);
 
 #ifdef DRAW_TILE_NET
   void DrawTileNet(TInsertShapeFn const & insertShape);
@@ -61,6 +63,7 @@ private:
   TDrawerCallback m_callback;
   TCheckCancelledCallback m_checkCancelled;
   TIsCountryLoadedByNameFn m_isLoadedFn;
+  TFilterFeatureFn m_filter;
 
   ref_ptr<EngineContext> m_context;
   CustomFeaturesContextPtr m_customFeaturesContext;

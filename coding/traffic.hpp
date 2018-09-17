@@ -1,6 +1,6 @@
 #pragma once
 
-#include "coding/point_to_integer.hpp"
+#include "coding/pointd_to_pointu.hpp"
 #include "coding/reader.hpp"
 #include "coding/varint.hpp"
 #include "coding/writer.hpp"
@@ -9,8 +9,8 @@
 
 #include "base/checked_cast.hpp"
 
-#include "std/limits.hpp"
-#include "std/vector.hpp"
+#include <limits>
+#include <string>
 
 namespace coding
 {
@@ -112,7 +112,7 @@ private:
       WriteVarUint(writer, deltaLon);
     }
 
-    ASSERT_LESS_OR_EQUAL(writer.Pos() - startPos, numeric_limits<size_t>::max(),
+    ASSERT_LESS_OR_EQUAL(writer.Pos() - startPos, std::numeric_limits<size_t>::max(),
                          ("Too much data."));
     return static_cast<size_t>(writer.Pos() - startPos);
   }
@@ -153,7 +153,7 @@ private:
       WriteVarUint(writer, traffic);
     }
 
-    ASSERT_LESS_OR_EQUAL(writer.Pos() - startPos, numeric_limits<size_t>::max(),
+    ASSERT_LESS_OR_EQUAL(writer.Pos() - startPos, std::numeric_limits<size_t>::max(),
                          ("Too much data."));
     return static_cast<size_t>(writer.Pos() - startPos);
   }

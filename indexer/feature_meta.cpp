@@ -1,11 +1,11 @@
 #include "indexer/feature_meta.hpp"
 
-#include "std/algorithm.hpp"
 #include "std/target_os.hpp"
+
+using namespace std;
 
 namespace feature
 {
-
 namespace
 {
 char constexpr const * kBaseWikiUrl =
@@ -76,8 +76,6 @@ bool Metadata::TypeFromString(string const & k, Metadata::EType & outType)
     outType = Metadata::FMD_POSTCODE;
   else if (k == "wikipedia")
     outType = Metadata::FMD_WIKIPEDIA;
-  else if (k == "maxspeed")
-    outType = Metadata::FMD_MAXSPEED;
   else if (k == "addr:flats")
     outType = Metadata::FMD_FLATS;
   else if (k == "height")
@@ -165,7 +163,7 @@ void RegionData::AddPublicHoliday(int8_t month, int8_t offset)
 }  // namespace feature
 
 // Warning: exact osm tag keys should be returned for valid enum values.
-string DebugPrint(feature::Metadata::EType type)
+string ToString(feature::Metadata::EType type)
 {
   using feature::Metadata;
   switch (type)
@@ -186,7 +184,6 @@ string DebugPrint(feature::Metadata::EType type)
   case Metadata::FMD_EMAIL: return "email";
   case Metadata::FMD_POSTCODE: return "addr:postcode";
   case Metadata::FMD_WIKIPEDIA: return "wikipedia";
-  case Metadata::FMD_MAXSPEED: return "maxspeed";
   case Metadata::FMD_FLATS: return "addr:flats";
   case Metadata::FMD_HEIGHT: return "height";
   case Metadata::FMD_MIN_HEIGHT: return "min_height";

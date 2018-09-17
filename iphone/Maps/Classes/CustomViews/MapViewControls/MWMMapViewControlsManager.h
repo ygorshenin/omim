@@ -3,6 +3,8 @@
 #import "MWMNavigationDashboardManager.h"
 #import "MWMSearchManager.h"
 
+#include "geometry/point2d.hpp"
+
 @class MapViewController;
 @protocol MWMFeatureHolder;
 @protocol MWMBookingInfoHolder;
@@ -30,6 +32,8 @@ class Info;
 - (UIStatusBarStyle)preferredStatusBarStyle;
 
 #pragma mark - Layout
+
+- (UIView *)anchorView;
 
 - (void)mwm_refreshUI;
 

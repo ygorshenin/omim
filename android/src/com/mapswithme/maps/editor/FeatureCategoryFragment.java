@@ -16,7 +16,7 @@ import com.mapswithme.maps.widget.SearchToolbarController;
 import com.mapswithme.maps.widget.ToolbarController;
 import com.mapswithme.util.Language;
 
-public class FeatureCategoryFragment extends BaseMwmRecyclerFragment
+public class FeatureCategoryFragment extends BaseMwmRecyclerFragment<FeatureCategoryAdapter>
 {
   private FeatureCategory mSelectedCategory;
   protected ToolbarController mToolbarController;
@@ -52,14 +52,15 @@ public class FeatureCategoryFragment extends BaseMwmRecyclerFragment
 
   private void setFilter(String query)
   {
-    ((FeatureCategoryAdapter) getAdapter()).setCategories(query.isEmpty() ? Editor.nativeGetAllFeatureCategories(Language.getKeyboardLocale())
-                                                                          : Editor.nativeSearchFeatureCategories(query, Language.getKeyboardLocale()));
+    getAdapter().setCategories(query.isEmpty() ? Editor.nativeGetAllFeatureCategories(Language.getDefaultLocale())
+                                               : Editor.nativeSearchFeatureCategories(query, Language.getDefaultLocale()));
   }
 
+  @NonNull
   @Override
-  protected RecyclerView.Adapter createAdapter()
+  protected FeatureCategoryAdapter createAdapter()
   {
-    return new FeatureCategoryAdapter(this, Editor.nativeGetAllFeatureCategories(Language.getKeyboardLocale()), mSelectedCategory);
+    return new FeatureCategoryAdapter(this, Editor.nativeGetAllFeatureCategories(Language.getDefaultLocale()), mSelectedCategory);
   }
 
   public void selectCategory(FeatureCategory category)

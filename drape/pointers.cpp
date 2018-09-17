@@ -12,9 +12,9 @@ DpPointerTracker::~DpPointerTracker()
   ASSERT(m_alivePointers.empty(), ());
 }
 
-void DpPointerTracker::RefPtrNamed(void * refPtr, string const & name)
+void DpPointerTracker::RefPtrNamed(void * refPtr, std::string const & name)
 {
-  lock_guard<mutex> lock(m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   if (refPtr != nullptr)
   {
     auto it = m_alivePointers.find(refPtr);
@@ -27,21 +27,24 @@ void DpPointerTracker::RefPtrNamed(void * refPtr, string const & name)
 
 void DpPointerTracker::DestroyPtr(void * p)
 {
-  lock_guard<mutex> lock(m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   ASSERT(p != nullptr, ());
   auto it = m_alivePointers.find(p);
   if (it != m_alivePointers.end())
   {
-    ASSERT(it->second.first == 0, ("Drape pointer [", it->second.second, p,
-                                   "] was destroyed, but had references, ref count = ",
-                                   it->second.first));
+    if (it->second.first != 0)
+    {
+      LOG(LWARNING, ("Drape pointer [", it->second.second, p,
+                     "] was destroyed, but had references, ref count = ",
+                     it->second.first));
+    }
     m_alivePointers.erase(it);
   }
 }
 
 void DpPointerTracker::DerefPtr(void * p)
 {
-  lock_guard<mutex> lock(m_mutex);
+  std::lock_guard<std::mutex> lock(m_mutex);
   if (p != nullptr)
   {
     auto it = m_alivePointers.find(p);

@@ -27,7 +27,7 @@ public class LocalExpertsAdapterStrategy extends RegularAdapterStrategy<Items.Lo
 
   @NonNull
   @Override
-  protected Holders.BaseViewHolder<Items.LocalExpertItem> createProductViewHodler
+  protected Holders.BaseViewHolder<Items.LocalExpertItem> createProductViewHolder
       (@NonNull ViewGroup parent, int viewType, @NonNull GalleryAdapter<?, Items.LocalExpertItem> adapter)
   {
     View view = LayoutInflater.from(parent.getContext())
@@ -43,7 +43,7 @@ public class LocalExpertsAdapterStrategy extends RegularAdapterStrategy<Items.Lo
   {
     View view = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_viator_more, parent,
                                                                  false);
-    return new Holders.LocalExpertMoreItemViewHolder(view, mItems, adapter);
+    return new Holders.GenericMoreHolder<>(view, mItems, adapter);
   }
 
   @NonNull

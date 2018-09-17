@@ -54,6 +54,7 @@
 - (void)viewWillTransitionToSize:(CGSize)size
        withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator
 {
+  [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
   [coordinator
       animateAlongsideTransition:^(id<UIViewControllerTransitionCoordinatorContext> context) {
         [self reloadData];
@@ -86,9 +87,10 @@
         dequeueReusableCellWithCellClass:[MWMSearchCommonCell class]
                                indexPath:indexPath]);
     auto const & result = [MWMSearch resultWithContainerIndex:containerIndex];
-    auto const isLocalAds = [MWMSearch isLocalAdsWithContainerIndex:containerIndex];
     auto const isBookingAvailable = [MWMSearch isBookingAvailableWithContainerIndex:containerIndex];
-    [cell config:result isLocalAds:isLocalAds isAvailable:isBookingAvailable];
+    auto const isDealAvailable = [MWMSearch isDealAvailableWithContainerIndex:containerIndex];
+    auto const & productInfo = [MWMSearch productInfoWithContainerIndex:containerIndex];
+    [cell config:result isAvailable:isBookingAvailable isHotOffer:isDealAvailable productInfo:productInfo];
     return cell;
   }
   case MWMSearchItemTypeMopub:
@@ -149,7 +151,7 @@
   case MWMSearchItemTypeSuggestion:
   {
     auto const & suggestion = [MWMSearch resultWithContainerIndex:containerIndex];
-    NSString * suggestionString = @(suggestion.GetSuggestionString());
+    NSString * suggestionString = @(suggestion.GetSuggestionString().c_str());
     [Statistics logEvent:kStatEventName(kStatSearch, kStatSelectResult)
           withParameters:@{kStatValue : suggestionString, kStatScreen : kStatSearch}];
     [delegate searchText:suggestionString forInputLocale:nil];

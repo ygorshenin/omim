@@ -10,7 +10,7 @@ CGFloat const kTopOffset = 36;
 CGFloat const kBottomOffset = 36;
 }  // namespace
 
-@interface MWMiPadPlacePageLayoutImpl ()<UITableViewDelegate>
+@interface MWMiPadPlacePageLayoutImpl ()
 
 @property(nonatomic) CGRect availableArea;
 
@@ -33,7 +33,6 @@ CGFloat const kBottomOffset = 36;
     _ownerView = ownerView;
     _availableArea = ownerView.frame;
     [self setPlacePageView:placePageView];
-    placePageView.tableView.delegate = self;
     _delegate = delegate;
     [self addShadow];
   }
@@ -55,16 +54,14 @@ CGFloat const kBottomOffset = 36;
 - (void)onShow
 {
   auto ppView = self.placePageView;
-  auto actionBar = self.actionBar;
   ppView.tableView.scrollEnabled = NO;
-  actionBar.alpha = 0;
   ppView.alpha = 0;
   ppView.origin = {- kPlacePageWidth, self.topBound};
   [self.ownerView addSubview:ppView];
 
   place_page_layout::animate(^{
+    [self.actionBar setVisible:YES];
     ppView.alpha = 1;
-    actionBar.alpha = 1;
     ppView.minX = self.leftBound;
   });
 
@@ -164,14 +161,6 @@ CGFloat const kBottomOffset = 36;
 
 - (CGFloat)topBound { return self.availableArea.origin.y + kTopOffset; }
 - (CGFloat)leftBound { return self.availableArea.origin.x + kLeftOffset; }
-#pragma mark - UITableViewDelegate
-
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
-{
-  auto cell = [tableView cellForRowAtIndexPath:indexPath];
-  if ([cell isKindOfClass:[MWMAdBanner class]])
-    [static_cast<MWMAdBanner *>(cell) highlightButton];
-}
 
 #pragma mark - Properties
 
@@ -196,8 +185,18 @@ CGFloat const kBottomOffset = 36;
   if (actionBar)
   {
     auto superview = self.placePageView;
-    actionBar.origin = {0., superview.height - actionBar.height};
     [superview addSubview:actionBar];
+    NSLayoutXAxisAnchor * leadingAnchor = superview.leadingAnchor;
+    NSLayoutXAxisAnchor * trailingAnchor = superview.trailingAnchor;
+    if (@available(iOS 11.0, *))
+    {
+      UILayoutGuide * safeAreaLayoutGuide = superview.safeAreaLayoutGuide;
+      leadingAnchor = safeAreaLayoutGuide.leadingAnchor;
+      trailingAnchor = safeAreaLayoutGuide.trailingAnchor;
+    }
+    [actionBar.leadingAnchor constraintEqualToAnchor:leadingAnchor].active = YES;
+    [actionBar.trailingAnchor constraintEqualToAnchor:trailingAnchor].active = YES;
+    [actionBar setVisible:NO];
   }
   else
   {

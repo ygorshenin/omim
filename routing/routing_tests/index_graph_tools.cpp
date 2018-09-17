@@ -2,6 +2,8 @@
 
 #include "testing/testing.hpp"
 
+#include "routing/geometry.hpp"
+
 #include "routing/base/routing_result.hpp"
 
 #include "routing_common/car_model.hpp"
@@ -56,7 +58,7 @@ void TestGeometryLoader::AddRoad(uint32_t featureId, bool oneWay, float speed,
 {
   auto it = m_roads.find(featureId);
   CHECK(it == m_roads.end(), ("Already contains feature", featureId));
-  m_roads[featureId] = RoadGeometry(oneWay, speed, points);
+  m_roads[featureId] = RoadGeometry(oneWay, speed, speed, points);
   m_roads[featureId].SetPassThroughAllowedForTests(true);
 }
 
@@ -72,7 +74,7 @@ void ZeroGeometryLoader::Load(uint32_t /* featureId */, routing::RoadGeometry & 
 {
   // Any valid road will do.
   auto const points = routing::RoadGeometry::Points({{0.0, 0.0}, {0.0, 1.0}});
-  road = RoadGeometry(true /* oneWay */, 1.0 /* speed */, points);
+  road = RoadGeometry(true /* oneWay */, 1.0 /* weightSpeedKMpH */, 1.0 /* etaSpeedKMpH */, points);
 }
 
 // TestIndexGraphLoader ----------------------------------------------------------------------------
@@ -122,17 +124,36 @@ void TestIndexGraphTopology::AddDirectedEdge(Vertex from, Vertex to, double weig
   AddDirectedEdge(m_edgeRequests, from, to, weight);
 }
 
-void TestIndexGraphTopology::BlockEdge(Vertex from, Vertex to)
+void TestIndexGraphTopology::SetEdgeAccess(Vertex from, Vertex to, RoadAccess::Type type)
 {
   for (auto & r : m_edgeRequests)
   {
     if (r.m_from == from && r.m_to == to)
     {
-      r.m_isBlocked = true;
+      r.m_accessType = type;
       return;
     }
   }
-  CHECK(false, ("Cannot block edge that is not in the graph", from, to));
+  CHECK(false, ("Cannot set access for edge that is not in the graph", from, to));
+}
+
+void TestIndexGraphTopology::SetVertexAccess(Vertex v, RoadAccess::Type type)
+{
+  bool found = false;
+  for (auto & r : m_edgeRequests)
+  {
+    if (r.m_from == v)
+    {
+      r.m_fromAccessType = type;
+      found = true;
+    }
+    if (r.m_to == v)
+    {
+      r.m_toAccessType = type;
+      found = true;
+    }
+  }
+  CHECK(found, ("Cannot set access for vertex that is not in the graph", v));
 }
 
 bool TestIndexGraphTopology::FindPath(Vertex start, Vertex finish, double & pathWeight,
@@ -254,22 +275,22 @@ void TestIndexGraphTopology::Builder::BuildJoints()
 
 void TestIndexGraphTopology::Builder::BuildGraphFromRequests(vector<EdgeRequest> const & requests)
 {
-  vector<uint32_t> blockedFeatureIds;
+  map<uint32_t, RoadAccess::Type> featureTypes;
+  map<RoadPoint, RoadAccess::Type> pointTypes;
   for (auto const & request : requests)
   {
     BuildSegmentFromEdge(request);
-    if (request.m_isBlocked)
-      blockedFeatureIds.push_back(request.m_id);
+    if (request.m_accessType != RoadAccess::Type::Yes)
+      featureTypes[request.m_id] = request.m_accessType;
+
+    // All features have 1 segment. |from| has point index 0, |to| has point index 1. 
+    if (request.m_fromAccessType != RoadAccess::Type::Yes)
+      pointTypes[RoadPoint(request.m_id, 0 /* pointId */)] = request.m_fromAccessType;
+    if (request.m_toAccessType != RoadAccess::Type::Yes)
+      pointTypes[RoadPoint(request.m_id, 1 /* pointId */)] = request.m_toAccessType;
   }
 
-  map<Segment, RoadAccess::Type> segmentTypes;
-  for (auto const fid : blockedFeatureIds)
-  {
-    segmentTypes[Segment(kFakeNumMwmId, fid, 0 /* wildcard segmentIdx */, true)] =
-        RoadAccess::Type::No;
-  }
-
-  m_roadAccess.SetSegmentTypes(move(segmentTypes));
+  m_roadAccess.SetAccessTypes(move(featureTypes), move(pointTypes));
 }
 
 void TestIndexGraphTopology::Builder::BuildSegmentFromEdge(EdgeRequest const & request)
@@ -292,7 +313,7 @@ unique_ptr<SingleVehicleWorldGraph> BuildWorldGraph(unique_ptr<TestGeometryLoade
                                                     shared_ptr<EdgeEstimator> estimator,
                                                     vector<Joint> const & joints)
 {
-  auto graph = make_unique<IndexGraph>(move(geometryLoader), estimator);
+  auto graph = make_unique<IndexGraph>(make_shared<Geometry>(move(geometryLoader)), estimator);
   graph->Import(joints);
   auto indexLoader = make_unique<TestIndexGraphLoader>();
   indexLoader->AddGraph(kTestNumMwmId, move(graph));
@@ -304,7 +325,7 @@ unique_ptr<SingleVehicleWorldGraph> BuildWorldGraph(unique_ptr<ZeroGeometryLoade
                                                     shared_ptr<EdgeEstimator> estimator,
                                                     vector<Joint> const & joints)
 {
-  auto graph = make_unique<IndexGraph>(move(geometryLoader), estimator);
+  auto graph = make_unique<IndexGraph>(make_shared<Geometry>(move(geometryLoader)), estimator);
   graph->Import(joints);
   auto indexLoader = make_unique<TestIndexGraphLoader>();
   indexLoader->AddGraph(kTestNumMwmId, move(graph));
@@ -317,7 +338,7 @@ unique_ptr<TransitWorldGraph> BuildWorldGraph(unique_ptr<TestGeometryLoader> geo
                                               vector<Joint> const & joints,
                                               transit::GraphData const & transitData)
 {
-  auto indexGraph = make_unique<IndexGraph>(move(geometryLoader), estimator);
+  auto indexGraph = make_unique<IndexGraph>(make_shared<Geometry>(move(geometryLoader)), estimator);
   indexGraph->Import(joints);
 
   auto transitGraph = make_unique<TransitGraph>(kTestNumMwmId, estimator);

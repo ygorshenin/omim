@@ -2,6 +2,7 @@ project(ugc)
 
 include_directories(
   ${OMIM_ROOT}/3party/jansson/src
+  ${OMIM_ROOT}/Alohalytics/src
 )
 
 set(
@@ -14,6 +15,8 @@ set(
   binary/serdes.hpp
   binary/ugc_holder.hpp
   binary/visitors.hpp
+  index_migration/utility.cpp
+  index_migration/utility.hpp
   loader.cpp
   loader.hpp
   serdes.hpp
@@ -23,5 +26,5 @@ set(
   types.hpp
 )
 
-add_library(${PROJECT_NAME} ${SRC})
+omim_add_library(${PROJECT_NAME} ${SRC})
 omim_add_test_subdirectory(ugc_tests)

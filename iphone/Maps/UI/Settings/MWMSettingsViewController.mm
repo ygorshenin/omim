@@ -20,6 +20,7 @@ extern NSString * const kAlohalyticsTapEventKey;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell * zoomButtonsCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell * is3dCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell * autoDownloadCell;
+@property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell * backupBookmarksCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell * mobileInternetCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell * recentTrackCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell * fontScaleCell;
@@ -32,7 +33,6 @@ extern NSString * const kAlohalyticsTapEventKey;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell * perspectiveViewCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell * autoZoomCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell * voiceInstructionsCell;
-@property(weak, nonatomic) IBOutlet SettingsTableViewSwitchCell * simplifiedColorsCell;
 
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell * helpCell;
 @property(weak, nonatomic) IBOutlet SettingsTableViewLinkCell * aboutCell;
@@ -87,18 +87,22 @@ extern NSString * const kAlohalyticsTapEventKey;
 
   [self.autoDownloadCell configWithDelegate:self
                                       title:L(@"disable_autodownload")
-                                       isOn:![MWMSettings autoDownloadEnabled]];
+                                       isOn:[MWMSettings autoDownloadEnabled]];
+
+  [self.backupBookmarksCell configWithDelegate:self
+                                         title:L(@"settings_backup_bookmarks")
+                                          isOn:[MWMBookmarksManager isCloudEnabled]];
 
   NSString * mobileInternet = nil;
-  using stage = platform::NetworkPolicy::Stage;
   switch (network_policy::GetStage())
   {
-  case stage::Always: mobileInternet = L(@"mobile_data_option_always"); break;
-  case stage::Session: mobileInternet = L(@"mobile_data_option_today"); break;
-  case stage::Never: mobileInternet = L(@"mobile_data_option_never"); break;
+  case network_policy::Ask:
+  case network_policy::Today:
+  case network_policy::NotToday: mobileInternet = L(@"mobile_data_option_ask"); break;
+  case network_policy::Always: mobileInternet = L(@"mobile_data_option_always"); break;
+  case network_policy::Never: mobileInternet = L(@"mobile_data_option_never"); break;
   }
   [self.mobileInternetCell configWithTitle:L(@"mobile_data") info:mobileInternet];
-
 
   NSString * recentTrack = nil;
   if (!GpsTracker::Instance().IsEnabled())
@@ -176,10 +180,6 @@ extern NSString * const kAlohalyticsTapEventKey;
     voiceInstructions = L(@"duration_disabled");
   }
   [self.voiceInstructionsCell configWithTitle:L(@"pref_tts_language_title") info:voiceInstructions];
-
-  [self.simplifiedColorsCell configWithDelegate:self
-                                          title:L(@"pref_traffic_simplified_colors_title")
-                                           isOn:GetFramework().LoadTrafficSimplifiedColors()];
 }
 
 - (void)configInfoSection
@@ -213,7 +213,15 @@ extern NSString * const kAlohalyticsTapEventKey;
   {
     [Statistics logEvent:kStatEventName(kStatSettings, kStatAutoDownload)
           withParameters:@{kStatValue : (value ? kStatOn : kStatOff)}];
-    [MWMSettings setAutoDownloadEnabled:!value];
+    [MWMSettings setAutoDownloadEnabled:value];
+  }
+  else if (cell == self.backupBookmarksCell)
+  {
+    [Statistics logEvent:kStatSettingsBookmarksSyncToggle
+          withParameters:@{
+            kStatState: (value ? @1 : @0)
+          }];
+    [MWMBookmarksManager setCloudEnabled:value];
   }
   else if (cell == self.fontScaleCell)
   {
@@ -266,14 +274,6 @@ extern NSString * const kAlohalyticsTapEventKey;
     auto & f = GetFramework();
     f.AllowAutoZoom(value);
     f.SaveAutoZoom(value);
-  }
-  else if (cell == self.simplifiedColorsCell)
-  {
-    [Statistics logEvent:kStatEventName(kStatSettings, kStatSimplifiedColors)
-          withParameters:@{kStatValue : value ? kStatOn : kStatOff}];
-    auto & f = GetFramework();
-    f.GetTrafficManager().SetSimplifiedColorScheme(value);
-    f.SaveTrafficSimplifiedColors(value);
   }
 }
 

@@ -3,17 +3,20 @@
 
 #include "coding/reader.hpp"
 
+#include "platform/local_country_file_utils.hpp"
+
 #include "base/assert.hpp"
 #include "base/exception.hpp"
 #include "base/logging.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 
-#include "std/algorithm.hpp"
-#include "std/exception.hpp"
-#include "std/sstream.hpp"
+#include <algorithm>
+#include <exception>
+#include <sstream>
 
 #include "defines.hpp"
 
+using namespace std;
 using platform::CountryFile;
 using platform::LocalCountryFile;
 
@@ -29,11 +32,17 @@ MwmInfo::MwmTypeT MwmInfo::GetType() const
   return COASTS;
 }
 
+bool MwmSet::MwmId::IsDeregistered(platform::LocalCountryFile const & deregisteredCountryFile) const
+{
+  return m_info && m_info->GetStatus() == MwmInfo::STATUS_DEREGISTERED &&
+    m_info->GetLocalFile() == deregisteredCountryFile;
+}
+
 string DebugPrint(MwmSet::MwmId const & id)
 {
   ostringstream ss;
   if (id.m_info.get())
-    ss << "MwmId [" << id.m_info->GetCountryName() << "]";
+    ss << "MwmId [" << id.m_info->GetCountryName() << ", " << id.m_info->GetVersion() << "]";
   else
     ss << "MwmId [invalid]";
   return ss.str();
@@ -392,10 +401,7 @@ MwmSet::MwmHandle MwmSet::GetMwmHandleByIdImpl(MwmId const & id, EventList & eve
   return MwmHandle(*this, id, move(value));
 }
 
-void MwmSet::ClearCacheImpl(CacheType::iterator beg, CacheType::iterator end)
-{
-  m_cache.erase(beg, end);
-}
+void MwmSet::ClearCacheImpl(Cache::iterator beg, Cache::iterator end) { m_cache.erase(beg, end); }
 
 void MwmSet::ClearCache(MwmId const & id)
 {
@@ -403,7 +409,32 @@ void MwmSet::ClearCache(MwmId const & id)
   {
     return (p.first == id);
   };
-  ClearCacheImpl(RemoveIfKeepValid(m_cache.begin(), m_cache.end(), sameId), m_cache.end());
+  ClearCacheImpl(base::RemoveIfKeepValid(m_cache.begin(), m_cache.end(), sameId), m_cache.end());
+}
+
+// MwmValue ----------------------------------------------------------------------------------------
+
+MwmValue::MwmValue(LocalCountryFile const & localFile)
+  : m_cont(platform::GetCountryReader(localFile, MapOptions::Map)), m_file(localFile)
+{
+  m_factory.Load(m_cont);
+}
+
+void MwmValue::SetTable(MwmInfoEx & info)
+{
+  auto const version = GetHeader().GetFormat();
+  if (version < version::Format::v5)
+    return;
+
+  m_table = info.m_table.lock();
+  if (!m_table)
+  {
+    if (version == version::Format::v5)
+      m_table = feature::FeaturesOffsetsTable::CreateIfNotExistsAndLoad(m_file, m_cont);
+    else
+      m_table = feature::FeaturesOffsetsTable::Load(m_cont);
+    info.m_table = m_table;
+  }
 }
 
 string DebugPrint(MwmSet::RegResult result)
@@ -421,6 +452,7 @@ string DebugPrint(MwmSet::RegResult result)
     case MwmSet::RegResult::UnsupportedFileFormat:
       return "UnsupportedFileFormat";
   }
+  CHECK_SWITCH();
 }
 
 string DebugPrint(MwmSet::Event::Type type)

@@ -187,6 +187,8 @@ Platform::Platform()
     m_tmpDir = "/tmp";
   m_tmpDir += '/';
 
+  m_privateDir = m_settingsDir;
+
   m_guiThread = make_unique<platform::GuiThread>();
 
   LOG(LDEBUG, ("Resources directory:", m_resourcesDir));
@@ -210,6 +212,23 @@ string Platform::UniqueClientId() const
   }
 
   return "n0dbus0n0lsb00000000000000000000";
+}
+
+string Platform::MacAddress(bool md5Decoded) const
+{
+  // Not implemented.
+  UNUSED_VALUE(md5Decoded);
+  return {};
+}
+
+string Platform::DeviceName() const
+{
+  return OMIM_OS_NAME;
+}
+
+string Platform::DeviceModel() const
+{
+  return {};
 }
 
 Platform::EConnectionType Platform::ConnectionStatus()

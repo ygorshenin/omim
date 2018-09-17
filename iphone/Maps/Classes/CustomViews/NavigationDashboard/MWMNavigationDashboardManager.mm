@@ -1,10 +1,12 @@
-#import "MWMNavigationDashboardManager.h"
-#import <AudioToolbox/AudioServices.h>
-#import <Crashlytics/Crashlytics.h>
 #import "MWMMapViewControlsManager.h"
+#import "MWMNavigationDashboardManager.h"
 #import "MWMNavigationInfoView.h"
 #import "MWMRoutePreview.h"
+#import "MWMSearch.h"
 #import "MapViewController.h"
+
+#import <AudioToolbox/AudioServices.h>
+#import <Crashlytics/Crashlytics.h>
 #import "SwiftBridge.h"
 
 #include "platform/platform.hpp"
@@ -152,7 +154,6 @@ using Observers = NSHashTable<Observer>;
 - (void)stateHidden
 {
   self.taxiDataSource = nil;
-  [self.routePreview remove];
   self.routePreview = nil;
   self.navigationInfoView.state = MWMNavigationInfoViewStateHidden;
   self.navigationInfoView = nil;
@@ -192,7 +193,7 @@ using Observers = NSHashTable<Observer>;
     return;
   if (!Platform::IsConnected())
   {
-    [[MapViewController controller].alertController presentNoConnectionAlert];
+    [[MapViewController sharedController].alertController presentNoConnectionAlert];
     [self onRouteError:L(@"dialog_taxi_offline")];
     return;
   }
@@ -237,7 +238,6 @@ using Observers = NSHashTable<Observer>;
 - (void)onRouteStop { self.state = MWMNavigationDashboardStateHidden; }
 - (void)stateNavigation
 {
-  [self.routePreview remove];
   self.routePreview = nil;
   self.navigationInfoView.state = MWMNavigationInfoViewStateNavigation;
   self.navigationControlView.isVisible = YES;
@@ -267,7 +267,7 @@ using Observers = NSHashTable<Observer>;
     self.routeManagerTransitioningManager = [[MWMRouteManagerTransitioningManager alloc] init];
   }
   routeManager.transitioningDelegate = self.routeManagerTransitioningManager;
-  [[MapViewController controller] presentViewController:routeManager animated:YES completion:nil];
+  [[MapViewController sharedController] presentViewController:routeManager animated:YES completion:nil];
 }
 
 #pragma mark - MWMNavigationControlView
@@ -281,19 +281,24 @@ using Observers = NSHashTable<Observer>;
 
 - (IBAction)trafficButtonAction
 {
-  BOOL const switchOn = ([MWMTrafficManager state] == MWMTrafficManagerStateDisabled);
+  BOOL const switchOn = ([MWMTrafficManager trafficState] == MWMTrafficManagerStateDisabled);
   [Statistics logEvent:kStatMenu withParameters:@{kStatTraffic : switchOn ? kStatOn : kStatOff}];
-  [MWMTrafficManager enableTraffic:switchOn];
+  [MWMTrafficManager setTrafficEnabled:switchOn];
 }
 
 - (IBAction)settingsButtonAction
 {
   [Statistics logEvent:kStatMenu withParameters:@{kStatButton : kStatSettings}];
   [Alohalytics logEvent:kAlohalyticsTapEventKey withValue:@"settingsAndMore"];
-  [[MapViewController controller] performSegueWithIdentifier:@"Map2Settings" sender:nil];
+  [[MapViewController sharedController] performSegueWithIdentifier:@"Map2Settings" sender:nil];
 }
 
-- (IBAction)stopRoutingButtonAction { [MWMRouter stopRouting]; }
+- (IBAction)stopRoutingButtonAction
+{
+  [MWMSearch clear];
+  [MWMRouter stopRouting];
+}
+
 #pragma mark - Add/Remove Observers
 
 + (void)addObserver:(id<MWMNavigationDashboardObserver>)observer
@@ -330,7 +335,10 @@ using Observers = NSHashTable<Observer>;
   [[self manager] updateNavigationInfoAvailableArea:frame];
 }
 
-- (void)updateNavigationInfoAvailableArea:(CGRect)frame { _navigationInfoView.frame = frame; }
+- (void)updateNavigationInfoAvailableArea:(CGRect)frame
+{
+  _navigationInfoView.availableArea = frame;
+}
 #pragma mark - Properties
 
 - (NSDictionary *)etaAttributes
@@ -375,7 +383,7 @@ using Observers = NSHashTable<Observer>;
   case MWMNavigationDashboardStateNavigation: [self stateNavigation]; break;
   }
   _state = state;
-  [[MapViewController controller] updateStatusBarStyle];
+  [[MapViewController sharedController] updateStatusBarStyle];
   [self onNavigationDashboardStateChanged];
 }
 
@@ -387,11 +395,20 @@ using Observers = NSHashTable<Observer>;
   return _taxiDataSource;
 }
 
+@synthesize routePreview = _routePreview;
 - (MWMRoutePreview *)routePreview
 {
   if (!_routePreview)
     [self loadPreviewWithStatusBoxes];
   return _routePreview;
+}
+
+- (void)setRoutePreview:(MWMRoutePreview *)routePreview
+{
+  if (routePreview == _routePreview)
+    return;
+  [_routePreview remove];
+  _routePreview = routePreview;
 }
 
 - (MWMBaseRoutePreviewStatus *)baseRoutePreviewStatus

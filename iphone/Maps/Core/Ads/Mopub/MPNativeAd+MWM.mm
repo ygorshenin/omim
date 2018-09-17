@@ -1,4 +1,3 @@
-#import "FacebookNativeAdAdapter.h"
 #import "MPNativeAd+MWM.h"
 #import "SwiftBridge.h"
 
@@ -8,16 +7,10 @@
 @property(nonatomic) BOOL hasAttachedToView;
 @property(nonatomic, readonly) id<MPNativeAdAdapter> adAdapter;
 
-- (void)willAttachToView:(UIView *)view;
+- (void)willAttachToView:(UIView *)view withAdContentViews:(NSArray *)adContentViews;
 - (void)adViewTapped;
 - (void)nativeViewWillMoveToSuperview:(UIView *)superview;
 - (UIViewController *)viewControllerForPresentingModalView;
-
-@end
-
-@interface FacebookNativeAdAdapter ()
-
-@property(nonatomic, readonly) FBNativeAd * fbNativeAd;
 
 @end
 
@@ -38,7 +31,7 @@
     }
     else
     {
-      [self willAttachToView:self.associatedView];
+      [self willAttachToView:self.associatedView withAdContentViews:self.associatedView.subviews];
       for (UIButton * button in buttons)
       {
         [button addTarget:self

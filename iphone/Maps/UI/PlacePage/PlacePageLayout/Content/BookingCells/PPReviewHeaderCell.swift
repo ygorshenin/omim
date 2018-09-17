@@ -5,6 +5,6 @@ final class PPReviewHeaderCell: UITableViewCell {
 
   @objc func config(rating: UGCRatingValueType, numberOfReviews: Int) {
     self.rating.text = rating.value
-    count.text = String(format: L("booking_based_on_reviews"), numberOfReviews)
+    count.text = String(format:L("placepage_summary_rating_description"), numberOfReviews)
   }
 }

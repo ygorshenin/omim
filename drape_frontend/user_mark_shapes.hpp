@@ -24,12 +24,16 @@ struct UserMarkRenderParams
   drape_ptr<UserPointMark::SymbolNameZoomInfo> m_symbolNames;
   drape_ptr<UserPointMark::TitlesInfo> m_titleDecl;
   drape_ptr<UserPointMark::SymbolSizes> m_symbolSizes;
+  drape_ptr<UserPointMark::SymbolOffsets> m_symbolOffsets;
+  drape_ptr<UserPointMark::SymbolNameZoomInfo> m_badgeNames;
+  df::ColorConstant m_color;
   bool m_hasSymbolPriority = false;
   bool m_hasTitlePriority = false;
   uint16_t m_priority = 0;
   uint32_t m_index = 0;
+  bool m_depthTestEnabled = true;
   float m_depth = 0.0;
-  RenderState::DepthLayer m_depthLayer = RenderState::UserMarkLayer;
+  DepthLayer m_depthLayer = DepthLayer::UserMarkLayer;
   bool m_hasCreationAnimation = false;
   bool m_justCreated = false;
   bool m_isVisible = true;
@@ -53,23 +57,23 @@ struct LineLayer
 struct UserLineRenderParams
 {
   int m_minZoom = 1;
-  RenderState::DepthLayer m_depthLayer = RenderState::UserLineLayer;
+  DepthLayer m_depthLayer = DepthLayer::UserLineLayer;
   std::vector<LineLayer> m_layers;
   m2::SharedSpline m_spline;
 };
 
-using UserMarksRenderCollection = std::unordered_map<MarkID, drape_ptr<UserMarkRenderParams>>;
-using UserLinesRenderCollection = std::unordered_map<MarkID, drape_ptr<UserLineRenderParams>>;
+using UserMarksRenderCollection = std::unordered_map<kml::MarkId, drape_ptr<UserMarkRenderParams>>;
+using UserLinesRenderCollection = std::unordered_map<kml::MarkId, drape_ptr<UserLineRenderParams>>;
 
 struct UserMarkRenderData
 {
-  UserMarkRenderData(dp::GLState const & state,
+  UserMarkRenderData(dp::RenderState const & state,
                      drape_ptr<dp::RenderBucket> && bucket,
                      TileKey const & tileKey)
     : m_state(state), m_bucket(move(bucket)), m_tileKey(tileKey)
   {}
 
-  dp::GLState m_state;
+  dp::RenderState m_state;
   drape_ptr<dp::RenderBucket> m_bucket;
   TileKey m_tileKey;
 };
@@ -80,10 +84,10 @@ void ProcessSplineSegmentRects(m2::SharedSpline const & spline, double maxSegmen
                                std::function<bool(m2::RectD const & segmentRect)> const & func);
 
 void CacheUserMarks(TileKey const & tileKey, ref_ptr<dp::TextureManager> textures,
-                    IDCollection const & marksId, UserMarksRenderCollection & renderParams,
+                    kml::MarkIdCollection const & marksId, UserMarksRenderCollection & renderParams,
                     dp::Batcher & batcher);
 
 void CacheUserLines(TileKey const & tileKey, ref_ptr<dp::TextureManager> textures,
-                    IDCollection const & linesId, UserLinesRenderCollection & renderParams,
+                    kml::TrackIdCollection const & linesId, UserLinesRenderCollection & renderParams,
                     dp::Batcher & batcher);
 }  // namespace df

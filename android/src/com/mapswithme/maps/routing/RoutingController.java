@@ -78,6 +78,7 @@ public class RoutingController implements TaxiManager.TaxiListener
     void onAddedStop();
     void onRemovedStop();
     void onBuiltRoute();
+    boolean isSubwayEnabled();
 
     /**
      * @param progress progress to be displayed.
@@ -117,74 +118,56 @@ public class RoutingController implements TaxiManager.TaxiListener
   @SuppressWarnings("FieldCanBeLocal")
   private final Framework.RoutingListener mRoutingListener = new Framework.RoutingListener()
   {
+    @MainThread
     @Override
     public void onRoutingEvent(final int resultCode, @Nullable final String[] missingMaps)
     {
       mLogger.d(TAG, "onRoutingEvent(resultCode: " + resultCode + ")");
+      mLastResultCode = resultCode;
+      mLastMissingMaps = missingMaps;
+      mContainsCachedResult = true;
 
-      UiThread.run(new Runnable()
+      if (mLastResultCode == ResultCodesHelper.NO_ERROR
+        || ResultCodesHelper.isMoreMapsNeeded(mLastResultCode))
       {
-        @Override
-        public void run()
-        {
-          mLastResultCode = resultCode;
-          mLastMissingMaps = missingMaps;
-          mContainsCachedResult = true;
+        mCachedRoutingInfo = Framework.nativeGetRouteFollowingInfo();
+        if (mLastRouterType == Framework.ROUTER_TYPE_TRANSIT)
+          mCachedTransitRouteInfo = Framework.nativeGetTransitRouteInfo();
+        setBuildState(BuildState.BUILT);
+        mLastBuildProgress = 100;
+        if (mContainer != null)
+          mContainer.onBuiltRoute();
+      }
 
-          if (mLastResultCode == ResultCodesHelper.NO_ERROR
-              || ResultCodesHelper.isMoreMapsNeeded(mLastResultCode))
-          {
-            mCachedRoutingInfo = Framework.nativeGetRouteFollowingInfo();
-            if (mLastRouterType == Framework.ROUTER_TYPE_TRANSIT)
-              mCachedTransitRouteInfo = Framework.nativeGetTransitRouteInfo();
-            setBuildState(BuildState.BUILT);
-            mLastBuildProgress = 100;
-            if (mContainer != null)
-              mContainer.onBuiltRoute();
-          }
-
-          processRoutingEvent();
-        }
-      });
+      processRoutingEvent();
     }
   };
 
   @SuppressWarnings("FieldCanBeLocal")
   private final Framework.RoutingProgressListener mRoutingProgressListener = new Framework.RoutingProgressListener()
   {
+    @MainThread
     @Override
-    public void onRouteBuildingProgress(final float progress)
+    public void onRouteBuildingProgress(float progress)
     {
-      UiThread.run(new Runnable()
-      {
-        @Override
-        public void run()
-        {
-          mLastBuildProgress = (int) progress;
-          updateProgress();
-        }
-      });
+      mLastBuildProgress = (int) progress;
+      updateProgress();
     }
   };
 
   @SuppressWarnings("FieldCanBeLocal")
   private final Framework.RoutingRecommendationListener mRoutingRecommendationListener =
-      new Framework.RoutingRecommendationListener()
-  {
-    @Override
-    public void onRecommend(@Framework.RouteRecommendationType final int recommendation)
-    {
-      UiThread.run(new Runnable()
-      {
-        @Override
-        public void run()
-        {
-          if (recommendation == Framework.ROUTE_REBUILD_AFTER_POINTS_LOADING)
-            setStartPoint(LocationHelper.INSTANCE.getMyPosition());
-        }
-      });
-    }
-  };
+    recommendation -> UiThread.run(() -> {
+      if (recommendation == Framework.ROUTE_REBUILD_AFTER_POINTS_LOADING)
+        setStartPoint(LocationHelper.INSTANCE.getMyPosition());
+    });
+
+  @SuppressWarnings("FieldCanBeLocal")
+  private final Framework.RoutingLoadPointsListener mRoutingLoadPointsListener =
+    success -> {
+      if (success)
+        prepare(getStartPoint(), getEndPoint());
+    };
 
   public static RoutingController get()
   {
@@ -281,6 +264,7 @@ public class RoutingController implements TaxiManager.TaxiListener
     Framework.nativeSetRoutingListener(mRoutingListener);
     Framework.nativeSetRouteProgressListener(mRoutingProgressListener);
     Framework.nativeSetRoutingRecommendationListener(mRoutingRecommendationListener);
+    Framework.nativeSetRoutingLoadPointsListener(mRoutingLoadPointsListener);
     TaxiManager.INSTANCE.setTaxiListener(this);
   }
 
@@ -387,10 +371,7 @@ public class RoutingController implements TaxiManager.TaxiListener
   public void restoreRoute()
   {
     if (Framework.nativeHasSavedRoutePoints())
-    {
       Framework.nativeLoadRoutePoints();
-      prepare(getStartPoint(), getEndPoint());
-    }
   }
 
   public void saveRoute()
@@ -437,10 +418,27 @@ public class RoutingController implements TaxiManager.TaxiListener
       return;
     }
 
+    initLastRouteType(startPoint, endPoint, fromApi);
+    prepare(startPoint, endPoint, mLastRouterType, fromApi);
+  }
+
+  private void initLastRouteType(@Nullable MapObject startPoint, @Nullable MapObject endPoint,
+                                 boolean fromApi)
+  {
+    if (isSubwayEnabled() && !fromApi)
+    {
+      mLastRouterType = Framework.ROUTER_TYPE_TRANSIT;
+      return;
+    }
+
     if (startPoint != null && endPoint != null)
       mLastRouterType = Framework.nativeGetBestRouter(startPoint.getLat(), startPoint.getLon(),
                                                       endPoint.getLat(), endPoint.getLon());
-    prepare(startPoint, endPoint, mLastRouterType, fromApi);
+  }
+
+  private boolean isSubwayEnabled()
+  {
+    return mContainer != null && mContainer.isSubwayEnabled();
   }
 
   public void prepare(final @Nullable MapObject startPoint, final @Nullable MapObject endPoint,
@@ -514,8 +512,6 @@ public class RoutingController implements TaxiManager.TaxiListener
       return;
     }
 
-    Statistics.INSTANCE.trackEvent(Statistics.EventName.ROUTING_START);
-    AlohaHelper.logClick(AlohaHelper.ROUTING_START);
     setState(State.NAVIGATION);
 
     if (mContainer != null)
@@ -763,13 +759,13 @@ public class RoutingController implements TaxiManager.TaxiListener
   }
 
   @Nullable
-  MapObject getStartPoint()
+  public MapObject getStartPoint()
   {
     return getStartOrEndPointByType(RoutePointInfo.ROUTE_MARK_START);
   }
 
   @Nullable
-  MapObject getEndPoint()
+  public MapObject getEndPoint()
   {
     return getStartOrEndPointByType(RoutePointInfo.ROUTE_MARK_FINISH);
   }
@@ -1049,6 +1045,12 @@ public class RoutingController implements TaxiManager.TaxiListener
       build();
   }
 
+  @Framework.RouterType
+  public int getLastRouterType()
+  {
+    return mLastRouterType;
+  }
+
   private void openRemovingIntermediatePointsTransaction()
   {
     if (mRemovingIntermediatePointsTransactionId == mInvalidRoutePointsTransactionId)
@@ -1163,7 +1165,7 @@ public class RoutingController implements TaxiManager.TaxiListener
       mContainer.onTaxiInfoReceived(provider);
       completeTaxiRequest();
       Statistics.INSTANCE.trackTaxiEvent(Statistics.EventName.ROUTING_TAXI_ROUTE_BUILT,
-                                         provider.getType());
+                                         provider.getType().getProviderName());
     }
   }
 

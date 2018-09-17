@@ -74,6 +74,8 @@ bool IsSupportedRGB8(EGLDisplay display, bool es3)
   return eglChooseConfig(display, getConfigAttributesListRGB8(es3), configs,
                          kMaxConfigCount, &count) == EGL_TRUE && count != 0;
 }
+
+size_t constexpr kGLThreadsCount = 2;
 }  // namespace
 
 AndroidOGLContextFactory::AndroidOGLContextFactory(JNIEnv * env, jobject jsurface)
@@ -115,7 +117,7 @@ AndroidOGLContextFactory::AndroidOGLContextFactory(JNIEnv * env, jobject jsurfac
 
   SetSurface(env, jsurface);
 
-  if (!createPixelbufferSurface())
+  if (!CreatePixelbufferSurface())
   {
     CHECK_EGL(eglTerminate(m_display));
     return;
@@ -164,7 +166,7 @@ void AndroidOGLContextFactory::SetSurface(JNIEnv * env, jobject jsurface)
     return;
   }
 
-  if (!createWindowSurface())
+  if (!CreateWindowSurface())
   {
     CHECK_EGL(eglTerminate(m_display));
     return;
@@ -174,15 +176,23 @@ void AndroidOGLContextFactory::SetSurface(JNIEnv * env, jobject jsurface)
     return;
 
   if (m_drawContext != nullptr)
-    m_drawContext->setSurface(m_windowSurface);
+    m_drawContext->SetSurface(m_windowSurface);
 
   m_windowSurfaceValid = true;
 }
 
 void AndroidOGLContextFactory::ResetSurface()
 {
+  {
+    std::unique_lock<std::mutex> lock(m_initializationMutex);
+    if (m_initializationCounter > 0 && m_initializationCounter < kGLThreadsCount)
+      m_initializationCondition.wait(lock, [this] { return m_isInitialized; });
+    m_initializationCounter = 0;
+    m_isInitialized = false;
+  }
+
   if (m_drawContext != nullptr)
-    m_drawContext->resetSurface();
+    m_drawContext->ResetSurface();
 
   if (IsValid())
   {
@@ -214,10 +224,24 @@ int AndroidOGLContextFactory::GetHeight() const
   return m_surfaceHeight;
 }
 
-void AndroidOGLContextFactory::UpdateSurfaceSize()
+void AndroidOGLContextFactory::UpdateSurfaceSize(int w, int h)
 {
   ASSERT(IsValid(), ());
-  QuerySurfaceSize();
+  if ((m_surfaceWidth != w && m_surfaceWidth != h) ||
+      (m_surfaceHeight != w && m_surfaceHeight != h))
+  {
+    LOG(LINFO, ("Surface size changed and must be re-queried."));
+    if (!QuerySurfaceSize())
+    {
+      m_surfaceWidth = w;
+      m_surfaceHeight = h;
+    }
+  }
+  else
+  {
+    m_surfaceWidth = w;
+    m_surfaceHeight = h;
+  }
 }
 
 bool AndroidOGLContextFactory::QuerySurfaceSize()
@@ -240,7 +264,7 @@ bool AndroidOGLContextFactory::QuerySurfaceSize()
   return true;
 }
 
-dp::OGLContext * AndroidOGLContextFactory::getDrawContext()
+dp::GraphicsContext * AndroidOGLContextFactory::GetDrawContext()
 {
   ASSERT(IsValid(), ());
   ASSERT(m_windowSurface != EGL_NO_SURFACE, ());
@@ -252,7 +276,7 @@ dp::OGLContext * AndroidOGLContextFactory::getDrawContext()
   return m_drawContext;
 }
 
-dp::OGLContext * AndroidOGLContextFactory::getResourcesUploadContext()
+dp::GraphicsContext * AndroidOGLContextFactory::GetResourcesUploadContext()
 {
   ASSERT(IsValid(), ());
   ASSERT(m_pixelbufferSurface != EGL_NO_SURFACE, ());
@@ -264,17 +288,41 @@ dp::OGLContext * AndroidOGLContextFactory::getResourcesUploadContext()
   return m_uploadContext;
 }
 
-bool AndroidOGLContextFactory::isDrawContextCreated() const
+bool AndroidOGLContextFactory::IsDrawContextCreated() const
 {
   return m_drawContext != nullptr;
 }
 
-bool AndroidOGLContextFactory::isUploadContextCreated() const
+bool AndroidOGLContextFactory::IsUploadContextCreated() const
 {
   return m_uploadContext != nullptr;
 }
 
-bool AndroidOGLContextFactory::createWindowSurface()
+void AndroidOGLContextFactory::WaitForInitialization(dp::GraphicsContext *)
+{
+  std::unique_lock<std::mutex> lock(m_initializationMutex);
+  if (m_isInitialized)
+    return;
+
+  m_initializationCounter++;
+  if (m_initializationCounter >= kGLThreadsCount)
+  {
+    m_isInitialized = true;
+    m_initializationCondition.notify_all();
+  }
+  else
+  {
+    m_initializationCondition.wait(lock, [this] { return m_isInitialized; });
+  }
+}
+
+void AndroidOGLContextFactory::SetPresentAvailable(bool available)
+{
+  if (m_drawContext != nullptr)
+    m_drawContext->SetPresentAvailable(available);
+}
+
+bool AndroidOGLContextFactory::CreateWindowSurface()
 {
   EGLConfig configs[kMaxConfigCount];
   int count = 0;
@@ -320,7 +368,7 @@ bool AndroidOGLContextFactory::createWindowSurface()
   return true;
 }
 
-bool AndroidOGLContextFactory::createPixelbufferSurface()
+bool AndroidOGLContextFactory::CreatePixelbufferSurface()
 {
   //ASSERT(m_config != NULL, ());
 
@@ -341,5 +389,4 @@ bool AndroidOGLContextFactory::createPixelbufferSurface()
 
   return true;
 }
-
 }  // namespace android

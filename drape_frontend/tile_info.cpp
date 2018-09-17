@@ -13,6 +13,7 @@
 #include "base/scope_guard.hpp"
 #include "base/logging.hpp"
 
+#include <algorithm>
 #include <functional>
 
 using namespace std::placeholders;
@@ -69,10 +70,11 @@ void TileInfo::ReadFeatures(MapDataProvider const & model)
 
   if (!m_featureInfo.empty())
   {
+    std::sort(m_featureInfo.begin(), m_featureInfo.end());
     auto const deviceLang = StringUtf8Multilang::GetLangIndex(languages::GetCurrentNorm());
     RuleDrawer drawer(std::bind(&TileInfo::InitStylist, this, deviceLang, _1, _2),
-                      std::bind(&TileInfo::IsCancelled, this),
-                      model.m_isCountryLoadedByName, make_ref(m_context));
+                      std::bind(&TileInfo::IsCancelled, this), model.m_isCountryLoadedByName,
+                      model.GetFilter(), make_ref(m_context));
     model.ReadFeatures(std::bind<void>(std::ref(drawer), _1), m_featureInfo);
   }
 #if defined(DRAPE_MEASURER) && defined(TILES_STATISTIC)
@@ -90,7 +92,7 @@ bool TileInfo::IsCancelled() const
   return m_isCanceled;
 }
 
-void TileInfo::InitStylist(int8_t deviceLang, FeatureType const & f, Stylist & s)
+void TileInfo::InitStylist(int8_t deviceLang, FeatureType & f, Stylist & s)
 {
   CheckCanceled();
   df::InitStylist(f, deviceLang, m_context->GetTileKey().m_zoomLevel,

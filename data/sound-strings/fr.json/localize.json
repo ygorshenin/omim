@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"À gauche toute.",
 "make_a_u_turn":"Faites demi-tour.",
 "go_straight":"Continuez tout droit.",
+"exit":"Sortie.",
 "destination":"Vous arriverez.",
 "you_have_reached_the_destination":"Vous êtes arrivé.",
 "in_50_meters":"Dans cinquante mètres",
@@ -61,5 +62,6 @@
 "in_5000_feet":"Dans cinq mille pieds",
 "in_1_mile":"Dans un mile",
 "in_1_5_miles":"Dans un virgule cinq mile",
-"in_2_miles":"Dans deux miles"
+"in_2_miles":"Dans deux miles",
+"unknown_camera":"Speed camera ahead"
 }

@@ -1,7 +1,8 @@
 #include "generator/coastlines_generator.hpp"
+
 #include "generator/feature_builder.hpp"
 
-#include "coding/point_to_integer.hpp"
+#include "coding/pointd_to_pointu.hpp"
 
 #include "geometry/region2d/binary_operators.hpp"
 
@@ -15,9 +16,9 @@
 
 using namespace std;
 
-typedef m2::RegionI RegionT;
-typedef m2::PointI PointT;
-typedef m2::RectI RectT;
+using RegionT = m2::RegionI;
+using PointT = m2::PointI;
+using RectT = m2::RectI;
 
 CoastlineFeaturesGenerator::CoastlineFeaturesGenerator(uint32_t coastType)
   : m_merger(POINT_COORD_BITS), m_coastType(coastType)
@@ -34,20 +35,21 @@ namespace
 
   inline PointT D2I(m2::PointD const & p)
   {
-    m2::PointU const pu = PointD2PointU(p, POINT_COORD_BITS);
+    m2::PointU const pu = PointDToPointU(p, POINT_COORD_BITS);
     return PointT(static_cast<int32_t>(pu.x), static_cast<int32_t>(pu.y));
   }
 
-  template <class TreeT> class DoCreateRegion
+  template <class Tree> class DoCreateRegion
   {
-    TreeT & m_tree;
+    Tree & m_tree;
 
     RegionT m_rgn;
     m2::PointD m_pt;
     bool m_exist;
 
   public:
-    DoCreateRegion(TreeT & tree) : m_tree(tree), m_exist(false) {}
+    template <typename T>
+    DoCreateRegion(T && tree) : m_tree(std::forward<T>(tree)), m_exist(false) {}
 
     bool operator()(m2::PointD const & p)
     {
@@ -74,7 +76,7 @@ namespace
       m_exist = false;
     }
   };
-}
+}  // namespace
 
 void CoastlineFeaturesGenerator::AddRegionToTree(FeatureBuilder1 const & fb)
 {
@@ -110,12 +112,14 @@ namespace
         m_rMain.AddRegionToTree(fb);
       else
       {
-        osm::Id const firstWay = fb.GetFirstOsmId();
-        osm::Id const lastWay = fb.GetLastOsmId();
+        base::GeoObjectId const firstWay = fb.GetFirstOsmId();
+        base::GeoObjectId const lastWay = fb.GetLastOsmId();
         if (firstWay == lastWay)
-          LOG(LINFO, ("Not merged coastline, way", firstWay.OsmId(), "(", fb.GetPointsCount(), "points)"));
+          LOG(LINFO, ("Not merged coastline, way", firstWay.GetSerialId(), "(", fb.GetPointsCount(),
+                      "points)"));
         else
-          LOG(LINFO, ("Not merged coastline, ways", firstWay.OsmId(), "to", lastWay.OsmId(), "(", fb.GetPointsCount(), "points)"));
+          LOG(LINFO, ("Not merged coastline, ways", firstWay.GetSerialId(), "to",
+                      lastWay.GetSerialId(), "(", fb.GetPointsCount(), "points)"));
         ++m_notMergedCoastsCount;
         m_totalNotMergedCoastsPoints += fb.GetPointsCount();
       }
@@ -180,7 +184,7 @@ public:
 
   void operator()(PointT const & p)
   {
-    m_points.push_back(PointU2PointD(
+    m_points.push_back(PointUToPointD(
         m2::PointU(static_cast<uint32_t>(p.x), static_cast<uint32_t>(p.y)), POINT_COORD_BITS));
   }
 

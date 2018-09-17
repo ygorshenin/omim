@@ -9,18 +9,18 @@
 #include "routing_common/num_mwm_id.hpp"
 #include "routing_common/vehicle_model.hpp"
 
-#include "indexer/index.hpp"
-
 #include "geometry/tree4d.hpp"
 
+#include "base/geo_object_id.hpp"
 #include "base/math.hpp"
-#include "base/osm_id.hpp"
 
 #include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
+
+class DataSource;
 
 namespace routing
 {
@@ -36,8 +36,9 @@ public:
   };
 
   CrossMwmGraph(std::shared_ptr<NumMwmIds> numMwmIds, shared_ptr<m4::Tree<NumMwmId>> numMwmTree,
-                std::shared_ptr<VehicleModelFactoryInterface> vehicleModelFactory, VehicleType vehicleType,
-                CourntryRectFn const & countryRectFn, Index & index);
+                std::shared_ptr<VehicleModelFactoryInterface> vehicleModelFactory,
+                VehicleType vehicleType, CourntryRectFn const & countryRectFn,
+                DataSource & dataSource);
 
   /// \brief Transition segment is a segment which is crossed by mwm border. That means
   /// start and finish of such segment have to lie in different mwms. If a segment is
@@ -121,8 +122,7 @@ private:
   bool TransitCrossMwmSectionExists(NumMwmId numMwmId) const;
 
   /// \brief Fills |twins| with transition segments of feature |ft| of type |isOutgoing|.
-  void GetTwinCandidates(FeatureType const & ft, bool isOutgoing,
-                         std::vector<Segment> & twinCandidates);
+  void GetTwinCandidates(FeatureType & ft, bool isOutgoing, std::vector<Segment> & twinCandidates);
 
   /// \brief Fills structure |twins| or for feature |ft| if |ft| contains transition segment(s).
   /// \param sMwmId mwm id of a segment which twins are looked for
@@ -134,8 +134,8 @@ private:
   /// \note If the method finds twin segment with a point which is very close to |point| the twin segment is
   /// added to |twins| anyway. If there's no such segment in mwm it tries find the closet one and adds it
   /// to |minDistSegs|.
-  void FindBestTwins(NumMwmId sMwmId, bool isOutgoing, FeatureType const & ft,
-                     m2::PointD const & point, std::map<NumMwmId, ClosestSegment> & minDistSegs,
+  void FindBestTwins(NumMwmId sMwmId, bool isOutgoing, FeatureType & ft, m2::PointD const & point,
+                     std::map<NumMwmId, ClosestSegment> & minDistSegs,
                      std::vector<Segment> & twins);
 
   /// \brief Fills |neighbors| with number mwm id of all loaded neighbors of |numMwmId| and
@@ -148,12 +148,12 @@ private:
   void DeserializeTransitions(std::vector<NumMwmId> const & mwmIds);
   void DeserializeTransitTransitions(std::vector<NumMwmId> const & mwmIds);
 
-  Index & m_index;
+  DataSource & m_dataSource;
   std::shared_ptr<NumMwmIds> m_numMwmIds;
   std::shared_ptr<m4::Tree<NumMwmId>> m_numMwmTree;
   std::shared_ptr<VehicleModelFactoryInterface> m_vehicleModelFactory;
   CourntryRectFn const & m_countryRectFn;
-  CrossMwmIndexGraph<osm::Id> m_crossMwmIndexGraph;
+  CrossMwmIndexGraph<base::GeoObjectId> m_crossMwmIndexGraph;
   CrossMwmIndexGraph<connector::TransitId> m_crossMwmTransitGraph;
 };
 

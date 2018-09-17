@@ -3,6 +3,7 @@
 #include "routing/routing_integration_tests/routing_test_tools.hpp"
 
 #include "routing/route.hpp"
+#include "routing/routing_callbacks.hpp"
 
 #include "platform/location.hpp"
 
@@ -27,8 +28,8 @@ UNIT_TEST(RussiaTulskayaToPaveletskayaStreetNamesTest)
                                   MercatorBounds::FromLatLon(55.73198, 37.63945));
 
   Route & route = *routeResult.first;
-  IRouter::ResultCode const result = routeResult.second;
-  TEST_EQUAL(result, IRouter::NoError, ());
+  RouterResultCode const result = routeResult.second;
+  TEST_EQUAL(result, RouterResultCode::NoError, ());
 
   integration::TestCurrentStreetName(route, "Большая Тульская улица");
   integration::TestNextStreetName(route, "Подольское шоссе");
@@ -49,6 +50,11 @@ UNIT_TEST(RussiaTulskayaToPaveletskayaStreetNamesTest)
   integration::TestNextStreetName(route, "Валовая улица");
 
   MoveRoute(route, ms::LatLon(55.73034, 37.63099));
+
+  integration::TestCurrentStreetName(route, "Валовая улица");
+  integration::TestNextStreetName(route, "");
+
+  MoveRoute(route, ms::LatLon(55.730912, 37.636191));
 
   integration::TestCurrentStreetName(route, "Валовая улица");
   integration::TestNextStreetName(route, "");

@@ -14,6 +14,8 @@ set(
   condition_test.cpp
   containers_test.cpp
   control_flow_tests.cpp
+  fifo_cache_test.cpp
+  geo_object_id_tests.cpp
   levenshtein_dfa_test.cpp
   logging_test.cpp
   math_test.cpp
@@ -28,8 +30,7 @@ set(
   rolling_hash_test.cpp
   scope_guard_test.cpp
   small_set_test.cpp
-  stl_add_test.cpp
-  stl_helpers_test.cpp
+  stl_helpers_tests.cpp
   string_format_test.cpp
   string_utils_test.cpp
   suffix_array_tests.cpp

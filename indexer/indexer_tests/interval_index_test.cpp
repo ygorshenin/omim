@@ -1,22 +1,32 @@
 #include "testing/testing.hpp"
+
 #include "indexer/interval_index.hpp"
 #include "indexer/interval_index_builder.hpp"
+
 #include "coding/reader.hpp"
 #include "coding/writer.hpp"
+
 #include "base/macros.hpp"
-#include "base/stl_add.hpp"
-#include "std/utility.hpp"
-#include "std/vector.hpp"
+#include "base/stl_helpers.hpp"
+
+#include <utility>
+#include <vector>
+
+using namespace std;
 
 namespace
 {
 struct CellIdFeaturePairForTest
 {
-  CellIdFeaturePairForTest(uint64_t cell, uint32_t feature) : m_Cell(cell), m_Feature(feature) {}
-  uint64_t GetCell() const { return m_Cell; }
-  uint32_t GetFeature() const { return m_Feature; }
-  uint64_t m_Cell;
-  uint32_t m_Feature;
+  using ValueType = uint32_t;
+
+  CellIdFeaturePairForTest(uint64_t cell, uint32_t value) : m_cell(cell), m_value(value) {}
+
+  uint64_t GetCell() const { return m_cell; }
+  uint32_t GetValue() const { return m_value; }
+
+  uint64_t m_cell;
+  uint32_t m_value;
 };
 }
 
@@ -119,11 +129,11 @@ UNIT_TEST(IntervalIndex_Serialized)
   TEST_EQUAL(serialIndex, vector<uint8_t>(expSerial, expSerial + ARRAY_SIZE(expSerial) - 1), ());
 
   MemReader reader(&serialIndex[0], serialIndex.size());
-  IntervalIndex<MemReader> index(reader);
+  IntervalIndex<MemReader, uint32_t> index(reader);
   uint32_t expected [] = {0, 1, 2};
   vector<uint32_t> values;
   TEST_EQUAL(index.KeyEnd(), 0x10000, ());
-  index.ForEach(MakeBackInsertFunctor(values), 0, 0x10000);
+  index.ForEach(base::MakeBackInsertFunctor(values), 0, 0x10000);
   TEST_EQUAL(values, vector<uint32_t>(expected, expected + ARRAY_SIZE(expected)), ());
 }
 
@@ -137,46 +147,46 @@ UNIT_TEST(IntervalIndex_Simple)
   MemWriter<vector<char> > writer(serialIndex);
   BuildIntervalIndex(data.begin(), data.end(), writer, 40);
   MemReader reader(&serialIndex[0], serialIndex.size());
-  IntervalIndex<MemReader> index(reader);
+  IntervalIndex<MemReader, uint32_t> index(reader);
   TEST_EQUAL(index.KeyEnd(), 0x10000000000ULL, ());
   {
     uint32_t expected [] = {0, 1, 2};
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0ULL, index.KeyEnd());
+    index.ForEach(base::MakeBackInsertFunctor(values), 0ULL, index.KeyEnd());
     TEST_EQUAL(values, vector<uint32_t>(expected, expected + ARRAY_SIZE(expected)), ());
   }
   {
     uint32_t expected [] = {0, 1};
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0xA0B1C2D100ULL, 0xA0B1C2D201ULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0xA0B1C2D100ULL, 0xA0B1C2D201ULL);
     TEST_EQUAL(values, vector<uint32_t>(expected, expected + ARRAY_SIZE(expected)), ());
   }
   {
     uint32_t expected [] = {0, 1};
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0x0ULL, 0xA0B1C30000ULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0x0ULL, 0xA0B1C30000ULL);
     TEST_EQUAL(values, vector<uint32_t>(expected, expected + ARRAY_SIZE(expected)), ());
   }
   {
     uint32_t expected [] = {0};
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0xA0B1C2D100ULL, 0xA0B1C2D101ULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0xA0B1C2D100ULL, 0xA0B1C2D101ULL);
     TEST_EQUAL(values, vector<uint32_t>(expected, expected + ARRAY_SIZE(expected)), ());
   }
   {
     uint32_t expected [] = {0};
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0xA0B1C2D100ULL, 0xA0B1C2D200ULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0xA0B1C2D100ULL, 0xA0B1C2D200ULL);
     TEST_EQUAL(values, vector<uint32_t>(expected, expected + ARRAY_SIZE(expected)), ());
   }
   {
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0xA0B1C2D100ULL, 0xA0B1C2D100ULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0xA0B1C2D100ULL, 0xA0B1C2D100ULL);
     TEST_EQUAL(values, vector<uint32_t>(), ());
   }
   {
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0xA0B1000000ULL, 0xA0B1B20000ULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0xA0B1000000ULL, 0xA0B1B20000ULL);
     TEST_EQUAL(values, vector<uint32_t>(), ());
   }
 }
@@ -188,10 +198,10 @@ UNIT_TEST(IntervalIndex_Empty)
   MemWriter<vector<char> > writer(serialIndex);
   BuildIntervalIndex(data.begin(), data.end(), writer, 40);
   MemReader reader(&serialIndex[0], serialIndex.size());
-  IntervalIndex<MemReader> index(reader);
+  IntervalIndex<MemReader, uint32_t> index(reader);
   {
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0ULL, 0xFFFFFFFFFFULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0ULL, 0xFFFFFFFFFFULL);
     TEST_EQUAL(values, vector<uint32_t>(), ());
   }
 }
@@ -207,11 +217,11 @@ UNIT_TEST(IntervalIndex_Simple2)
   MemWriter<vector<char> > writer(serialIndex);
   BuildIntervalIndex(data.begin(), data.end(), writer, 40);
   MemReader reader(&serialIndex[0], serialIndex.size());
-  IntervalIndex<MemReader> index(reader);
+  IntervalIndex<MemReader, uint32_t> index(reader);
   {
     uint32_t expected [] = {0, 1, 2, 3};
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0, 0xFFFFFFFFFFULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0, 0xFFFFFFFFFFULL);
     sort(values.begin(), values.end());
     TEST_EQUAL(values, vector<uint32_t>(expected, expected + ARRAY_SIZE(expected)), ());
   }
@@ -226,11 +236,11 @@ UNIT_TEST(IntervalIndex_Simple3)
   MemWriter<vector<char> > writer(serialIndex);
   BuildIntervalIndex(data.begin(), data.end(), writer, 40);
   MemReader reader(&serialIndex[0], serialIndex.size());
-  IntervalIndex<MemReader> index(reader);
+  IntervalIndex<MemReader, uint32_t> index(reader);
   {
     uint32_t expected [] = {0, 1};
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0, 0xFFFFULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0, 0xFFFFULL);
     sort(values.begin(), values.end());
     TEST_EQUAL(values, vector<uint32_t>(expected, expected + ARRAY_SIZE(expected)), ());
   }
@@ -245,11 +255,11 @@ UNIT_TEST(IntervalIndex_Simple4)
   MemWriter<vector<char> > writer(serialIndex);
   BuildIntervalIndex(data.begin(), data.end(), writer, 40);
   MemReader reader(&serialIndex[0], serialIndex.size());
-  IntervalIndex<MemReader> index(reader);
+  IntervalIndex<MemReader, uint32_t> index(reader);
   {
     uint32_t expected [] = {0, 1};
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0, 0xFFFFFFFFULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0, 0xFFFFFFFFULL);
     sort(values.begin(), values.end());
     TEST_EQUAL(values, vector<uint32_t>(expected, expected + ARRAY_SIZE(expected)), ());
   }
@@ -266,11 +276,11 @@ UNIT_TEST(IntervalIndex_Simple5)
   MemWriter<vector<char> > writer(serialIndex);
   BuildIntervalIndex(data.begin(), data.end(), writer, 40);
   MemReader reader(&serialIndex[0], serialIndex.size());
-  IntervalIndex<MemReader> index(reader);
+  IntervalIndex<MemReader, uint32_t> index(reader);
   {
     uint32_t expected [] = {0, 1, 2, 3};
     vector<uint32_t> values;
-    index.ForEach(MakeBackInsertFunctor(values), 0, 0xFFFFFFFFFFULL);
+    index.ForEach(base::MakeBackInsertFunctor(values), 0, 0xFFFFFFFFFFULL);
     sort(values.begin(), values.end());
     TEST_EQUAL(values, vector<uint32_t>(expected, expected + ARRAY_SIZE(expected)), ());
   }

@@ -11,7 +11,7 @@ final class PlacePageTaxiCell: MWMTableViewCell {
   @IBOutlet private weak var orderButton: UIButton! {
     didSet {
       let l = orderButton.layer
-      l.cornerRadius = 6
+      l.cornerRadius = 8
       l.borderColor = UIColor.linkBlue().cgColor
       l.borderWidth = 1
       orderButton.setTitle(L("taxi_order"), for: .normal)
@@ -35,8 +35,11 @@ final class PlacePageTaxiCell: MWMTableViewCell {
       icon.image = #imageLiteral(resourceName: "icTaxiUber")
       title.text = L("uber")
     case .yandex:
-      icon.image = #imageLiteral(resourceName: "icTaxiYandex")
+      icon.image = #imageLiteral(resourceName: "ic_taxi_logo_yandex")
       title.text = L("yandex_taxi_title")
+    case .maxim:
+      icon.image = #imageLiteral(resourceName: "ic_taxi_logo_maksim")
+      title.text = L("maxim_taxi_title")
     }
   }
 

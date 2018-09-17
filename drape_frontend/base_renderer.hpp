@@ -4,15 +4,16 @@
 #include "drape_frontend/threads_commutator.hpp"
 #include "drape_frontend/tile_utils.hpp"
 
-#include "drape/oglcontextfactory.hpp"
+#include "drape/graphics_context_factory.hpp"
 #include "drape/texture_manager.hpp"
 
 #include "base/thread.hpp"
 
-#include "std/atomic.hpp"
-#include "std/condition_variable.hpp"
-#include "std/function.hpp"
-#include "std/mutex.hpp"
+#include <atomic>
+#include <condition_variable>
+#include <functional>
+#include <memory>
+#include <mutex>
 
 namespace df
 {
@@ -24,7 +25,7 @@ public:
   {
     Params(dp::ApiVersion apiVersion,
            ref_ptr<ThreadsCommutator> commutator,
-           ref_ptr<dp::OGLContextFactory> factory,
+           ref_ptr<dp::GraphicsContextFactory> factory,
            ref_ptr<dp::TextureManager> texMng)
       : m_apiVersion(apiVersion)
       , m_commutator(commutator)
@@ -35,7 +36,7 @@ public:
 
     dp::ApiVersion m_apiVersion;
     ref_ptr<ThreadsCommutator> m_commutator;
-    ref_ptr<dp::OGLContextFactory> m_oglContextFactory;
+    ref_ptr<dp::GraphicsContextFactory> m_oglContextFactory;
     ref_ptr<dp::TextureManager> m_texMng;
   };
 
@@ -43,7 +44,7 @@ public:
 
   bool CanReceiveMessages();
 
-  void SetRenderingEnabled(ref_ptr<dp::OGLContextFactory> contextFactory);
+  void SetRenderingEnabled(ref_ptr<dp::GraphicsContextFactory> contextFactory);
   void SetRenderingDisabled(bool const destroyContext);
 
   bool IsRenderingEnabled() const;
@@ -51,7 +52,7 @@ public:
 protected:
   dp::ApiVersion m_apiVersion;
   ref_ptr<ThreadsCommutator> m_commutator;
-  ref_ptr<dp::OGLContextFactory> m_contextFactory;
+  ref_ptr<dp::GraphicsContextFactory> m_contextFactory;
   ref_ptr<dp::TextureManager> m_texMng;
 
   void StartThread();
@@ -59,24 +60,24 @@ protected:
 
   void CheckRenderingEnabled();
 
-  virtual unique_ptr<threads::IRoutine> CreateRoutine() = 0;
+  virtual std::unique_ptr<threads::IRoutine> CreateRoutine() = 0;
 
   virtual void OnContextCreate() = 0;
   virtual void OnContextDestroy() = 0;
 
 private:
-  using TCompletionHandler = function<void()>;
+  using TCompletionHandler = std::function<void()>;
 
   threads::Thread m_selfThread;
   ThreadsCommutator::ThreadName m_threadName;
 
-  mutex m_renderingEnablingMutex;
-  condition_variable m_renderingEnablingCondition;
-  atomic<bool> m_isEnabled;
+  std::mutex m_renderingEnablingMutex;
+  std::condition_variable m_renderingEnablingCondition;
+  std::atomic<bool> m_isEnabled;
   TCompletionHandler m_renderingEnablingCompletionHandler;
-  mutex m_completionHandlerMutex;
+  std::mutex m_completionHandlerMutex;
   bool m_wasNotified;
-  atomic<bool> m_wasContextReset;
+  std::atomic<bool> m_wasContextReset;
 
   bool FilterGLContextDependentMessage(ref_ptr<Message> msg);
   void SetRenderingEnabled(bool const isEnabled);

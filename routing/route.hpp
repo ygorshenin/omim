@@ -15,6 +15,7 @@
 #include "geometry/polyline2d.hpp"
 
 #include "base/assert.hpp"
+#include "base/math.hpp"
 
 #include <limits>
 #include <memory>
@@ -39,6 +40,28 @@ SubrouteUid constexpr kInvalidSubrouteId = std::numeric_limits<uint64_t>::max();
 class RouteSegment final
 {
 public:
+  // Store coefficient where camera placed at the segment (number from 0 to 1)
+  // and it's max speed.
+  struct SpeedCamera
+  {
+    SpeedCamera() = default;
+    SpeedCamera(double coef, uint8_t maxSpeedKmPH): m_coef(coef), m_maxSpeedKmPH(maxSpeedKmPH) {}
+
+    friend bool operator<(SpeedCamera const & lhs, SpeedCamera const & rhs)
+    {
+      static auto constexpr kCoefEps = 1e-5;
+      if (!my::AlmostEqualAbs(lhs.m_coef, rhs.m_coef, kCoefEps))
+        return lhs.m_coef < rhs.m_coef;
+
+      // Cameras with same position on segment should be sorted in speed decrease order.
+      // Thus camera with higher speed will be warned the first.
+      return lhs.m_maxSpeedKmPH > rhs.m_maxSpeedKmPH;
+    }
+
+    double m_coef = 0.0;
+    uint8_t m_maxSpeedKmPH = 0;
+  };
+
   RouteSegment(Segment const & segment, turns::TurnItem const & turn, Junction const & junction,
                std::string const & street, double distFromBeginningMeters,
                double distFromBeginningMerc, double timeFromBeginningS, traffic::SpeedGroup traffic,
@@ -61,36 +84,53 @@ public:
   }
 
   Segment const & GetSegment() const { return m_segment; }
-  turns::TurnItem const & GetTurn() const { return m_turn; }
   Junction const & GetJunction() const { return m_junction; }
   std::string const & GetStreet() const { return m_street; }
+  traffic::SpeedGroup GetTraffic() const { return m_traffic; }
+  turns::TurnItem const & GetTurn() const { return m_turn; }
+
   double GetDistFromBeginningMeters() const { return m_distFromBeginningMeters; }
   double GetDistFromBeginningMerc() const { return m_distFromBeginningMerc; }
   double GetTimeFromBeginningSec() const { return m_timeFromBeginningS; }
-  traffic::SpeedGroup GetTraffic() const { return m_traffic; }
 
   bool HasTransitInfo() const { return m_transitInfo.HasTransitInfo(); }
   TransitInfo const & GetTransitInfo() const { return m_transitInfo.Get(); }
 
+  void SetSpeedCameraInfo(std::vector<SpeedCamera> && data) { m_speedCameras = std::move(data); }
+  bool IsRealSegment() const { return m_segment.IsRealSegment(); }
+  std::vector<SpeedCamera> const & GetSpeedCams() const { return m_speedCameras; }
+
 private:
   Segment m_segment;
+
   /// Turn (maneuver) information for the turn next to the |m_segment| if any.
   /// If not |m_turn::m_turn| is equal to TurnDirection::NoTurn.
   turns::TurnItem m_turn;
+
   /// The furthest point of the segment from the beginning of the route along the route.
   Junction m_junction;
+
   /// Street name of |m_segment| if any. Otherwise |m_street| is empty.
   std::string m_street;
+
   /// Distance from the route (not the subroute) beginning to the farthest end of |m_segment| in meters.
   double m_distFromBeginningMeters = 0.0;
+
   /// Distance from the route (not the subroute) beginning to the farthest end of |m_segment| in mercator.
   double m_distFromBeginningMerc = 0.0;
+
   /// ETA from the route beginning (not the subroute) in seconds to reach the farthest from the route beginning
   /// end of |m_segment|.
   double m_timeFromBeginningS = 0.0;
   traffic::SpeedGroup m_traffic = traffic::SpeedGroup::Unknown;
+
   /// Information needed to display transit segments properly.
   TransitInfoWrapper m_transitInfo;
+
+  // List of speed cameras, sorted by segment direction (from start to end).
+  // Stored coefficients where they placed at the segment (numbers from 0 to 1)
+  // and theirs' max speed.
+  std::vector<SpeedCamera> m_speedCameras;
 };
 
 class Route
@@ -127,20 +167,25 @@ public:
 
     Junction const & GetStart() const { return m_start; }
     Junction const & GetFinish() const { return m_finish; }
+
     size_t GetBeginSegmentIdx() const { return m_beginSegmentIdx; }
     size_t GetEndSegmentIdx() const { return m_endSegmentIdx; }
+
     size_t GetSize() const { return m_endSegmentIdx - m_beginSegmentIdx; }
 
   private:
+
     Junction m_start;
     Junction m_finish;
+
     // Index of the first subroute segment in the whole route.
     size_t m_beginSegmentIdx = 0;
+
     // Non inclusive index of the last subroute segment in the whole route.
     size_t m_endSegmentIdx = 0;
   };
 
-  /// \brief For every subroute some attributes are kept the following stucture.
+  /// \brief For every subroute some attributes are kept in the following structure.
   struct SubrouteSettings final
   {
     SubrouteSettings(RoutingSettings const & routingSettings, std::string const & router,
@@ -156,19 +201,22 @@ public:
     SubrouteUid const m_id = kInvalidSubrouteId;
   };
 
-  explicit Route(std::string const & router)
-    : m_router(router), m_routingSettings(GetRoutingSettings(VehicleType::Car)) {}
-
-  template <class TIter>
-  Route(std::string const & router, TIter beg, TIter end)
-    : m_router(router), m_routingSettings(GetRoutingSettings(VehicleType::Car)), m_poly(beg, end)
+  Route(std::string const & router, uint64_t routeId)
+    : m_router(router), m_routingSettings(GetRoutingSettings(VehicleType::Car)), m_routeId(routeId)
   {
   }
 
-  Route(std::string const & router, std::vector<m2::PointD> const & points,
-        std::string const & name = std::string());
+  template <class TIter>
+  Route(std::string const & router, TIter beg, TIter end, uint64_t routeId)
+    : m_router(router)
+    , m_routingSettings(GetRoutingSettings(VehicleType::Car))
+    , m_poly(beg, end)
+    , m_routeId(routeId)
+  {
+  }
 
-  void Swap(Route & rhs);
+  Route(std::string const & router, std::vector<m2::PointD> const & points, uint64_t routeId,
+        std::string const & name = std::string());
 
   template <class TIter> void SetGeometry(TIter beg, TIter end)
   {
@@ -206,6 +254,7 @@ public:
   }
 
   std::vector<RouteSegment> & GetRouteSegments() { return m_routeSegments; }
+  std::vector<RouteSegment> const & GetRouteSegments() const { return m_routeSegments; }
 
   void SetCurrentSubrouteIdx(size_t currentSubrouteIdx) { m_currentSubrouteIdx = currentSubrouteIdx; }
 
@@ -226,6 +275,7 @@ public:
 
   /// \returns estimated time for the whole route.
   double GetTotalTimeSec() const;
+
   /// \returns estimated time to reach the route end.
   double GetCurrentTimeToEndSec() const;
 
@@ -267,7 +317,7 @@ public:
   void GetCurrentDirectionPoint(m2::PointD & pt) const;
 
   /// @return true  If position was updated successfully (projection within gps error radius).
-  bool MoveIterator(location::GpsInfo const & info) const;
+  bool MoveIterator(location::GpsInfo const & info);
 
   void MatchLocationToRoute(location::GpsInfo & location, location::RouteMatchingInfo & routeMatchingInfo) const;
 
@@ -317,6 +367,10 @@ public:
   traffic::SpeedGroup GetTraffic(size_t segmentIdx) const;
 
   void GetTurnsForTesting(std::vector<turns::TurnItem> & turns) const;
+  bool IsRouteId(uint64_t routeId) const { return routeId == m_routeId; }
+
+  /// \returns Length of the route segment with |segIdx| in meters.
+  double GetSegLenMeters(size_t segIdx) const;
 
 private:
   friend std::string DebugPrint(Route const & r);
@@ -327,8 +381,7 @@ private:
 
   /// \returns Estimated time to pass the route segment with |segIdx|.
   double GetTimeToPassSegSec(size_t segIdx) const;
-  /// \returns Length of the route segment with |segIdx| in meters.
-  double GetSegLenMeters(size_t segIdx) const;
+
   /// \returns ETA to the last passed route point in seconds.
   double GetETAToLastPassedPointSec() const;
 
@@ -347,5 +400,7 @@ private:
   SubrouteUid m_subrouteUid = kInvalidSubrouteId;
   size_t m_currentSubrouteIdx = 0;
   std::vector<SubrouteAttrs> m_subrouteAttrs;
+  // Route identifier. It's unique within single program session.
+  uint64_t m_routeId = 0;
 };
 } // namespace routing

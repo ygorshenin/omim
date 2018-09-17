@@ -1,4 +1,7 @@
 #include "partners_api/mopub_ads.hpp"
+#include "partners_api/partners.hpp"
+
+#include "private.h"
 
 namespace
 {
@@ -26,12 +29,6 @@ Mopub::Mopub()
                {"amenity", "pub"},
                {"shop"},                  // shops
                {"amenity", "marketplace"},
-               {"tourism", "hotel"},      // hotels
-               {"tourism", "hostel"},
-               {"tourism", "motel"},
-               {"tourism", "apartment"},
-               {"tourism", "resort"},
-               {"tourism", "chalet"},
                {"tourism", "zoo"},        // sights
                {"tourism", "artwork"},
                {"tourism", "information"},
@@ -67,16 +64,29 @@ Mopub::Mopub()
                {"amenity", "hospital"},
                {"amenity", "pharmacy"},
                {"amenity", "veterinary"},
-               {"amenity", "bank"},       // finansial
+               {"amenity", "bank"},       // financial
                {"amenity", "atm"},
                {"amenity", "bureau_de_change"}},
               kNonTourismPlacementId);
 
   AppendEntry({{"sponsored", "banner"}}, kSponsoredBannerPlacementId);
+
+  for (auto const & p : GetPartners())
+  {
+    auto const & placementId = p.GetBannerPlacementId();
+    if (!placementId.empty())
+      AppendEntry({{"sponsored", p.m_type.c_str()}}, placementId);
+  }
 }
 
 std::string Mopub::GetBannerIdForOtherTypes() const
 {
   return kNonTourismPlacementId;
+}
+
+// static
+std::string Mopub::InitializationBannerId()
+{
+  return kSponsoredBannerPlacementId;
 }
 }  // namespace ads

@@ -1,6 +1,7 @@
 #pragma once
 
-#include "partners_api/taxi_countries.hpp"
+#include "partners_api/taxi_places.hpp"
+#include "partners_api/taxi_places_loader.hpp"
 #include "partners_api/taxi_provider.hpp"
 
 #include <functional>
@@ -53,11 +54,10 @@ using ApiPtr = std::unique_ptr<ApiBase>;
 
 struct ApiItem
 {
-  ApiItem(Provider::Type type, ApiPtr && api, Countries const & enabled, Countries const & disabled)
+  ApiItem(Provider::Type type, ApiPtr && api)
     : m_type(type)
     , m_api(std::move(api))
-    , m_enabledCountries(enabled)
-    , m_disabledCountries(disabled)
+    , m_places(places::Loader::LoadFor(type))
   {
   }
 
@@ -65,11 +65,12 @@ struct ApiItem
                                std::string const & city) const;
   bool IsAnyCountryEnabled(storage::TCountriesVec const & countryIds,
                            std::string const & city) const;
+  bool IsMwmDisabled(storage::TCountryId const & mwmId) const;
+  bool IsMwmEnabled(storage::TCountryId const & mwmId) const;
 
   Provider::Type m_type;
   ApiPtr m_api;
 
-  Countries m_enabledCountries;
-  Countries m_disabledCountries;
+  SupportedPlaces m_places;
 };
 }  // namespace taxi

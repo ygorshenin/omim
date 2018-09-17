@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Svoltare a sinistra.",
 "make_a_u_turn":"Effettua un'inversione a U.",
 "go_straight":"Sempre dritto.",
+"exit":"Uscita.",
 "destination":"Arriverai.",
 "you_have_reached_the_destination":"Sei arrivato.",
 "in_50_meters":"Tra cinquanta metri",
@@ -61,5 +62,6 @@
 "in_5000_feet":"Tra cinquemila piedi",
 "in_1_mile":"Tra un miglio",
 "in_1_5_miles":"Tra un miglio e mezzo",
-"in_2_miles":"Tra due miglia"
+"in_2_miles":"Tra due miglia",
+"unknown_camera":"Speed camera ahead"
 }

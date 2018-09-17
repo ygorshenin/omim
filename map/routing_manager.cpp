@@ -10,9 +10,7 @@
 #include "routing/checkpoint_predictor.hpp"
 #include "routing/index_router.hpp"
 #include "routing/online_absent_fetcher.hpp"
-#include "routing/road_graph_router.hpp"
 #include "routing/route.hpp"
-#include "routing/routing_algorithm.hpp"
 #include "routing/routing_helpers.hpp"
 
 #include "routing_common/num_mwm_id.hpp"
@@ -50,8 +48,6 @@ using namespace std;
 
 namespace
 {
-//#define SHOW_ROUTE_DEBUG_MARKS
-
 char const kRouterTypeKey[] = "router";
 
 double const kRouteScaleMultiplier = 1.5;
@@ -72,8 +68,7 @@ void FillTurnsDistancesForRendering(vector<RouteSegment> const & segments,
     CHECK_NOT_EQUAL(t.m_turn, CarDirection::Count, ());
     // We do not render some of turn directions.
     if (t.m_turn == CarDirection::None || t.m_turn == CarDirection::StartAtEndOfStreet ||
-        t.m_turn == CarDirection::StayOnRoundAbout || t.m_turn == CarDirection::TakeTheExit ||
-        t.m_turn == CarDirection::ReachedYourDestination)
+        t.m_turn == CarDirection::StayOnRoundAbout || t.m_turn == CarDirection::ReachedYourDestination)
     {
       continue;
     }
@@ -110,7 +105,7 @@ RouteMarkData GetLastPassedPoint(BookmarkManager * bmManager, vector<RouteMarkDa
   data.m_intermediateIndex = 0;
   if (data.m_isMyPosition)
   {
-    data.m_position = bmManager->MyPositionMark()->GetPivot();
+    data.m_position = bmManager->MyPositionMark().GetPivot();
     data.m_isMyPosition = false;
   }
 
@@ -145,24 +140,12 @@ RouteMarkData DeserializeRoutePoint(json_t * node)
   return data;
 }
 
-string SerializeRoutePoints(BookmarkManager * bmManager, vector<RouteMarkData> const & points)
+string SerializeRoutePoints(vector<RouteMarkData> const & points)
 {
   ASSERT_GREATER_OR_EQUAL(points.size(), 2, ());
   auto pointsNode = my::NewJSONArray();
-
-  // Save last passed point. It will be used on points loading if my position
-  // isn't determined.
-  auto lastPassedPoint = GetLastPassedPoint(bmManager, points);
-  auto lastPassedNode = my::NewJSONObject();
-  SerializeRoutePoint(lastPassedNode.get(), lastPassedPoint);
-  json_array_append_new(pointsNode.get(), lastPassedNode.release());
-
   for (auto const & p : points)
   {
-    // Here we skip passed points and the start point.
-    if (p.m_isPassed || p.m_pointType == RouteMarkType::Start)
-      continue;
-
     auto pointNode = my::NewJSONObject();
     SerializeRoutePoint(pointNode.get(), p);
     json_array_append_new(pointsNode.get(), pointNode.release());
@@ -174,34 +157,41 @@ string SerializeRoutePoints(BookmarkManager * bmManager, vector<RouteMarkData> c
 
 vector<RouteMarkData> DeserializeRoutePoints(string const & data)
 {
-  my::Json root(data.c_str());
-
-  if (root.get() == nullptr || !json_is_array(root.get()))
-    return {};
-
-  size_t const sz = json_array_size(root.get());
-  if (sz == 0)
-    return {};
-
-  vector<RouteMarkData> result;
-  result.reserve(sz);
-  for (size_t i = 0; i < sz; ++i)
+  try
   {
-    auto pointNode = json_array_get(root.get(), i);
-    if (pointNode == nullptr)
-      continue;
+    my::Json root(data.c_str());
 
-    auto point = DeserializeRoutePoint(pointNode);
-    if (point.m_position.EqualDxDy(m2::PointD::Zero(), 1e-7))
-      continue;
+    if (root.get() == nullptr || !json_is_array(root.get()))
+      return {};
 
-    result.push_back(move(point));
+    size_t const sz = json_array_size(root.get());
+    if (sz == 0)
+      return {};
+
+    vector<RouteMarkData> result;
+    result.reserve(sz);
+    for (size_t i = 0; i < sz; ++i)
+    {
+      auto pointNode = json_array_get(root.get(), i);
+      if (pointNode == nullptr)
+        continue;
+
+      auto point = DeserializeRoutePoint(pointNode);
+      if (point.m_position.EqualDxDy(m2::PointD::Zero(), 1e-7))
+        continue;
+
+      result.push_back(move(point));
+    }
+
+    if (result.size() < 2)
+      return {};
+
+    return result;
   }
-
-  if (result.size() < 2)
+  catch (my::Json::Exception const &)
+  {
     return {};
-
-  return result;
+  }
 }
 
 VehicleType GetVehicleType(RouterType routerType)
@@ -215,6 +205,7 @@ VehicleType GetVehicleType(RouterType routerType)
   case RouterType::Transit: return VehicleType::Transit;
   case RouterType::Count: CHECK(false, ("Invalid type", routerType)); return VehicleType::Count;
   }
+  CHECK_SWITCH();
 }
 }  // namespace
 
@@ -228,29 +219,35 @@ RoutingManager::RoutingManager(Callbacks && callbacks, Delegate & delegate)
   , m_delegate(delegate)
   , m_trackingReporter(platform::CreateSocket(), TRACKING_REALTIME_HOST, TRACKING_REALTIME_PORT,
                        tracking::Reporter::kPushDelayMs)
-  , m_transitReadManager(m_callbacks.m_indexGetter(), m_callbacks.m_readFeaturesFn)
+  , m_extrapolator(
+        [this](location::GpsInfo const & gpsInfo) { this->OnExtrapolatedLocationUpdate(gpsInfo); })
 {
   auto const routingStatisticsFn = [](map<string, string> const & statistics) {
     alohalytics::LogEvent("Routing_CalculatingRoute", statistics);
     GetPlatform().GetMarketingService().SendMarketingEvent(marketing::kRoutingCalculatingRoute, {});
   };
 
-  m_routingSession.Init(routingStatisticsFn, [this](m2::PointD const & pt)
-  {
+  m_routingSession.Init(routingStatisticsFn,
 #ifdef SHOW_ROUTE_DEBUG_MARKS
-    if (m_bmManager == nullptr)
-      return;
-    auto & controller = m_bmManager->GetUserMarksController(UserMark::Type::DEBUG_MARK);
-    controller.SetIsVisible(true);
-    controller.SetIsDrawable(true);
-    controller.CreateUserMark(pt);
-    controller.NotifyChanges();
+                        [this](m2::PointD const & pt) {
+                          if (m_bmManager == nullptr)
+                            return;
+                          auto editSession = m_bmManager->GetEditSession();
+                          editSession.SetIsVisible(UserMark::Type::DEBUG_MARK, true);
+                          editSession.CreateUserMark<DebugMarkPoint>(pt);
+                        }
+#else
+                        nullptr
 #endif
-  });
+  );
 
-  m_routingSession.SetReadyCallbacks(
-      [this](Route const & route, IRouter::ResultCode code) { OnBuildRouteReady(route, code); },
-      [this](Route const & route, IRouter::ResultCode code) { OnRebuildRouteReady(route, code); });
+  m_routingSession.SetRoutingCallbacks(
+      [this](Route const & route, RouterResultCode code) { OnBuildRouteReady(route, code); },
+      [this](Route const & route, RouterResultCode code) { OnRebuildRouteReady(route, code); },
+      [this](uint64_t routeId, vector<string> const & absentCountries) {
+        OnNeedMoreMaps(routeId, absentCountries);
+      },
+      [this](RouterResultCode code) { OnRemoveRoute(code); });
 
   m_routingSession.SetCheckpointCallback([this](size_t passedCheckpointIdx)
   {
@@ -280,59 +277,78 @@ void RoutingManager::SetBookmarkManager(BookmarkManager * bmManager)
   m_bmManager = bmManager;
 }
 
-void RoutingManager::OnBuildRouteReady(Route const & route, IRouter::ResultCode code)
+void RoutingManager::SetTransitManager(TransitReadManager * transitManager)
 {
-  // Hide preview.
-  HidePreviewSegments();
-
-  storage::TCountriesVec absentCountries;
-  if (code == IRouter::NoError)
-  {
-    InsertRoute(route);
-    m_drapeEngine.SafeCall(&df::DrapeEngine::StopLocationFollow);
-
-    // Validate route (in case of bicycle routing it can be invalid).
-    ASSERT(route.IsValid(), ());
-    if (route.IsValid())
-    {
-      m2::RectD routeRect = route.GetPoly().GetLimitRect();
-      routeRect.Scale(kRouteScaleMultiplier);
-      m_drapeEngine.SafeCall(&df::DrapeEngine::SetModelViewRect, routeRect,
-                             true /* applyRotation */, -1 /* zoom */, true /* isAnim */);
-    }
-  }
-  else
-  {
-    absentCountries.assign(route.GetAbsentCountries().begin(), route.GetAbsentCountries().end());
-
-    if (code != IRouter::NeedMoreMaps)
-      RemoveRoute(true /* deactivateFollowing */);
-  }
-  CallRouteBuilded(code, absentCountries);
+  m_transitReadManager = transitManager;
 }
 
-void RoutingManager::OnRebuildRouteReady(Route const & route, IRouter::ResultCode code)
+void RoutingManager::OnBuildRouteReady(Route const & route, RouterResultCode code)
 {
-  // Hide preview.
+  // @TODO(bykoianko) Remove |code| from callback signature.
+  CHECK_EQUAL(code, RouterResultCode::NoError, ());
   HidePreviewSegments();
 
-  if (code != IRouter::NoError)
+  InsertRoute(route);
+  m_drapeEngine.SafeCall(&df::DrapeEngine::StopLocationFollow);
+
+  // Validate route (in case of bicycle routing it can be invalid).
+  ASSERT(route.IsValid(), ());
+  if (route.IsValid())
+  {
+    m2::RectD routeRect = route.GetPoly().GetLimitRect();
+    routeRect.Scale(kRouteScaleMultiplier);
+    m_drapeEngine.SafeCall(&df::DrapeEngine::SetModelViewRect, routeRect,
+                           true /* applyRotation */, -1 /* zoom */, true /* isAnim */);
+  }
+
+  CallRouteBuilded(code, storage::TCountriesVec());
+}
+
+void RoutingManager::OnRebuildRouteReady(Route const & route, RouterResultCode code)
+{
+  HidePreviewSegments();
+
+  if (code != RouterResultCode::NoError)
     return;
 
   InsertRoute(route);
   CallRouteBuilded(code, storage::TCountriesVec());
 }
 
+void RoutingManager::OnNeedMoreMaps(uint64_t routeId, vector<string> const & absentCountries)
+{
+  // No need to inform user about maps needed for the route if the method is called
+  // when RoutingSession contains a new route.
+  if (m_routingSession.IsRouteValid() && !m_routingSession.IsRouteId(routeId))
+    return;
+
+  HidePreviewSegments();
+  CallRouteBuilded(RouterResultCode::NeedMoreMaps, absentCountries);
+}
+
+void RoutingManager::OnRemoveRoute(routing::RouterResultCode code)
+{
+  HidePreviewSegments();
+  RemoveRoute(true /* deactivateFollowing */);
+  CallRouteBuilded(code, vector<string>());
+}
+
 void RoutingManager::OnRoutePointPassed(RouteMarkType type, size_t intermediateIndex)
 {
   // Remove route point.
   ASSERT(m_bmManager != nullptr, ());
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
   routePoints.PassRoutePoint(type, intermediateIndex);
-  routePoints.NotifyChanges();
 
   if (type == RouteMarkType::Finish)
     RemoveRoute(false /* deactivateFollowing */);
+
+  SaveRoutePoints();
+}
+
+void RoutingManager::OnLocationUpdate(location::GpsInfo const & info)
+{
+  m_extrapolator.OnLocationUpdate(info);
 }
 
 RouterType RoutingManager::GetBestRouter(m2::PointD const & startPoint,
@@ -361,8 +377,8 @@ RouterType RoutingManager::GetLastUsedRouter() const
 
 void RoutingManager::SetRouterImpl(RouterType type)
 {
-  auto const indexGetterFn = m_callbacks.m_indexGetter;
-  CHECK(indexGetterFn, ("Type:", type));
+  auto const dataSourceGetterFn = m_callbacks.m_dataSourceGetter;
+  CHECK(dataSourceGetterFn, ("Type:", type));
 
   VehicleType const vehicleType = GetVehicleType(type);
 
@@ -377,10 +393,10 @@ void RoutingManager::SetRouterImpl(RouterType type)
   auto numMwmIds = make_shared<NumMwmIds>();
   m_delegate.RegisterCountryFilesOnRoute(numMwmIds);
 
-  auto & index = m_callbacks.m_indexGetter();
+  auto & dataSource = m_callbacks.m_dataSourceGetter();
 
   auto localFileChecker = [this](string const & countryFile) -> bool {
-    MwmSet::MwmId const mwmId = m_callbacks.m_indexGetter().GetMwmIdByCountryFile(
+    MwmSet::MwmId const mwmId = m_callbacks.m_dataSourceGetter().GetMwmIdByCountryFile(
       platform::CountryFile(countryFile));
     if (!mwmId.IsAlive())
       return false;
@@ -396,7 +412,7 @@ void RoutingManager::SetRouterImpl(RouterType type)
   auto router = make_unique<IndexRouter>(vehicleType, m_loadAltitudes, m_callbacks.m_countryParentNameGetterFn,
                                          countryFileGetter, getMwmRectByName, numMwmIds,
                                          MakeNumMwmTree(*numMwmIds, m_callbacks.m_countryInfoGetter()),
-                                         m_routingSession, index);
+                                         m_routingSession, dataSource);
 
   m_routingSession.SetRoutingSettings(GetRoutingSettings(vehicleType));
   m_routingSession.SetRouter(move(router), move(fetcher));
@@ -405,15 +421,17 @@ void RoutingManager::SetRouterImpl(RouterType type)
 
 void RoutingManager::RemoveRoute(bool deactivateFollowing)
 {
-  auto & marksController = m_bmManager->GetUserMarksController(UserMark::Type::TRANSIT);
-  marksController.Clear();
-  marksController.NotifyChanges();
+  GetPlatform().RunTask(Platform::Thread::Gui, [this, deactivateFollowing]()
+  {
+    m_bmManager->GetEditSession().ClearGroup(UserMark::Type::TRANSIT);
 
-  if (deactivateFollowing)
-    SetPointsFollowingMode(false /* enabled */);
+    if (deactivateFollowing)
+      SetPointsFollowingMode(false /* enabled */);
+  });
 
   if (deactivateFollowing)
   {
+    m_transitReadManager->BlockTransitSchemeMode(false /* isBlocked */);
     // Remove all subroutes.
     m_drapeEngine.SafeCall(&df::DrapeEngine::RemoveSubroute,
                            dp::DrapeID(), true /* deactivateFollowing */);
@@ -444,16 +462,16 @@ void RoutingManager::InsertRoute(Route const & route)
   // TODO: Now we always update whole route, so we need to remove previous one.
   RemoveRoute(false /* deactivateFollowing */);
 
-  std::unique_ptr<TransitRouteDisplay> transitRouteDisplay;
+  shared_ptr<TransitRouteDisplay> transitRouteDisplay;
   auto numMwmIds = make_shared<NumMwmIds>();
   if (m_currentRouterType == RouterType::Transit)
   {
     m_delegate.RegisterCountryFilesOnRoute(numMwmIds);
-    auto getMwmId = [this, &numMwmIds](routing::NumMwmId numMwmId)
+    auto getMwmId = [this, numMwmIds](routing::NumMwmId numMwmId)
     {
-      return m_callbacks.m_indexGetter().GetMwmIdByCountryFile(numMwmIds->GetFile(numMwmId));
+      return m_callbacks.m_dataSourceGetter().GetMwmIdByCountryFile(numMwmIds->GetFile(numMwmId));
     };
-    transitRouteDisplay = make_unique<TransitRouteDisplay>(m_transitReadManager, getMwmId,
+    transitRouteDisplay = make_shared<TransitRouteDisplay>(*m_transitReadManager, getMwmId,
                                                            m_callbacks.m_stringsBundleGetter,
                                                            m_bmManager, m_transitSymbolSizes);
   }
@@ -544,9 +562,19 @@ void RoutingManager::InsertRoute(Route const & route)
     m_drapeSubroutes.push_back(subrouteId);
   }
 
-  lock_guard<mutex> lock(m_drapeSubroutesMutex);
-  m_transitRouteInfo = m_currentRouterType == RouterType::Transit ? transitRouteDisplay->GetRouteInfo()
-                                                                  : TransitRouteInfo();
+  {
+    lock_guard<mutex> lock(m_drapeSubroutesMutex);
+    m_transitRouteInfo = m_currentRouterType == RouterType::Transit ? transitRouteDisplay->GetRouteInfo()
+                                                                    : TransitRouteInfo();
+  }
+
+  if (m_currentRouterType == RouterType::Transit)
+  {
+    GetPlatform().RunTask(Platform::Thread::Gui, [transitRouteDisplay = move(transitRouteDisplay)]()
+    {
+      transitRouteDisplay->CreateTransitMarks();
+    });
+  }
 }
 
 void RoutingManager::FollowRoute()
@@ -554,6 +582,11 @@ void RoutingManager::FollowRoute()
   if (!m_routingSession.EnableFollowMode())
     return;
 
+  m_transitReadManager->BlockTransitSchemeMode(true /* isBlocked */);
+
+  // Switching on the extrapolatior only for following mode in car and bicycle navigation.
+  m_extrapolator.Enable(m_currentRouterType == RouterType::Vehicle ||
+                        m_currentRouterType == RouterType::Bicycle);
   m_delegate.OnRouteFollow(m_currentRouterType);
 
   HideRoutePoint(RouteMarkType::Start);
@@ -564,6 +597,7 @@ void RoutingManager::FollowRoute()
 
 void RoutingManager::CloseRouting(bool removeRoutePoints)
 {
+  m_extrapolator.Enable(false);
   // Hide preview.
   HidePreviewSegments();
   
@@ -574,10 +608,7 @@ void RoutingManager::CloseRouting(bool removeRoutePoints)
 
   if (removeRoutePoints)
   {
-    auto & controller = m_bmManager->GetUserMarksController(UserMark::Type::ROUTING);
-    controller.Clear();
-    controller.NotifyChanges();
-
+    m_bmManager->GetEditSession().ClearGroup(UserMark::Type::ROUTING);
     CancelRecommendation(Recommendation::RebuildAfterPointsLoading);
   }
 }
@@ -589,26 +620,23 @@ void RoutingManager::SetLastUsedRouter(RouterType type)
 
 void RoutingManager::HideRoutePoint(RouteMarkType type, size_t intermediateIndex)
 {
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
-  RouteMarkPoint * mark = routePoints.GetRoutePoint(type, intermediateIndex);
+  RoutePointsLayout routePoints(*m_bmManager);
+  RouteMarkPoint * mark = routePoints.GetRoutePointForEdit(type, intermediateIndex);
   if (mark != nullptr)
-  {
     mark->SetIsVisible(false);
-    routePoints.NotifyChanges();
-  }
 }
 
 bool RoutingManager::IsMyPosition(RouteMarkType type, size_t intermediateIndex)
 {
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
-  RouteMarkPoint * mark = routePoints.GetRoutePoint(type, intermediateIndex);
+  RoutePointsLayout routePoints(*m_bmManager);
+  RouteMarkPoint const * mark = routePoints.GetRoutePoint(type, intermediateIndex);
   return mark != nullptr ? mark->IsMyPosition() : false;
 }
 
 vector<RouteMarkData> RoutingManager::GetRoutePoints() const
 {
   vector<RouteMarkData> result;
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
   for (auto const & p : routePoints.GetRoutePoints())
     result.push_back(p->GetMarkData());
   return result;
@@ -616,7 +644,7 @@ vector<RouteMarkData> RoutingManager::GetRoutePoints() const
 
 size_t RoutingManager::GetRoutePointsCount() const
 {
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
   return routePoints.GetRoutePointsCount();
 }
 
@@ -625,14 +653,14 @@ bool RoutingManager::CouldAddIntermediatePoint() const
   if (!IsRoutingActive())
     return false;
 
-  auto const & controller = m_bmManager->GetUserMarksController(UserMark::Type::ROUTING);
-  return controller.GetUserMarkCount() < RoutePointsLayout::kMaxIntermediatePointsCount + 2;
+  return m_bmManager->GetUserMarkIds(UserMark::Type::ROUTING).size()
+    < RoutePointsLayout::kMaxIntermediatePointsCount + 2;
 }
 
 void RoutingManager::AddRoutePoint(RouteMarkData && markData)
 {
   ASSERT(m_bmManager != nullptr, ());
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
 
   // Always replace start and finish points.
   if (markData.m_pointType == RouteMarkType::Start || markData.m_pointType == RouteMarkType::Finish)
@@ -640,7 +668,7 @@ void RoutingManager::AddRoutePoint(RouteMarkData && markData)
 
   if (markData.m_isMyPosition)
   {
-    RouteMarkPoint * mark = routePoints.GetMyPositionPoint();
+    RouteMarkPoint const * mark = routePoints.GetMyPositionPoint();
     if (mark != nullptr)
       routePoints.RemoveRoutePoint(mark->GetRoutePointType(), mark->GetIntermediateIndex());
   }
@@ -648,48 +676,43 @@ void RoutingManager::AddRoutePoint(RouteMarkData && markData)
   markData.m_isVisible = !markData.m_isMyPosition;
   routePoints.AddRoutePoint(move(markData));
   ReorderIntermediatePoints();
-  routePoints.NotifyChanges();
 }
 
 void RoutingManager::RemoveRoutePoint(RouteMarkType type, size_t intermediateIndex)
 {
   ASSERT(m_bmManager != nullptr, ());
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
   routePoints.RemoveRoutePoint(type, intermediateIndex);
-  routePoints.NotifyChanges();
 }
 
 void RoutingManager::RemoveRoutePoints()
 {
   ASSERT(m_bmManager != nullptr, ());
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
   routePoints.RemoveRoutePoints();
-  routePoints.NotifyChanges();
 }
 
 void RoutingManager::RemoveIntermediateRoutePoints()
 {
   ASSERT(m_bmManager != nullptr, ());
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
   routePoints.RemoveIntermediateRoutePoints();
-  routePoints.NotifyChanges();
 }
 
 void RoutingManager::MoveRoutePoint(RouteMarkType currentType, size_t currentIntermediateIndex,
                                     RouteMarkType targetType, size_t targetIntermediateIndex)
 {
   ASSERT(m_bmManager != nullptr, ());
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
   routePoints.MoveRoutePoint(currentType, currentIntermediateIndex,
                              targetType, targetIntermediateIndex);
-  routePoints.NotifyChanges();
 }
 
 void RoutingManager::MoveRoutePoint(size_t currentIndex, size_t targetIndex)
 {
   ASSERT(m_bmManager != nullptr, ());
 
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
   size_t const sz = routePoints.GetRoutePointsCount();
   auto const convertIndex = [sz](RouteMarkType & type, size_t & index) {
     if (index == 0)
@@ -715,15 +738,13 @@ void RoutingManager::MoveRoutePoint(size_t currentIndex, size_t targetIndex)
   convertIndex(targetType, targetIndex);
 
   routePoints.MoveRoutePoint(currentType, currentIndex, targetType, targetIndex);
-  routePoints.NotifyChanges();
 }
 
 void RoutingManager::SetPointsFollowingMode(bool enabled)
 {
   ASSERT(m_bmManager != nullptr, ());
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
   routePoints.SetFollowingMode(enabled);
-  routePoints.NotifyChanges();
 }
 
 void RoutingManager::ReorderIntermediatePoints()
@@ -732,7 +753,7 @@ void RoutingManager::ReorderIntermediatePoints()
   vector<m2::PointD> prevPositions;
   prevPoints.reserve(RoutePointsLayout::kMaxIntermediatePointsCount);
   prevPositions.reserve(RoutePointsLayout::kMaxIntermediatePointsCount);
-  RoutePointsLayout routePoints(m_bmManager->GetUserMarksController(UserMark::Type::ROUTING));
+  RoutePointsLayout routePoints(*m_bmManager);
 
   RouteMarkPoint * addedPoint = nullptr;
   m2::PointD addedPosition;
@@ -765,30 +786,26 @@ void RoutingManager::ReorderIntermediatePoints()
   addedPoint->SetIntermediateIndex(insertIndex);
   for (size_t i = 0; i < prevPoints.size(); ++i)
     prevPoints[i]->SetIntermediateIndex(i < insertIndex ? i : i + 1);
-
-  routePoints.NotifyChanges();
 }
 
-void RoutingManager::GenerateTurnNotifications(vector<string> & turnNotifications)
+void RoutingManager::GenerateNotifications(vector<string> & turnNotifications)
 {
   if (m_currentRouterType == RouterType::Taxi)
     return;
 
-  return m_routingSession.GenerateTurnNotifications(turnNotifications);
+  m_routingSession.GenerateNotifications(turnNotifications);
 }
 
 void RoutingManager::BuildRoute(uint32_t timeoutSec)
 {
-  ASSERT_THREAD_CHECKER(m_threadChecker, ("BuildRoute"));
+  CHECK_THREAD_CHECKER(m_threadChecker, ("BuildRoute"));
 
-  auto & marksController = m_bmManager->GetUserMarksController(UserMark::Type::TRANSIT);
-  marksController.Clear();
-  marksController.NotifyChanges();
+  m_bmManager->GetEditSession().ClearGroup(UserMark::Type::TRANSIT);
 
   auto routePoints = GetRoutePoints();
   if (routePoints.size() < 2)
   {
-    CallRouteBuilded(IRouter::Cancelled, storage::TCountriesVec());
+    CallRouteBuilded(RouterResultCode::Cancelled, storage::TCountriesVec());
     CloseRouting(false /* remove route points */);
     return;
   }
@@ -800,12 +817,12 @@ void RoutingManager::BuildRoute(uint32_t timeoutSec)
       continue;
 
     auto const & myPosition = m_bmManager->MyPositionMark();
-    if (!myPosition->HasPosition())
+    if (!myPosition.HasPosition())
     {
-      CallRouteBuilded(IRouter::NoCurrentPosition, storage::TCountriesVec());
+      CallRouteBuilded(RouterResultCode::NoCurrentPosition, storage::TCountriesVec());
       return;
     }
-    p.m_position = myPosition->GetPivot();
+    p.m_position = myPosition.GetPivot();
   }
 
   // Check for equal points.
@@ -816,7 +833,7 @@ void RoutingManager::BuildRoute(uint32_t timeoutSec)
     {
       if (routePoints[i].m_position.EqualDxDy(routePoints[j].m_position, kEps))
       {
-        CallRouteBuilded(IRouter::Cancelled, storage::TCountriesVec());
+        CallRouteBuilded(RouterResultCode::Cancelled, storage::TCountriesVec());
         CloseRouting(false /* remove route points */);
         return;
       }
@@ -893,8 +910,10 @@ bool RoutingManager::DisableFollowMode()
 {
   bool const disabled = m_routingSession.DisableFollowMode();
   if (disabled)
+  {
+    m_transitReadManager->BlockTransitSchemeMode(false /* isBlocked */);
     m_drapeEngine.SafeCall(&df::DrapeEngine::DeactivateRouteFollowing);
-
+  }
   return disabled;
 }
 
@@ -903,24 +922,21 @@ void RoutingManager::CheckLocationForRouting(location::GpsInfo const & info)
   if (!IsRoutingActive())
     return;
 
-  auto const featureIndexGetterFn = m_callbacks.m_indexGetter;
-  ASSERT(featureIndexGetterFn, ());
-  RoutingSession::State const state =
-      m_routingSession.OnLocationPositionChanged(info, featureIndexGetterFn());
+  RoutingSession::State const state = m_routingSession.OnLocationPositionChanged(info);
   if (state == RoutingSession::RouteNeedRebuild)
   {
     m_routingSession.RebuildRoute(
         MercatorBounds::FromLatLon(info.m_latitude, info.m_longitude),
-        [this](Route const & route, IRouter::ResultCode code) { OnRebuildRouteReady(route, code); },
-        0 /* timeoutSec */, RoutingSession::State::RouteRebuilding,
-        true /* adjustToPrevRoute */);
+        [this](Route const & route, RouterResultCode code) { OnRebuildRouteReady(route, code); },
+        nullptr /* needMoreMapsCallback */, nullptr /* removeRouteCallback */, 0 /* timeoutSec */,
+        RoutingSession::State::RouteRebuilding, true /* adjustToPrevRoute */);
   }
 }
 
-void RoutingManager::CallRouteBuilded(IRouter::ResultCode code,
+void RoutingManager::CallRouteBuilded(RouterResultCode code,
                                       storage::TCountriesVec const & absentCountries)
 {
-  m_routingCallback(code, absentCountries);
+  m_routingBuildingCallback(code, absentCountries);
 }
 
 void RoutingManager::MatchLocationToRoute(location::GpsInfo & location,
@@ -930,19 +946,6 @@ void RoutingManager::MatchLocationToRoute(location::GpsInfo & location,
     return;
 
   m_routingSession.MatchLocationToRoute(location, routeMatchingInfo);
-}
-
-void RoutingManager::OnLocationUpdate(location::GpsInfo & info)
-{
-  if (!m_drapeEngine)
-    m_gpsInfoCache = my::make_unique<location::GpsInfo>(info);
-
-  auto routeMatchingInfo = GetRouteMatchingInfo(info);
-  m_drapeEngine.SafeCall(&df::DrapeEngine::SetGpsInfo, info,
-                         m_routingSession.IsNavigable(), routeMatchingInfo);
-
-  if (IsTrackingReporterEnabled())
-    m_trackingReporter.AddLocation(info, m_routingSession.MatchTraffic(routeMatchingInfo));
 }
 
 location::RouteMatchingInfo RoutingManager::GetRouteMatchingInfo(location::GpsInfo & info)
@@ -969,31 +972,24 @@ void RoutingManager::SetDrapeEngine(ref_ptr<df::DrapeEngine> engine, bool is3dAl
   }
 
   vector<string> symbols;
-  symbols.reserve(kTransitSymbols.size() * 3);
+  symbols.reserve(kTransitSymbols.size() * 2);
   for (auto const & typePair : kTransitSymbols)
   {
     symbols.push_back(typePair.second + "-s");
     symbols.push_back(typePair.second + "-m");
-    symbols.push_back(typePair.second + "-l");
   }
   m_drapeEngine.SafeCall(&df::DrapeEngine::RequestSymbolsSize, symbols,
-                         [this, is3dAllowed](std::vector<m2::PointF> const & sizes)
+                         [this, is3dAllowed](map<string, m2::PointF> && sizes)
   {
-    GetPlatform().RunTask(Platform::Thread::Gui, [this, is3dAllowed, sizes]()
+    GetPlatform().RunTask(Platform::Thread::Gui, [this, is3dAllowed, sizes = move(sizes)]() mutable
     {
-      auto it = kTransitSymbols.begin();
-      for (size_t i = 0; i < sizes.size(); i += 3)
-      {
-        m_transitSymbolSizes[it->second + "-s"] = sizes[i];
-        m_transitSymbolSizes[it->second + "-m"] = sizes[i + 1];
-        m_transitSymbolSizes[it->second + "-l"] = sizes[i + 2];
-        ++it;
-      }
+      m_transitSymbolSizes = move(sizes);
 
       // In case of the engine reinitialization recover route.
       if (IsRoutingActive())
       {
-        InsertRoute(*m_routingSession.GetRoute());
+        m_routingSession.RouteCall([this](Route const & route) { InsertRoute(route); });
+
         if (is3dAllowed && m_routingSession.IsFollowing())
           m_drapeEngine.SafeCall(&df::DrapeEngine::EnablePerspective);
       }
@@ -1006,23 +1002,29 @@ bool RoutingManager::HasRouteAltitude() const
   return m_loadAltitudes && m_routingSession.HasRouteAltitude();
 }
 
+bool RoutingManager::GetRouteAltitudesAndDistancesM(vector<double> & routePointDistanceM,
+                                                    feature::TAltitudes & altitudes) const
+{
+  if (!m_routingSession.GetRouteAltitudesAndDistancesM(routePointDistanceM, altitudes))
+    return false;
+
+  routePointDistanceM.insert(routePointDistanceM.begin(), 0.0);
+  return true;
+}
+
 bool RoutingManager::GenerateRouteAltitudeChart(uint32_t width, uint32_t height,
+                                                feature::TAltitudes const & altitudes,
+                                                vector<double> const & routePointDistanceM,
                                                 vector<uint8_t> & imageRGBAData,
                                                 int32_t & minRouteAltitude,
                                                 int32_t & maxRouteAltitude,
                                                 measurement_utils::Units & altitudeUnits) const
 {
-  feature::TAltitudes altitudes;
-  vector<double> segDistance;
-
-  if (!m_routingSession.GetRouteAltitudesAndDistancesM(segDistance, altitudes))
-    return false;
-  segDistance.insert(segDistance.begin(), 0.0);
-
+  CHECK_EQUAL(altitudes.size(), routePointDistanceM.size(), ());
   if (altitudes.empty())
     return false;
 
-  if (!maps::GenerateChart(width, height, segDistance, altitudes,
+  if (!maps::GenerateChart(width, height, routePointDistanceM, altitudes,
                            GetStyleReader().GetCurrentStyle(), imageRGBAData))
     return false;
 
@@ -1056,13 +1058,14 @@ bool RoutingManager::IsTrackingReporterEnabled() const
     return false;
 
   bool enableTracking = true;
-  UNUSED_VALUE(settings::Get(tracking::Reporter::kEnableTrackingKey, enableTracking));
+  settings::TryGet(tracking::Reporter::kEnableTrackingKey, enableTracking);
+
   return enableTracking;
 }
 
 void RoutingManager::SetRouter(RouterType type)
 {
-  ASSERT_THREAD_CHECKER(m_threadChecker, ("SetRouter"));
+  CHECK_THREAD_CHECKER(m_threadChecker, ("SetRouter"));
 
   if (m_currentRouterType == type)
     return;
@@ -1127,12 +1130,11 @@ void RoutingManager::CancelRoutePointsTransaction(uint32_t transactionId)
 
   // Revert route points.
   ASSERT(m_bmManager != nullptr, ());
-  auto & controller = m_bmManager->GetUserMarksController(UserMark::Type::ROUTING);
-  controller.Clear();
-  RoutePointsLayout routePoints(controller);
+  auto editSession = m_bmManager->GetEditSession();
+  editSession.ClearGroup(UserMark::Type::ROUTING);
+  RoutePointsLayout routePoints(*m_bmManager);
   for (auto & markData : routeMarks)
     routePoints.AddRoutePoint(move(markData));
-  routePoints.NotifyChanges();
 }
 
 bool RoutingManager::HasSavedRoutePoints() const
@@ -1141,86 +1143,153 @@ bool RoutingManager::HasSavedRoutePoints() const
   return GetPlatform().IsFileExistsByFullPath(fileName);
 }
 
-bool RoutingManager::LoadRoutePoints()
+void RoutingManager::LoadRoutePoints(LoadRouteHandler const & handler)
 {
-  if (!HasSavedRoutePoints())
-    return false;
-
-  // Delete file after loading.
-  auto const fileName = GetPlatform().SettingsPathForFile(kRoutePointsFile);
-  MY_SCOPE_GUARD(routePointsFileGuard, bind(&FileWriter::DeleteFileX, cref(fileName)));
-
-  string data;
-  try
+  GetPlatform().RunTask(Platform::Thread::File, [this, handler]()
   {
-    ReaderPtr<Reader>(GetPlatform().GetReader(fileName)).ReadAsString(data);
-  }
-  catch (RootException const & ex)
-  {
-    LOG(LWARNING, ("Loading road points failed:", ex.Msg()));
-    return false;
-  }
-
-  auto points = DeserializeRoutePoints(data);
-  if (points.empty())
-    return false;
-
-  // If we have found my position, we use my position as start point.
-  auto const & myPosMark = m_bmManager->MyPositionMark();
-  ASSERT(m_bmManager != nullptr, ());
-  m_bmManager->GetUserMarksController(UserMark::Type::ROUTING).Clear();
-  for (auto & p : points)
-  {
-    if (p.m_pointType == RouteMarkType::Start && myPosMark->HasPosition())
+    if (!HasSavedRoutePoints())
     {
-      RouteMarkData startPt;
-      startPt.m_pointType = RouteMarkType::Start;
-      startPt.m_isMyPosition = true;
-      startPt.m_position = myPosMark->GetPivot();
-      AddRoutePoint(move(startPt));
+      if (handler)
+        handler(false /* success */);
+      return;
     }
-    else
+
+    // Delete file after loading.
+    auto const fileName = GetPlatform().SettingsPathForFile(kRoutePointsFile);
+    MY_SCOPE_GUARD(routePointsFileGuard, bind(&FileWriter::DeleteFileX, cref(fileName)));
+
+    string data;
+    try
     {
-      AddRoutePoint(move(p));
+      ReaderPtr<Reader>(GetPlatform().GetReader(fileName)).ReadAsString(data);
     }
-  }
+    catch (RootException const & ex)
+    {
+      LOG(LWARNING, ("Loading road points failed:", ex.Msg()));
+      if (handler)
+        handler(false /* success */);
+      return;
+    }
 
-  // If we don't have my position, save loading timestamp. Probably
-  // we will get my position soon.
-  if (!myPosMark->HasPosition())
-    m_loadRoutePointsTimestamp = chrono::steady_clock::now();
+    auto points = DeserializeRoutePoints(data);
+    if (handler && points.empty())
+    {
+      handler(false /* success */);
+      return;
+    }
 
-  return true;
+    GetPlatform().RunTask(Platform::Thread::Gui,
+                          [this, handler, points = move(points)]() mutable
+    {
+      ASSERT(m_bmManager != nullptr, ());
+      // If we have found my position, we use my position as start point.
+      auto const & myPosMark = m_bmManager->MyPositionMark();
+      auto editSession = m_bmManager->GetEditSession();
+      editSession.ClearGroup(UserMark::Type::ROUTING);
+      for (auto & p : points)
+      {
+        if (p.m_pointType == RouteMarkType::Start && myPosMark.HasPosition())
+        {
+          RouteMarkData startPt;
+          startPt.m_pointType = RouteMarkType::Start;
+          startPt.m_isMyPosition = true;
+          startPt.m_position = myPosMark.GetPivot();
+          AddRoutePoint(move(startPt));
+        }
+        else
+        {
+          AddRoutePoint(move(p));
+        }
+      }
+
+      // If we don't have my position, save loading timestamp. Probably
+      // we will get my position soon.
+      if (!myPosMark.HasPosition())
+        m_loadRoutePointsTimestamp = chrono::steady_clock::now();
+
+      if (handler)
+        handler(true /* success */);
+    });
+  });
 }
 
-void RoutingManager::SaveRoutePoints() const
+void RoutingManager::SaveRoutePoints()
+{
+  auto points = GetRoutePointsToSave();
+  if (points.empty())
+  {
+    DeleteSavedRoutePoints();
+    return;
+  }
+
+  GetPlatform().RunTask(Platform::Thread::File, [points = move(points)]()
+  {
+    try
+    {
+      auto const fileName = GetPlatform().SettingsPathForFile(kRoutePointsFile);
+      FileWriter writer(fileName);
+      string const pointsData = SerializeRoutePoints(points);
+      writer.Write(pointsData.c_str(), pointsData.length());
+    }
+    catch (RootException const & ex)
+    {
+      LOG(LWARNING, ("Saving road points failed:", ex.Msg()));
+    }
+  });
+}
+
+vector<RouteMarkData> RoutingManager::GetRoutePointsToSave() const
 {
   auto points = GetRoutePoints();
-  if (points.size() < 2)
-    return;
+  if (points.size() < 2 || points.back().m_isPassed)
+    return {};
 
-  if (points.back().m_isPassed)
-    return;
+  vector<RouteMarkData> result;
+  result.reserve(points.size());
 
-  try
+  // Save last passed point. It will be used on points loading if my position
+  // isn't determined.
+  result.emplace_back(GetLastPassedPoint(m_bmManager, points));
+
+  for (auto & p : points)
   {
-    auto const fileName = GetPlatform().SettingsPathForFile(kRoutePointsFile);
-    FileWriter writer(fileName);
-    string const pointsData = SerializeRoutePoints(m_bmManager, points);
-    writer.Write(pointsData.c_str(), pointsData.length());
+    // Here we skip passed points and the start point.
+    if (p.m_isPassed || p.m_pointType == RouteMarkType::Start)
+      continue;
+
+    result.push_back(std::move(p));
   }
-  catch (RootException const & ex)
-  {
-    LOG(LWARNING, ("Saving road points failed:", ex.Msg()));
-  }
+
+  if (result.size() < 2)
+    return {};
+
+  return result;
+}
+
+void RoutingManager::OnExtrapolatedLocationUpdate(location::GpsInfo const & info)
+{
+  location::GpsInfo gpsInfo(info);
+  if (!m_drapeEngine)
+    m_gpsInfoCache = make_unique<location::GpsInfo>(gpsInfo);
+
+  auto routeMatchingInfo = GetRouteMatchingInfo(gpsInfo);
+  m_drapeEngine.SafeCall(&df::DrapeEngine::SetGpsInfo, gpsInfo, m_routingSession.IsNavigable(),
+                         routeMatchingInfo);
+
+  if (IsTrackingReporterEnabled())
+    m_trackingReporter.AddLocation(gpsInfo, m_routingSession.MatchTraffic(routeMatchingInfo));
 }
 
 void RoutingManager::DeleteSavedRoutePoints()
 {
   if (!HasSavedRoutePoints())
     return;
-  auto const fileName = GetPlatform().SettingsPathForFile(kRoutePointsFile);
-  FileWriter::DeleteFileX(fileName);
+
+  GetPlatform().RunTask(Platform::Thread::File, []()
+  {
+    auto const fileName = GetPlatform().SettingsPathForFile(kRoutePointsFile);
+    FileWriter::DeleteFileX(fileName);
+  });
 }
 
 void RoutingManager::UpdatePreviewMode()
@@ -1270,7 +1339,7 @@ TransitRouteInfo RoutingManager::GetTransitRouteInfo() const
   return m_transitRouteInfo;
 }
 
-std::vector<dp::DrapeID> RoutingManager::GetSubrouteIds() const
+vector<dp::DrapeID> RoutingManager::GetSubrouteIds() const
 {
   lock_guard<mutex> lock(m_drapeSubroutesMutex);
   return m_drapeSubroutes;

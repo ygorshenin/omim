@@ -1,5 +1,6 @@
 #include "openlr/router.hpp"
 
+#include "openlr/helpers.hpp"
 #include "openlr/road_info_getter.hpp"
 
 #include "routing/features_road_graph.hpp"
@@ -15,6 +16,7 @@
 #include "std/transform_iterator.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <queue>
 #include <utility>
 
@@ -65,15 +67,9 @@ public:
     m_penalty += (partOfReal ? kFakeCoeff : kTrueFakeCoeff) * p;
   }
 
-  void AddIntermediateErrorPenalty(double p)
-  {
-    m_penalty += kIntermediateErrorCoeff * p;
-  }
+  void AddIntermediateErrorPenalty(double p) { m_penalty += kIntermediateErrorCoeff * p; }
 
-  void AddDistanceErrorPenalty(double p)
-  {
-    m_penalty += kDistanceErrorCoeff * p;
-  }
+  void AddDistanceErrorPenalty(double p) { m_penalty += kDistanceErrorCoeff * p; }
 
   void AddBearingPenalty(int expected, int actual)
   {
@@ -159,8 +155,7 @@ Router::Edge::Edge(Vertex const & u, Vertex const & v, routing::Edge const & raw
 }
 
 // static
-Router::Edge Router::Edge::MakeNormal(Vertex const & u, Vertex const & v,
-                                             routing::Edge const & raw)
+Router::Edge Router::Edge::MakeNormal(Vertex const & u, Vertex const & v, routing::Edge const & raw)
 {
   return Edge(u, v, raw, false /* isSpecial */);
 }
@@ -189,15 +184,16 @@ Router::Router(routing::FeaturesRoadGraph & graph, RoadInfoGetter & roadInfoGett
 {
 }
 
-bool Router::Go(std::vector<WayPoint> const & points, double positiveOffsetM, double negativeOffsetM,
-                std::vector<routing::Edge> & path)
+bool Router::Go(std::vector<WayPoint> const & points, double positiveOffsetM,
+                double negativeOffsetM, std::vector<routing::Edge> & path)
 {
   if (!Init(points, positiveOffsetM, negativeOffsetM))
     return false;
   return FindPath(path);
 }
 
-bool Router::Init(std::vector<WayPoint> const & points, double positiveOffsetM, double negativeOffsetM)
+bool Router::Init(std::vector<WayPoint> const & points, double positiveOffsetM,
+                  double negativeOffsetM)
 {
   CHECK_GREATER_OR_EQUAL(points.size(), 2, ());
 
@@ -425,16 +421,6 @@ bool Router::MayMoveToNextStage(Vertex const & u, double pi) const
   return NearNextStage(u, pi) && u.m_bearingChecked;
 }
 
-bool Router::PassesRestriction(routing::Edge const & edge,
-                               FunctionalRoadClass const restriction) const
-{
-  if (edge.IsFake())
-    return true;
-
-  auto const frc = m_roadInfoGetter.Get(edge.GetFeatureId()).m_frc;
-  return static_cast<int>(frc) <= static_cast<int>(restriction) + kFRCThreshold;
-}
-
 uint32_t Router::GetReverseBearing(Vertex const & u, Links const & links) const
 {
   m2::PointD const a = u.m_junction.GetPoint();
@@ -485,7 +471,7 @@ void Router::ForEachEdge(Vertex const & u, bool outgoing, FunctionalRoadClass re
     GetIngoingEdges(u.m_junction, edges);
   for (auto const & edge : edges)
   {
-    if (!PassesRestriction(edge, restriction))
+    if (!PassesRestriction(edge, restriction, kFRCThreshold, m_roadInfoGetter))
       continue;
     fn(edge);
   }
@@ -545,7 +531,7 @@ void Router::ForEachNonFakeClosestEdge(Vertex const & u, FunctionalRoadClass con
     auto const & edge = p.first;
     if (edge.IsFake())
       continue;
-    if (!PassesRestriction(edge, restriction))
+    if (!PassesRestriction(edge, restriction, kFRCThreshold, m_roadInfoGetter))
       continue;
     fn(edge);
   }
@@ -581,7 +567,7 @@ double Router::GetCoverage(m2::PointD const & u, m2::PointD const & v, It b, It 
   double const kLengthThresholdM = 1;
 
   m2::PointD const uv = v - u;
-  double const sqlen = u.SquareLength(v);
+  double const sqlen = u.SquaredLength(v);
 
   if (MercatorBounds::DistanceOnEarth(u, v) < kLengthThresholdM)
     return 0;
@@ -680,20 +666,20 @@ bool Router::ReconstructPath(std::vector<Edge> & edges, vector<routing::Edge> & 
 
   double const kFakeCoverageThreshold = 0.5;
 
-  my::EraseIf(edges, mem_fn(&Edge::IsSpecial));
+  base::EraseIf(edges, std::mem_fn(&Edge::IsSpecial));
 
   {
     size_t const n = FindPrefixLengthToConsume(
-        make_transform_iterator(edges.begin(), mem_fn(&Edge::ToPair)),
-        make_transform_iterator(edges.end(), mem_fn(&Edge::ToPair)), m_positiveOffsetM);
+        make_transform_iterator(edges.begin(), std::mem_fn(&Edge::ToPair)),
+        make_transform_iterator(edges.end(), std::mem_fn(&Edge::ToPair)), m_positiveOffsetM);
     CHECK_LESS_OR_EQUAL(n, edges.size(), ());
     edges.erase(edges.begin(), edges.begin() + n);
   }
 
   {
     size_t const n = FindPrefixLengthToConsume(
-        make_transform_iterator(edges.rbegin(), mem_fn(&Edge::ToPairRev)),
-        make_transform_iterator(edges.rend(), mem_fn(&Edge::ToPairRev)), m_negativeOffsetM);
+        make_transform_iterator(edges.rbegin(), std::mem_fn(&Edge::ToPairRev)),
+        make_transform_iterator(edges.rend(), std::mem_fn(&Edge::ToPairRev)), m_negativeOffsetM);
     CHECK_LESS_OR_EQUAL(n, edges.size(), ());
     edges.erase(edges.begin() + edges.size() - n, edges.end());
   }
@@ -701,18 +687,18 @@ bool Router::ReconstructPath(std::vector<Edge> & edges, vector<routing::Edge> & 
   double frontEdgeScore = -1.0;
   routing::Edge frontEdge;
   ForStagePrefix(edges.begin(), edges.end(), 0, [&](EdgeIt e) {
-    ForEachNonFakeEdge(
-        e->m_u, false /* outgoing */, m_points[0].m_lfrcnp, [&](routing::Edge const & edge) {
-          double const score =
-              GetMatchingScore(edge.GetEndJunction().GetPoint(), edge.GetStartJunction().GetPoint(),
-                               make_transform_iterator(EdgeItRev(e), mem_fn(&Edge::ToPairRev)),
-                               make_transform_iterator(edges.rend(), mem_fn(&Edge::ToPairRev)));
-          if (score > frontEdgeScore)
-          {
-            frontEdgeScore = score;
-            frontEdge = edge.GetReverseEdge();
-          }
-        });
+    ForEachNonFakeEdge(e->m_u, false /* outgoing */, m_points[0].m_lfrcnp,
+                       [&](routing::Edge const & edge) {
+                         double const score = GetMatchingScore(
+                             edge.GetEndJunction().GetPoint(), edge.GetStartJunction().GetPoint(),
+                             make_transform_iterator(EdgeItRev(e), std::mem_fn(&Edge::ToPairRev)),
+                             make_transform_iterator(edges.rend(), std::mem_fn(&Edge::ToPairRev)));
+                         if (score > frontEdgeScore)
+                         {
+                           frontEdgeScore = score;
+                           frontEdge = edge.GetReverseEdge();
+                         }
+                       });
   });
 
   double backEdgeScore = -1.0;
@@ -722,8 +708,8 @@ bool Router::ReconstructPath(std::vector<Edge> & edges, vector<routing::Edge> & 
                        [&](routing::Edge const & edge) {
                          double const score = GetMatchingScore(
                              edge.GetStartJunction().GetPoint(), edge.GetEndJunction().GetPoint(),
-                             make_transform_iterator(e.base(), mem_fn(&Edge::ToPair)),
-                             make_transform_iterator(edges.end(), mem_fn(&Edge::ToPair)));
+                             make_transform_iterator(e.base(), std::mem_fn(&Edge::ToPair)),
+                             make_transform_iterator(edges.end(), std::mem_fn(&Edge::ToPair)));
                          if (score > backEdgeScore)
                          {
                            backEdgeScore = score;
@@ -759,7 +745,7 @@ void Router::FindSingleEdgeApproximation(std::vector<Edge> const & edges,
 {
   double const kCoverageThreshold = 0.5;
 
-  CHECK(all_of(edges.begin(), edges.end(), mem_fn(&Edge::IsFake)), ());
+  CHECK(all_of(edges.begin(), edges.end(), std::mem_fn(&Edge::IsFake)), ());
 
   double expectedLength = 0;
   for (auto const & edge : edges)

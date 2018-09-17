@@ -36,10 +36,13 @@ final class NavigationControlView: SolidTouchView, MWMTextToSpeechObserver, MWMT
   }
 
   private lazy var dimBackground: DimBackground = {
-    DimBackground(mainView: self)
+    DimBackground(mainView: self, tapAction: { [weak self] in
+      self?.diminish()
+    })
   }()
 
   @objc weak var ownerView: UIView!
+  @IBOutlet private weak var extendedView: UIView!
 
   private weak var navigationInfo: MWMNavigationDashboardEntity?
 
@@ -51,18 +54,14 @@ final class NavigationControlView: SolidTouchView, MWMTextToSpeechObserver, MWMT
       if isVisible {
         addView()
       } else {
-        dimBackground.setVisible(false) {}
+        removeView()
       }
+      alpha = isVisible ? 0 : 1
       DispatchQueue.main.async {
-        self.superview?.setNeedsLayout()
-        self.hiddenConstraint.isActive = !self.isVisible
-        UIView.animate(withDuration: kDefaultAnimationDuration,
-                       animations: { self.superview?.layoutIfNeeded() },
-                       completion: { _ in
-                         if !self.isVisible {
-                           self.removeFromSuperview()
-                         }
-        })
+        self.superview?.animateConstraints {
+          self.alpha = self.isVisible ? 1 : 0
+          self.hiddenConstraint.isActive = !self.isVisible
+        }
       }
     }
   }
@@ -76,13 +75,11 @@ final class NavigationControlView: SolidTouchView, MWMTextToSpeechObserver, MWMT
       guard isVisible && superview != nil else { return }
       guard isExtended != oldValue else { return }
 
-      superview?.setNeedsLayout()
-      extendedConstraint.isActive = isExtended
-      UIView.animate(withDuration: kDefaultAnimationDuration) { self.superview?.layoutIfNeeded() }
-
-      dimBackground.setVisible(isExtended) { [weak self] in
-        self?.diminish()
-      }
+      dimBackground.setVisible(isExtended, completion: nil)
+      extendedView.isHidden = !isExtended
+      superview!.animateConstraints(animations: {
+        self.extendedConstraint.isActive = self.isExtended
+      })
     }
   }
 
@@ -90,19 +87,36 @@ final class NavigationControlView: SolidTouchView, MWMTextToSpeechObserver, MWMT
     guard superview != ownerView else { return }
     ownerView.addSubview(self)
 
-    NSLayoutConstraint(item: self, attribute: .left, relatedBy: .equal, toItem: ownerView, attribute: .left, multiplier: 1, constant: 0).isActive = true
-    NSLayoutConstraint(item: self, attribute: .right, relatedBy: .equal, toItem: ownerView, attribute: .right, multiplier: 1, constant: 0).isActive = true
+    var lAnchor = ownerView.leadingAnchor
+    var tAnchor = ownerView.trailingAnchor
+    var bAnchor = ownerView.bottomAnchor
+    if #available(iOS 11.0, *) {
+      let layoutGuide = ownerView.safeAreaLayoutGuide
+      lAnchor = layoutGuide.leadingAnchor
+      tAnchor = layoutGuide.trailingAnchor
+      bAnchor = layoutGuide.bottomAnchor
+    }
 
-    hiddenConstraint = NSLayoutConstraint(item: self, attribute: .top, relatedBy: .equal, toItem: ownerView, attribute: .bottom, multiplier: 1, constant: 0)
-    hiddenConstraint.priority = UILayoutPriority.defaultHigh
+    leadingAnchor.constraint(equalTo: lAnchor).isActive = true
+    trailingAnchor.constraint(equalTo: tAnchor).isActive = true
+
+    hiddenConstraint = topAnchor.constraint(equalTo: ownerView.bottomAnchor)
     hiddenConstraint.isActive = true
 
-    let visibleConstraint = NSLayoutConstraint(item: progressView, attribute: .bottom, relatedBy: .equal, toItem: ownerView, attribute: .bottom, multiplier: 1, constant: 0)
+    let visibleConstraint = progressView.bottomAnchor.constraint(equalTo: bAnchor)
     visibleConstraint.priority = UILayoutPriority.defaultLow
     visibleConstraint.isActive = true
 
-    extendedConstraint = NSLayoutConstraint(item: self, attribute: .bottom, relatedBy: .equal, toItem: ownerView, attribute: .bottom, multiplier: 1, constant: 0)
+    extendedConstraint = bottomAnchor.constraint(equalTo: bAnchor)
     extendedConstraint.priority = UILayoutPriority(rawValue: UILayoutPriority.RawValue(Int(UILayoutPriority.defaultHigh.rawValue) - 1))
+
+    ownerView.layoutIfNeeded()
+  }
+
+  private func removeView() {
+    dimBackground.setVisible(false, completion: {
+      self.removeFromSuperview()
+    })
   }
 
   override func mwm_refreshUI() {
@@ -175,11 +189,7 @@ final class NavigationControlView: SolidTouchView, MWMTextToSpeechObserver, MWMT
     speedWithLegend.append(NSAttributedString(string: info.speedUnits, attributes: routingLegendAttributes))
     speedWithLegendLabel.attributedText = speedWithLegend
 
-    progressView.setNeedsLayout()
-    routingProgress.constant = progressView.width * info.progress / 100
-    UIView.animate(withDuration: kDefaultAnimationDuration) { [progressView] in
-      progressView?.layoutIfNeeded()
-    }
+    self.routingProgress.constant = self.progressView.width * info.progress / 100
   }
 
   @IBAction
@@ -249,7 +259,10 @@ final class NavigationControlView: SolidTouchView, MWMTextToSpeechObserver, MWMT
   }
 
   func onTrafficStateUpdated() {
-    trafficButton.isSelected = MWMTrafficManager.state() != .disabled
+    guard MWMRouter.isRoutingActive() else { return }
+    let isPedestrianRouting = MWMRouter.type() == .pedestrian
+    trafficButton.isHidden = isPedestrianRouting
+    trafficButton.isSelected = MWMTrafficManager.trafficState() != .disabled
     refreshDiminishTimer()
   }
 

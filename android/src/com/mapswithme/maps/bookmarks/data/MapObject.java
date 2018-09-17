@@ -10,7 +10,11 @@ import android.text.TextUtils;
 import com.mapswithme.maps.ads.Banner;
 import com.mapswithme.maps.ads.LocalAdInfo;
 import com.mapswithme.maps.routing.RoutePointInfo;
-import com.mapswithme.maps.taxi.TaxiManager;
+import com.mapswithme.maps.search.HotelsFilter;
+import com.mapswithme.maps.search.Popularity;
+import com.mapswithme.maps.search.PopularityProvider;
+import com.mapswithme.maps.search.PriceFilterView;
+import com.mapswithme.maps.taxi.TaxiType;
 import com.mapswithme.maps.ugc.UGC;
 
 import java.lang.annotation.Retention;
@@ -21,11 +25,13 @@ import java.util.List;
 
 // TODO(yunikkk): Refactor. Displayed information is different from edited information, and it's better to
 // separate them. Simple getters from jni place_page::Info and osm::EditableFeature should be enough.
-public class MapObject implements Parcelable
+public class MapObject implements Parcelable, PopularityProvider
 {
   @Retention(RetentionPolicy.SOURCE)
-  @IntDef({POI, API_POINT, BOOKMARK, MY_POSITION, SEARCH})
-  public @interface MapObjectType {}
+  @IntDef({ POI, API_POINT, BOOKMARK, MY_POSITION, SEARCH })
+  public @interface MapObjectType
+  {
+  }
 
   public static final int POI = 0;
   public static final int API_POINT = 1;
@@ -50,43 +56,51 @@ public class MapObject implements Parcelable
   @Nullable
   private List<Banner> mBanners;
   @Nullable
-  private List<Integer> mReachableByTaxiTypes;
+  private List<TaxiType> mReachableByTaxiTypes;
   @Nullable
   private String mBookingSearchUrl;
   @Nullable
   private LocalAdInfo mLocalAdInfo;
   @Nullable
   private RoutePointInfo mRoutePointInfo;
-  private boolean mExtendedView;
-  private boolean mShouldShowUGC;
-  private boolean mCanBeRated;
-  private boolean mCanBeReviewed;
+  private final boolean mExtendedView;
+  private final boolean mShouldShowUGC;
+  private final boolean mCanBeRated;
+  private final boolean mCanBeReviewed;
+  @NonNull
+  private final Popularity mPopularity;
   @Nullable
   private ArrayList<UGC.Rating> mRatings;
+  @Nullable
+  private HotelsFilter.HotelType mHotelType;
+  @PriceFilterView.PriceDef
+  private final int mPriceRate;
 
   public MapObject(@NonNull FeatureId featureId, @MapObjectType int mapObjectType, String title,
                    @Nullable String secondaryTitle, String subtitle, String address,
-                   double lat, double lon, String apiId,
-                   @Nullable Banner[] banners, @Nullable @TaxiManager.TaxiType int[] types,
-                   @Nullable String bookingSearchUrl, @Nullable LocalAdInfo localAdInfo,
-                   @Nullable RoutePointInfo routePointInfo, boolean isExtendedView,
-                   boolean shouldShowUGC, boolean canBeRated, boolean canBeReviewed,
-                   @Nullable UGC.Rating[] ratings)
+                   double lat, double lon, String apiId, @Nullable Banner[] banners,
+                   @Nullable int[] types, @Nullable String bookingSearchUrl,
+                   @Nullable LocalAdInfo localAdInfo, @Nullable RoutePointInfo routePointInfo,
+                   boolean isExtendedView, boolean shouldShowUGC, boolean canBeRated,
+                   boolean canBeReviewed, @Nullable UGC.Rating[] ratings,
+                   @Nullable HotelsFilter.HotelType hotelType, @PriceFilterView.PriceDef int priceRate,
+                   @NonNull Popularity popularity)
   {
     this(featureId, mapObjectType, title, secondaryTitle,
          subtitle, address, lat, lon, new Metadata(), apiId, banners,
          types, bookingSearchUrl, localAdInfo, routePointInfo, isExtendedView, shouldShowUGC,
-         canBeRated, canBeReviewed, ratings);
+         canBeRated, canBeReviewed, ratings, hotelType, priceRate, popularity);
   }
 
   public MapObject(@NonNull FeatureId featureId, @MapObjectType int mapObjectType,
-                   String title, @Nullable String secondaryTitle,
-                   String subtitle, String address, double lat, double lon, Metadata metadata,
-                   String apiId, @Nullable Banner[] banners, @Nullable @TaxiManager.TaxiType int[] taxiTypes,
+                   String title, @Nullable String secondaryTitle, String subtitle, String address,
+                   double lat, double lon, Metadata metadata, String apiId,
+                   @Nullable Banner[] banners, @Nullable int[] taxiTypes,
                    @Nullable String bookingSearchUrl, @Nullable LocalAdInfo localAdInfo,
                    @Nullable RoutePointInfo routePointInfo, boolean isExtendedView,
                    boolean shouldShowUGC, boolean canBeRated, boolean canBeReviewed,
-                   @Nullable UGC.Rating[] ratings)
+                   @Nullable UGC.Rating[] ratings, @Nullable HotelsFilter.HotelType hotelType,
+                   @PriceFilterView.PriceDef int priceRate, @NonNull Popularity popularity)
   {
     mFeatureId = featureId;
     mMapObjectType = mapObjectType;
@@ -105,22 +119,25 @@ public class MapObject implements Parcelable
     mShouldShowUGC = shouldShowUGC;
     mCanBeRated = canBeRated;
     mCanBeReviewed = canBeReviewed;
+    mPopularity = popularity;
     if (banners != null)
       mBanners = new ArrayList<>(Arrays.asList(banners));
     if (taxiTypes != null)
     {
       mReachableByTaxiTypes = new ArrayList<>();
       for (int type : taxiTypes)
-        mReachableByTaxiTypes.add(type);
+        mReachableByTaxiTypes.add(TaxiType.values()[type]);
     }
     if (ratings != null)
       mRatings = new ArrayList<>(Arrays.asList(ratings));
+    mHotelType = hotelType;
+    mPriceRate = priceRate;
   }
 
   protected MapObject(@MapObjectType int type, Parcel source)
   {
     //noinspection ResourceType
-    this((FeatureId) source.readParcelable(FeatureId.class.getClassLoader()), // FeatureId
+    this(source.readParcelable(FeatureId.class.getClassLoader()), // FeatureId
          type, // MapObjectType
          source.readString(), // Title
          source.readString(), // SecondaryTitle
@@ -128,18 +145,21 @@ public class MapObject implements Parcelable
          source.readString(), // Address
          source.readDouble(), // Lat
          source.readDouble(), // Lon
-         (Metadata) source.readParcelable(Metadata.class.getClassLoader()),
+         source.readParcelable(Metadata.class.getClassLoader()),
          source.readString(), // ApiId;
          null, // mBanners
          null, // mReachableByTaxiTypes
          source.readString(), // BookingSearchUrl
-         (LocalAdInfo) source.readParcelable(LocalAdInfo.class.getClassLoader()), // LocalAdInfo
-         (RoutePointInfo) source.readParcelable(RoutePointInfo.class.getClassLoader()), // RoutePointInfo
+         source.readParcelable(LocalAdInfo.class.getClassLoader()), // LocalAdInfo
+         source.readParcelable(RoutePointInfo.class.getClassLoader()), // RoutePointInfo
          source.readInt() == 1, // mExtendedView
          source.readInt() == 1, // mShouldShowUGC
          source.readInt() == 1, // mCanBeRated;
          source.readInt() == 1, // mCanBeReviewed
-         null); // mRatings
+         null, // mRatings
+         source.readParcelable(HotelsFilter.HotelType.class.getClassLoader()), // mHotelType
+         source.readInt(), // mPriceRate
+         source.readParcelable(Popularity.class.getClassLoader()));
 
     mBanners = readBanners(source);
     mReachableByTaxiTypes = readTaxiTypes(source);
@@ -148,13 +168,14 @@ public class MapObject implements Parcelable
 
   @NonNull
   public static MapObject createMapObject(@NonNull FeatureId featureId, @MapObjectType int mapObjectType,
-                                   @NonNull String title, @NonNull String subtitle, double lat, double lon)
+                                          @NonNull String title, @NonNull String subtitle, double lat, double lon)
   {
     return new MapObject(featureId, mapObjectType, title,
                          "", subtitle, "", lat, lon, "", null,
                          null, "", null, null, false /* isExtendedView */,
                          false /* shouldShowUGC */, false /* canBeRated */, false /* canBeReviewed */,
-                         null /* ratings */);
+                         null /* ratings */, null /* mHotelType */,
+                         PriceFilterView.UNDEFINED, Popularity.defaultInstance());
   }
 
   @Nullable
@@ -169,15 +190,15 @@ public class MapObject implements Parcelable
   private ArrayList<UGC.Rating> readRatings(@NonNull Parcel source)
   {
     ArrayList<UGC.Rating> ratings = new ArrayList<>();
-    source.readTypedList(ratings, UGC.Rating.CREATOR);;
+    source.readTypedList(ratings, UGC.Rating.CREATOR);
     return ratings.isEmpty() ? null : ratings;
   }
 
   @NonNull
-  private List<Integer> readTaxiTypes(@NonNull Parcel source)
+  private List<TaxiType> readTaxiTypes(@NonNull Parcel source)
   {
-    List<Integer> types = new ArrayList<>();
-    source.readList(types, Integer.class.getClassLoader());
+    List<TaxiType> types = new ArrayList<>();
+    source.readList(types, TaxiType.class.getClassLoader());
     return types;
   }
 
@@ -213,20 +234,48 @@ public class MapObject implements Parcelable
     return (one != null && one.sameAs(another));
   }
 
-  public double getScale() { return 0; }
+  public double getScale()
+  {
+    return 0;
+  }
 
-  public String getTitle() { return mTitle; }
+  public String getTitle()
+  {
+    return mTitle;
+  }
 
   @Nullable
-  public String getSecondaryTitle() { return mSecondaryTitle; }
+  public String getSecondaryTitle()
+  {
+    return mSecondaryTitle;
+  }
 
-  public String getSubtitle() { return mSubtitle; }
+  public String getSubtitle()
+  {
+    return mSubtitle;
+  }
 
-  public double getLat() { return mLat; }
+  public double getLat()
+  {
+    return mLat;
+  }
 
-  public double getLon() { return mLon; }
+  public double getLon()
+  {
+    return mLon;
+  }
 
-  public String getAddress() { return mAddress; }
+  public String getAddress()
+  {
+    return mAddress;
+  }
+
+  @NonNull
+  @Override
+  public Popularity getPopularity()
+  {
+    return mPopularity;
+  }
 
   @NonNull
   public String getMetadata(Metadata.MetadataType type)
@@ -259,7 +308,7 @@ public class MapObject implements Parcelable
   }
 
   @Nullable
-  public List<Integer> getReachableByTaxiTypes()
+  public List<TaxiType> getReachableByTaxiTypes()
   {
     return mReachableByTaxiTypes;
   }
@@ -349,7 +398,19 @@ public class MapObject implements Parcelable
     return mFeatureId;
   }
 
-  private  static MapObject readFromParcel(Parcel source)
+  @Nullable
+  public HotelsFilter.HotelType getHotelType()
+  {
+    return mHotelType;
+  }
+
+  @PriceFilterView.PriceDef
+  public int getPriceRate()
+  {
+    return mPriceRate;
+  }
+
+  private static MapObject readFromParcel(Parcel source)
   {
     @MapObjectType int type = source.readInt();
     if (type == BOOKMARK)
@@ -386,6 +447,11 @@ public class MapObject implements Parcelable
     dest.writeInt(mShouldShowUGC ? 1 : 0);
     dest.writeInt(mCanBeRated ? 1 : 0);
     dest.writeInt(mCanBeReviewed ? 1 : 0);
+    dest.writeParcelable(mHotelType, 0);
+    dest.writeInt(mPriceRate);
+    dest.writeParcelable(mPopularity, 0);
+    // All collections are deserialized AFTER non-collection and primitive type objects,
+    // so collections must be always serialized at the end.
     dest.writeTypedList(mBanners);
     dest.writeList(mReachableByTaxiTypes);
     dest.writeTypedList(mRatings);

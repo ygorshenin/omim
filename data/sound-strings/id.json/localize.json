@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Belok tajam ke kiri.",
 "make_a_u_turn":"Putar balik.",
 "go_straight":"Lurus terus.",
+"exit":"Keluar.",
 "destination":"Anda akan tiba.",
 "you_have_reached_the_destination":"Anda sudah sampai.",
 "in_50_meters":"Setelah lima puluh meter",
@@ -61,5 +62,6 @@
 "in_5000_feet":"Setelah lima ribu kaki",
 "in_1_mile":"Setelah satu mil",
 "in_1_5_miles":"Setelah satu setengah mil",
-"in_2_miles":"Setelah dua mil"
+"in_2_miles":"Setelah dua mil",
+"unknown_camera":"Speed camera ahead"
 }

@@ -1,17 +1,19 @@
 package com.mapswithme.maps.search;
 
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.widget.RecyclerView;
 
 import com.mapswithme.maps.R;
 import com.mapswithme.maps.base.BaseMwmRecyclerFragment;
 
-public class SearchCategoriesFragment extends BaseMwmRecyclerFragment
+public class SearchCategoriesFragment extends BaseMwmRecyclerFragment<CategoriesAdapter>
                                    implements CategoriesAdapter.OnCategorySelectedListener
 {
+  @NonNull
   @Override
-  protected RecyclerView.Adapter createAdapter()
+  protected CategoriesAdapter createAdapter()
   {
     return new CategoriesAdapter(this);
   }

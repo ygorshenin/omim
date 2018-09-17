@@ -15,7 +15,8 @@
       android:layout_width="match_parent"
       android:layout_height="wrap_content"
       android:background="?attr/colorPrimary"
-      android:elevation="@dimen/margin_half_plus"
+      android:elevation="@dimen/dp_0"
+      app:elevation="@dimen/dp_0"
       tools:targetApi="lollipop">
       <android.support.design.widget.CollapsingToolbarLayout
         android:id="@+id/collapsing_toolbar"
@@ -29,13 +30,6 @@
           android:layout_height="?attr/actionBarSize"/>
       </android.support.design.widget.CollapsingToolbarLayout>
       <include layout="@layout/search_filter_panel"/>
-      <FrameLayout
-        android:id="@+id/filter_elevation"
-        style="@style/MwmWidget.FrameLayout.Elevation"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="?cardBackground"
-        android:visibility="gone"/>
     </android.support.design.widget.AppBarLayout>
 
     <FrameLayout
@@ -82,6 +76,7 @@
           android:id="@+id/placeholder"
           android:layout_width="match_parent"
           android:layout_height="match_parent"
+          android:gravity="center_horizontal"
           android:paddingLeft="@dimen/margin_double_and_half"
           android:paddingRight="@dimen/margin_double_and_half"
           android:paddingTop="@dimen/placeholder_margin_top"
@@ -96,9 +91,5 @@
         android:layout_height="match_parent"/>
     </FrameLayout>
   </android.support.design.widget.CoordinatorLayout>
-  <com.mapswithme.maps.search.HotelsFilterView
-    android:id="@+id/filter"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"/>
 </FrameLayout>
 

@@ -10,11 +10,11 @@ import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.annotation.StyleRes;
 import android.support.v4.app.Fragment;
+import android.support.v4.app.FragmentManager;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
 import android.view.MenuItem;
 
-import com.mapswithme.maps.MwmActivity;
 import com.mapswithme.maps.MwmApplication;
 import com.mapswithme.maps.R;
 import com.mapswithme.maps.SplashActivity;
@@ -29,9 +29,8 @@ public abstract class BaseMwmFragmentActivity extends AppCompatActivity
 {
   private final BaseActivityDelegate mBaseDelegate = new BaseActivityDelegate(this);
 
-  private boolean mInitializationCompleted = false;
-
   @Override
+  @NonNull
   public Activity get()
   {
     return this;
@@ -50,18 +49,30 @@ public abstract class BaseMwmFragmentActivity extends AppCompatActivity
     throw new IllegalArgumentException("Attempt to apply unsupported theme: " + theme);
   }
 
+  /**
+   * Shows splash screen and initializes the core in case when it was not initialized.
+   *
+   * Do not override this method!
+   * Use {@link #safeOnCreate(Bundle savedInstanceState)}
+   */
   @CallSuper
   @Override
-  protected void onCreate(@Nullable Bundle savedInstanceState)
+  protected final void onCreate(@Nullable Bundle savedInstanceState)
   {
+    // An intent that was skipped due to core wasn't initialized has to be used
+    // as a target intent for this activity, otherwise all input extras will be lost
+    // in a splash activity loop.
+    Intent initialIntent = getIntent().getParcelableExtra(SplashActivity.EXTRA_INITIAL_INTENT);
+    if (initialIntent != null)
+      setIntent(initialIntent);
+
     if (!MwmApplication.get().arePlatformAndCoreInitialized()
         || !PermissionsUtils.isExternalStorageGranted())
     {
       super.onCreate(savedInstanceState);
-      goToSplashScreen();
+      goToSplashScreen(getIntent());
       return;
     }
-    mInitializationCompleted = true;
 
     mBaseDelegate.onCreate();
     super.onCreate(savedInstanceState);
@@ -69,6 +80,10 @@ public abstract class BaseMwmFragmentActivity extends AppCompatActivity
     safeOnCreate(savedInstanceState);
   }
 
+  /**
+   * Use this safe method instead of {@link #onCreate(Bundle savedInstanceState)}.
+   * When this method is called, the core is already initialized.
+   */
   @CallSuper
   protected void safeOnCreate(@Nullable Bundle savedInstanceState)
   {
@@ -90,11 +105,6 @@ public abstract class BaseMwmFragmentActivity extends AppCompatActivity
     }
 
     attachDefaultFragment();
-  }
-
-  protected boolean isInitializationCompleted()
-  {
-    return mInitializationCompleted;
   }
 
   @ColorRes
@@ -165,10 +175,15 @@ public abstract class BaseMwmFragmentActivity extends AppCompatActivity
   {
     if (item.getItemId() == android.R.id.home)
     {
-      onBackPressed();
+      onHomeOptionItemSelected();
       return true;
     }
     return super.onOptionsItemSelected(item);
+  }
+
+  protected void onHomeOptionItemSelected()
+  {
+    onBackPressed();
   }
 
   @CallSuper
@@ -178,7 +193,7 @@ public abstract class BaseMwmFragmentActivity extends AppCompatActivity
     super.onResume();
     if (!PermissionsUtils.isExternalStorageGranted())
     {
-      goToSplashScreen();
+      goToSplashScreen(null);
       return;
     }
 
@@ -209,6 +224,36 @@ public abstract class BaseMwmFragmentActivity extends AppCompatActivity
   protected void displayToolbarAsActionBar()
   {
     setSupportActionBar(getToolbar());
+  }
+
+  @Override
+  public void onBackPressed()
+  {
+    if (getFragmentClass() == null)
+    {
+      super.onBackPressed();
+      return;
+    }
+    FragmentManager manager = getSupportFragmentManager();
+    String name = getFragmentClass().getName();
+    Fragment fragment = manager.findFragmentByTag(name);
+
+    if (fragment == null)
+    {
+      super.onBackPressed();
+      return;
+    }
+
+    if (onBackPressedInternal(fragment))
+    {
+      return;
+    }
+    super.onBackPressed();
+  }
+
+  protected boolean onBackPressedInternal(@NonNull Fragment currentFragment)
+  {
+    return false;
   }
 
   /**
@@ -242,7 +287,6 @@ public abstract class BaseMwmFragmentActivity extends AppCompatActivity
                                .replace(resId, fragment, name)
                                .commitAllowingStateLoss();
     getSupportFragmentManager().executePendingTransactions();
-
     if (completionListener != null)
       completionListener.run();
   }
@@ -266,12 +310,9 @@ public abstract class BaseMwmFragmentActivity extends AppCompatActivity
     return android.R.id.content;
   }
 
-  private void goToSplashScreen()
+  private void goToSplashScreen(@Nullable Intent initialIntent)
   {
-    Class<? extends Activity> type = null;
-    if (!(this instanceof MwmActivity))
-      type = getClass();
-    SplashActivity.start(this, type);
+    SplashActivity.start(this, getClass(), initialIntent);
     finish();
   }
 }

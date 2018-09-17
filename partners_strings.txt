@@ -1,0 +1,22 @@
+[[ Partners ]]
+
+  [sponsored_partner1_action]
+    en = Outlets
+    ru = Аутлеты
+    
+  [sponsored_partner3_action]
+    en = Coupon
+    ru = Купон
+    
+  [sponsored_partner18_action]
+    en = Lifehack
+    ru = Лайфхак
+    
+  [sponsored_partner19_action]
+    en = Lifehack
+    ru = Лайфхак
+    
+  [sponsored_partner20_action]
+    en = Lifehack
+    ru = Лайфхак
+    

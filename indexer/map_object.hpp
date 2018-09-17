@@ -12,8 +12,8 @@
 
 #include "base/stl_helpers.hpp"
 
-#include "std/string.hpp"
-#include "std/vector.hpp"
+#include <string>
+#include <vector>
 
 class FeatureType;
 
@@ -29,7 +29,7 @@ enum class Internet
   Yes,      //!< Unspecified Internet access is available.
   No        //!< There is definitely no any Internet access.
 };
-string DebugPrint(Internet internet);
+std::string DebugPrint(Internet internet);
 
 /// Metadata fields in the sorted order, visible to users.
 enum class Props
@@ -49,12 +49,12 @@ enum class Props
   BuildingLevels,
   Level
 };
-string DebugPrint(Props props);
+std::string DebugPrint(Props props);
 
 class MapObject
 {
 public:
-  void SetFromFeatureType(FeatureType const & ft);
+  void SetFromFeatureType(FeatureType & ft);
 
   FeatureID const & GetID() const;
 
@@ -62,35 +62,36 @@ public:
   m2::PointD const & GetMercator() const;
 
   /// @returns "the best" type to display in UI.
-  string GetLocalizedType() const;
+  std::string GetLocalizedType() const;
   feature::TypesHolder const & GetTypes() const;
-  string GetDefaultName() const;
+  std::string GetDefaultName() const;
+  StringUtf8Multilang const & GetNameMultilang() const;
 
   /// @name Metadata fields.
   //@{
-  vector<Props> AvailableProperties() const;
-  string GetPhone() const;
-  string GetFax() const;
-  string GetEmail() const;
-  string GetWebsite() const;
+  std::vector<Props> AvailableProperties() const;
+  std::string GetPhone() const;
+  std::string GetFax() const;
+  std::string GetEmail() const;
+  std::string GetWebsite() const;
   Internet GetInternet() const;
   /// @returns not localized cuisines keys.
-  vector<string> GetCuisines() const;
+  std::vector<std::string> GetCuisines() const;
   /// @returns translated cuisine(s).
-  vector<string> GetLocalizedCuisines() const;
+  std::vector<std::string> GetLocalizedCuisines() const;
   /// @returns translated and formatted cuisines.
-  string FormatCuisines() const;
-  string GetOpeningHours() const;
-  string GetOperator() const;
+  std::string FormatCuisines() const;
+  std::string GetOpeningHours() const;
+  std::string GetOperator() const;
   int GetStars() const;
   /// @returns formatted elevation in feet or meters, or empty string.
-  string GetElevationFormatted() const;
+  std::string GetElevationFormatted() const;
   bool GetElevation(double & outElevationInMeters) const;
   /// @returns URL to Wikipedia or empty string.
-  string GetWikipediaLink() const;
-  string GetFlats() const;
-  string GetBuildingLevels() const;
-  string GetLevel() const;
+  std::string GetWikipediaLink() const;
+  std::string GetFlats() const;
+  std::string GetBuildingLevels() const;
+  std::string GetLevel() const;
   ftraits::WheelchairAvailability GetWheelchairType() const;
 
   // TODO(Vlad, yunikkk): Use Props enum + getters instead of direct metadata access.
@@ -113,9 +114,9 @@ protected:
 
 /// Helper to convert internal feature::Metadata::FMD_* enum into a users-visible one.
 template <class T>
-vector<Props> MetadataToProps(vector<T> const & metadata)
+std::vector<Props> MetadataToProps(std::vector<T> const & metadata)
 {
-  vector<Props> res;
+  std::vector<Props> res;
   using feature::Metadata;
   for (auto const type : metadata)
   {
@@ -144,7 +145,6 @@ vector<Props> MetadataToProps(vector<T> const & metadata)
     case Metadata::FMD_TURN_LANES_BACKWARD:
     // Postcode should be processed separately, in the address.
     case Metadata::FMD_POSTCODE:
-    case Metadata::FMD_MAXSPEED:
     case Metadata::FMD_HEIGHT:
     case Metadata::FMD_MIN_HEIGHT:
     case Metadata::FMD_DENOMINATION:
@@ -158,7 +158,7 @@ vector<Props> MetadataToProps(vector<T> const & metadata)
       // Please add new cases when compiler issues an "unhandled switch case" warning here.
     }
   }
-  my::SortUnique(res);
+  base::SortUnique(res);
   return res;
 }
 }  // namespace osm

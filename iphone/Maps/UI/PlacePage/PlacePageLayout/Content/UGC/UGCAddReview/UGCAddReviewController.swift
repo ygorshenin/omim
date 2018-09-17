@@ -3,6 +3,7 @@ final class UGCAddReviewController: MWMTableViewController {
   typealias Model = UGCReviewModel
 
   weak var textCell: UGCAddReviewTextCell?
+  var reviewPosted = false
 
   enum Sections {
     case ratings
@@ -34,10 +35,11 @@ final class UGCAddReviewController: MWMTableViewController {
     configTableView()
   }
 
-  override func backTap() {
-    guard let nc = navigationController else { return }
-    Statistics.logEvent(kStatUGCReviewCancel)
-    nc.popToRootViewController(animated: true)
+  override func viewDidDisappear(_ animated: Bool) {
+    super.viewDidDisappear(animated)
+    if isMovingFromParentViewController && !reviewPosted {
+      Statistics.logEvent(kStatUGCReviewCancel)
+    }
   }
 
   private func configNavBar() {
@@ -55,19 +57,21 @@ final class UGCAddReviewController: MWMTableViewController {
 
   @objc private func onDone() {
     guard let text = textCell?.reviewText else {
-      assert(false)
+      assertionFailure()
       return
     }
     Statistics.logEvent(kStatUGCReviewSuccess)
+    reviewPosted = true
     model.text = text
     onSave(model)
     guard let nc = navigationController else { return }
-    if MWMPlatform.networkConnectionType() == .none || MWMAuthorizationViewModel.isAuthenticated() {
+    if MWMAuthorizationViewModel.isAuthenticated() || MWMPlatform.networkConnectionType() == .none {
       nc.popViewController(animated: true)
     } else {
       Statistics.logEvent(kStatUGCReviewAuthShown, withParameters: [kStatFrom: kStatAfterSave])
       let authVC = AuthorizationViewController(barButtonItem: navigationItem.rightBarButtonItem!,
-                                               completion: { nc.popToRootViewController(animated: true) })
+                                               sourceComponent: .UGC,
+                                               completionHandler: { _ in nc.popToRootViewController(animated: true) })
       present(authVC, animated: true, completion: nil)
     }
   }

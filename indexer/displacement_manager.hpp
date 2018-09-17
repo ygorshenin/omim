@@ -1,6 +1,7 @@
 #pragma once
 
 #include "indexer/cell_id.hpp"
+#include "indexer/cell_value_pair.hpp"
 #include "indexer/classificator.hpp"
 #include "indexer/drawing_rules.hpp"
 #include "indexer/feature_data.hpp"
@@ -12,10 +13,11 @@
 #include "geometry/screenbase.hpp"
 #include "geometry/tree4d.hpp"
 
-#include "std/map.hpp"
-#include "std/queue.hpp"
 #include "std/target_os.hpp"
-#include "std/vector.hpp"
+
+#include <algorithm>
+#include <functional>
+#include <vector>
 
 namespace
 {
@@ -28,40 +30,11 @@ double constexpr kPOIDisplacementRadiusMultiplier = kPOIDisplacementRadiusPixels
 
 namespace covering
 {
-class CellFeaturePair
-{
-public:
-  CellFeaturePair() : m_cellLo(0), m_cellHi(0), m_feature(0) {}
-
-  CellFeaturePair(uint64_t cell, uint32_t feature)
-    : m_cellLo(UINT64_LO(cell)), m_cellHi(UINT64_HI(cell)), m_feature(feature)
-  {
-  }
-
-  bool operator<(CellFeaturePair const & rhs) const
-  {
-    if (m_cellHi != rhs.m_cellHi)
-      return m_cellHi < rhs.m_cellHi;
-    if (m_cellLo != rhs.m_cellLo)
-      return m_cellLo < rhs.m_cellLo;
-    return m_feature < rhs.m_feature;
-  }
-
-  uint64_t GetCell() const { return UINT64_FROM_UINT32(m_cellHi, m_cellLo); }
-  uint32_t GetFeature() const { return m_feature; }
-private:
-  uint32_t m_cellLo;
-  uint32_t m_cellHi;
-  uint32_t m_feature;
-};
-static_assert(sizeof(CellFeaturePair) == 12, "");
-#ifndef OMIM_OS_LINUX
-static_assert(std::is_trivially_copyable<CellFeaturePair>::value, "");
-#endif
-
 class CellFeatureBucketTuple
 {
 public:
+  using CellFeaturePair = CellValuePair<uint32_t>;
+
   CellFeatureBucketTuple() : m_bucket(0) {}
   CellFeatureBucketTuple(CellFeaturePair const & p, uint32_t bucket) : m_pair(p), m_bucket(bucket)
   {
@@ -76,6 +49,7 @@ public:
 
   CellFeaturePair const & GetCellFeaturePair() const { return m_pair; }
   uint32_t GetBucket() const { return m_bucket; }
+
 private:
   CellFeaturePair m_pair;
   uint32_t m_bucket;
@@ -87,15 +61,17 @@ static_assert(std::is_trivially_copyable<CellFeatureBucketTuple>::value, "");
 
 /// Displacement manager filters incoming single-point features to simplify runtime
 /// feature visibility displacement.
-template <class TSorter>
+template <typename Sorter>
 class DisplacementManager
 {
 public:
-  DisplacementManager(TSorter & sorter) : m_sorter(sorter) {}
+  using CellFeaturePair = CellFeatureBucketTuple::CellFeaturePair;
+
+  DisplacementManager(Sorter & sorter) : m_sorter(sorter) {}
 
   /// Add feature at bucket (zoom) to displaceable queue if possible. Pass to bucket otherwise.
-  template <class TFeature>
-  void Add(vector<int64_t> const & cells, uint32_t bucket, TFeature const & ft, uint32_t index)
+  template <typename Feature>
+  void Add(std::vector<int64_t> const & cells, uint32_t bucket, Feature & ft, uint32_t index)
   {
     // Add to displaceable storage if we need to displace POI.
     if (bucket != scales::GetUpperScale() && IsDisplaceable(ft))
@@ -118,14 +94,15 @@ public:
     m4::Tree<DisplaceableNode> acceptedNodes;
 
     // Sort in priority descend mode.
-    sort(m_storage.begin(), m_storage.end(), greater<DisplaceableNode>());
+    std::sort(m_storage.begin(), m_storage.end(), std::greater<DisplaceableNode>());
 
     for (auto const & node : m_storage)
     {
       auto scale = node.m_minScale;
       // Do not filter high level objects. Including metro and country names.
-      static auto const maximumIgnoredZoom = feature::GetDrawableScaleRange(
-        classif().GetTypeByPath({"railway", "station", "subway"})).first;
+      static auto const maximumIgnoredZoom =
+          feature::GetDrawableScaleRange(classif().GetTypeByPath({"railway", "station", "subway"}))
+              .first;
 
       if (maximumIgnoredZoom < 0 || scale <= maximumIgnoredZoom)
       {
@@ -140,10 +117,11 @@ public:
 
         m2::RectD const displacementRect(node.m_center, node.m_center);
         bool isDisplaced = false;
-        acceptedNodes.ForEachInRect(m2::Inflate(displacementRect, {delta, delta}),
-            [&isDisplaced, &node, &squaredDelta, &scale](DisplaceableNode const & rhs)
-            {
-              if (node.m_center.SquareLength(rhs.m_center) < squaredDelta && rhs.m_maxScale > scale)
+        acceptedNodes.ForEachInRect(
+            m2::Inflate(displacementRect, {delta, delta}),
+            [&isDisplaced, &node, &squaredDelta, &scale](DisplaceableNode const & rhs) {
+              if (node.m_center.SquaredLength(rhs.m_center) < squaredDelta &&
+                  rhs.m_maxScale > scale)
                 isDisplaced = true;
             });
         if (isDisplaced)
@@ -165,7 +143,7 @@ private:
     uint32_t m_index;
     FeatureID m_fID;
     m2::PointD m_center;
-    vector<int64_t> m_cells;
+    std::vector<int64_t> m_cells;
 
     int m_minScale;
     int m_maxScale;
@@ -173,10 +151,14 @@ private:
 
     DisplaceableNode() : m_index(0), m_minScale(0), m_maxScale(0), m_priority(0) {}
 
-    template <class TFeature>
-    DisplaceableNode(vector<int64_t> const & cells, TFeature const & ft, uint32_t index,
-                    int zoomLevel)
-      : m_index(index), m_fID(ft.GetID()), m_center(ft.GetCenter()), m_cells(cells), m_minScale(zoomLevel)
+    template <typename Feature>
+    DisplaceableNode(std::vector<int64_t> const & cells, Feature & ft, uint32_t index,
+                     int zoomLevel)
+      : m_index(index)
+      , m_fID(ft.GetID())
+      , m_center(ft.GetCenter())
+      , m_cells(cells)
+      , m_minScale(zoomLevel)
     {
       feature::TypesHolder const types(ft);
       auto scaleRange = feature::GetDrawableScaleRange(types);
@@ -184,7 +166,7 @@ private:
 
       // Calculate depth field
       drule::KeysT keys;
-      feature::GetDrawRule(ft, zoomLevel, keys);
+      feature::GetDrawRule(feature::TypesHolder(ft), zoomLevel, keys);
       // While the function has "runtime" in its name, it merely filters by metadata-based rules.
       feature::FilterRulesByRuntimeSelector(ft, zoomLevel, keys);
       drule::MakeUnique(keys);
@@ -212,8 +194,8 @@ private:
     m2::RectD const GetLimitRect() const { return m2::RectD(m_center, m_center); }
   };
 
-  template <class TFeature>
-  static bool IsDisplaceable(TFeature const & ft)
+  template <typename Feature>
+  static bool IsDisplaceable(Feature & ft)
   {
     feature::TypesHolder const types(ft);
     return types.GetGeoType() == feature::GEOM_POINT;
@@ -232,7 +214,7 @@ private:
       m_sorter.Add(CellFeatureBucketTuple(CellFeaturePair(cell, node.m_index), scale));
   }
 
-  TSorter & m_sorter;
-  vector<DisplaceableNode> m_storage;
+  Sorter & m_sorter;
+  std::vector<DisplaceableNode> m_storage;
 };
 }  // namespace indexer

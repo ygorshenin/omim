@@ -291,9 +291,12 @@ using Observers = NSHashTable<Observer>;
   [self.navigationController popToRootViewControllerAnimated:NO];
 
   self.actionBarState = MWMSearchManagerActionBarStateModeFilter;
-  [self animateConstraints:^{
-    self.actionBarViewBottom.priority = UILayoutPriorityDefaultHigh;
-  }];
+  if (!IPAD)
+  {
+    [self animateConstraints:^{
+      self.actionBarViewBottom.priority = UILayoutPriorityDefaultHigh;
+    }];
+  }
   auto const navigationManagerState = [MWMNavigationDashboardManager manager].state;
   [self viewHidden:navigationManagerState != MWMNavigationDashboardStateHidden];
   [MWMSearch setSearchOnMap:YES];
@@ -458,8 +461,7 @@ using Observers = NSHashTable<Observer>;
 {
   if (_state == state)
     return;
-  if (_state == MWMSearchManagerStateHidden)
-    [self endSearch];
+
   _state = state;
   [self updateTopController];
   switch (state)
@@ -483,7 +485,7 @@ using Observers = NSHashTable<Observer>;
   }
   [self onSearchManagerStateChanged];
   [self.changeModeView updateForState:state];
-  [[MapViewController controller] updateStatusBarStyle];
+  [[MapViewController sharedController] updateStatusBarStyle];
 }
 
 - (void)viewHidden:(BOOL)hidden
@@ -497,17 +499,15 @@ using Observers = NSHashTable<Observer>;
   {
     if (searchBarView.superview)
     {
-      [parentView bringSubviewToFront:contentView];
-      [parentView bringSubviewToFront:actionBarView];
       [parentView bringSubviewToFront:searchBarView];
+      [parentView bringSubviewToFront:actionBarView];
+      [parentView bringSubviewToFront:contentView];
       return;
     }
-    [parentView addSubview:contentView];
-    [parentView addSubview:actionBarView];
     [parentView addSubview:searchBarView];
+    [parentView addSubview:actionBarView];
+    [parentView addSubview:contentView];
     [self layoutTopViews];
-    CGRect searchAndStatusBarFrame = self.searchBarView.frame;
-    searchAndStatusBarFrame.size.height += statusBarHeight();
   }
   [UIView animateWithDuration:kDefaultAnimationDuration
       animations:^{
@@ -560,5 +560,5 @@ using Observers = NSHashTable<Observer>;
   }
 }
 
-- (UIViewController *)ownerController { return [MapViewController controller]; }
+- (UIViewController *)ownerController { return [MapViewController sharedController]; }
 @end

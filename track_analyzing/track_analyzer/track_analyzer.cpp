@@ -7,6 +7,8 @@
 
 #include "3party/gflags/src/gflags/gflags.h"
 
+#include <string>
+
 using namespace std;
 using namespace track_analyzing;
 
@@ -23,9 +25,21 @@ namespace
     return FLAGS_##name;                                                      \
   }
 
-DEFINE_string_ext(cmd, "", "command: match, info, cpptrack");
+DEFINE_string_ext(cmd, "",
+                  "command:\n"
+                  "match - based on raw logs gathers points to tracks and matches them to "
+                  "features. To use the tool raw logs should be taken from \"trafin\" production "
+                  "project in gz files and extracted.\n"
+                  "unmatched_tracks - based on raw logs gathers points to tracks\n"
+                  "and save tracks to csv. Track points save as lat, log, timestamp in seconds\n"
+                  "tracks - prints track statistics\n"
+                  "track - prints info about single track\n"
+                  "cpptrack - prints track coords to insert them to cpp code\n"
+                  "table - prints csv table based on matched tracks\n"
+                  "gpx - convert raw logs into gpx files\n");
 DEFINE_string_ext(in, "", "input log file name");
 DEFINE_string(out, "", "output track file name");
+DEFINE_string_ext(output_dir, "", "output dir for gpx files");
 DEFINE_string_ext(mwm, "", "short mwm name");
 DEFINE_string_ext(user, "", "user id");
 DEFINE_int32(track, -1, "track index");
@@ -66,6 +80,8 @@ void CmdCppTrack(string const & trackFile, string const & mwmName, string const 
                  size_t trackIdx);
 // Match raw gps logs to tracks.
 void CmdMatch(string const & logFile, string const & trackFile);
+// Parse |logFile| and save tracks (mwm name, aloha id, lats, lons, timestamps in seconds in csv).
+void CmdUnmatchedTracks(string const & logFile, string const & trackFileCsv);
 // Print aggregated tracks to csv table.
 void CmdTagsTable(string const & filepath, string const & trackExtension,
                   StringFilter mwmIsFiltered, StringFilter userFilter);
@@ -76,6 +92,8 @@ void CmdTrack(string const & trackFile, string const & mwmName, string const & u
 void CmdTracks(string const & filepath, string const & trackExtension, StringFilter mwmFilter,
                StringFilter userFilter, TrackFilter const & filter, bool noTrackLogs,
                bool noMwmLogs, bool noWorldLogs);
+
+void CmdGPX(string const & logFile, string const & outputFilesDir, string const & userID);
 }  // namespace track_analyzing
 
 int main(int argc, char ** argv)
@@ -92,6 +110,11 @@ int main(int argc, char ** argv)
     {
       string const & logFile = Checked_in();
       CmdMatch(logFile, FLAGS_out.empty() ? logFile + ".track" : FLAGS_out);
+    }
+    else if (cmd == "unmatched_tracks")
+    {
+      string const & logFile = Checked_in();
+      CmdUnmatchedTracks(logFile, FLAGS_out.empty() ? logFile + ".track.csv" : FLAGS_out);
     }
     else if (cmd == "tracks")
     {
@@ -112,6 +135,10 @@ int main(int argc, char ** argv)
     {
       CmdTagsTable(Checked_in(), FLAGS_track_extension, MakeFilter(FLAGS_mwm),
                    MakeFilter(FLAGS_user));
+    }
+    else if (cmd == "gpx")
+    {
+      CmdGPX(Checked_in(), Checked_output_dir(), FLAGS_user);
     }
     else
     {

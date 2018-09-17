@@ -13,8 +13,6 @@
 #include "std/unique_ptr.hpp"
 #include "std/utility.hpp"
 
-class UserMarkContainer;
-
 class UserMark : public df::UserPointMark
 {
 public:
@@ -32,32 +30,43 @@ public:
     TransitKeyStop
   };
 
-  enum class Type
+  enum Type: uint32_t
   {
+    BOOKMARK, // Should always be the first one
     API,
     SEARCH,
     STATIC,
-    BOOKMARK,
     ROUTING,
     TRANSIT,
     LOCAL_ADS,
-    DEBUG_MARK
+    DEBUG_MARK,
+    USER_MARK_TYPES_COUNT,
+    USER_MARK_TYPES_COUNT_MAX = 1000,
   };
 
-  UserMark(m2::PointD const & ptOrg, UserMarkContainer * container);
+  UserMark(kml::MarkId id, m2::PointD const & ptOrg, UserMark::Type type);
+  UserMark(m2::PointD const & ptOrg, UserMark::Type type);
+
+  static Type GetMarkType(kml::MarkId id);
+
+  Type GetMarkType() const { return GetMarkType(GetId()); }
+  kml::MarkGroupId GetGroupId() const override { return GetMarkType(); }
 
   // df::UserPointMark overrides.
   bool IsDirty() const override { return m_isDirty; }
-  void AcceptChanges() const override { m_isDirty = false; }
+  void ResetChanges() const override { m_isDirty = false; }
   bool IsVisible() const override { return true; }
   m2::PointD const & GetPivot() const override;
   m2::PointD GetPixelOffset() const override;
   dp::Anchor GetAnchor() const override;
-  float GetDepth() const override;
-  df::RenderState::DepthLayer GetDepthLayer() const override;
+  bool GetDepthTestEnabled() const override { return true; }
+  float GetDepth() const override { return 0.0f; }
+  df::DepthLayer GetDepthLayer() const override;
   drape_ptr<TitlesInfo> GetTitleDecl() const override { return nullptr; }
   drape_ptr<ColoredSymbolZoomInfo> GetColoredSymbols() const override { return nullptr; }
+  drape_ptr<SymbolNameZoomInfo> GetBadgeNames() const override { return nullptr; }
   drape_ptr<SymbolSizes> GetSymbolSizes() const override { return nullptr; }
+  drape_ptr<SymbolOffsets> GetSymbolOffsets() const override { return nullptr; }
   uint16_t GetPriority() const override { return static_cast<uint16_t >(Priority::Default); }
   uint32_t GetIndex() const override { return 0; }
   bool HasSymbolPriority() const override { return false; }
@@ -66,17 +75,16 @@ public:
   int GetMinTitleZoom() const override { return GetMinZoom(); }
   FeatureID GetFeatureID() const override { return FeatureID(); }
   bool HasCreationAnimation() const override { return false; }
+  df::ColorConstant GetColorConstant() const override { return {}; }
 
-  UserMarkContainer const * GetContainer() const;
   ms::LatLon GetLatLon() const;
-  virtual Type GetMarkType() const = 0;
+
   virtual bool IsAvailableForSearch() const { return true; }
 
 protected:
   void SetDirty() { m_isDirty = true; }
 
   m2::PointD m_ptOrg;
-  mutable UserMarkContainer * m_container;
 
 private:
   mutable bool m_isDirty = true;
@@ -87,10 +95,9 @@ private:
 class StaticMarkPoint : public UserMark
 {
 public:
-  explicit StaticMarkPoint(UserMarkContainer * container);
+  explicit StaticMarkPoint(m2::PointD const & ptOrg);
 
   drape_ptr<SymbolNameZoomInfo> GetSymbolNames() const override { return nullptr; }
-  UserMark::Type GetMarkType() const override;
 
   void SetPtOrg(m2::PointD const & ptOrg);
 };
@@ -98,7 +105,7 @@ public:
 class MyPositionMarkPoint : public StaticMarkPoint
 {
 public:
-  explicit MyPositionMarkPoint(UserMarkContainer * container);
+  explicit MyPositionMarkPoint(m2::PointD const & ptOrg);
 
   void SetUserPosition(m2::PointD const & pt, bool hasPosition)
   {
@@ -114,11 +121,9 @@ private:
 class DebugMarkPoint : public UserMark
 {
 public:
-  DebugMarkPoint(m2::PointD const & ptOrg, UserMarkContainer * container);
+  DebugMarkPoint(m2::PointD const & ptOrg);
 
   drape_ptr<SymbolNameZoomInfo> GetSymbolNames() const override;
-
-  Type GetMarkType() const override { return UserMark::Type::DEBUG_MARK; }
 };
 
 string DebugPrint(UserMark::Type type);

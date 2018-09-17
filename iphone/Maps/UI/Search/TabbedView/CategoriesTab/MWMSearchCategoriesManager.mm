@@ -6,8 +6,6 @@
 
 #include "Framework.h"
 
-extern NSString * const kCianCategory = @"cian";
-
 @implementation MWMSearchCategoriesManager
 {
   vector<string> m_categories;
@@ -49,33 +47,16 @@ extern NSString * const kCianCategory = @"cian";
 
 #pragma mark - UITableViewDelegate
 
-- (void)tableView:(UITableView *)tableView
-      willDisplayCell:(UITableViewCell *)cell
-    forRowAtIndexPath:(NSIndexPath *)indexPath
-{
-  NSString * string = @(m_categories[indexPath.row].c_str());
-  if ([string isEqualToString:kCianCategory])
-  {
-    [MRMyTracker trackEventWithName:@"Search_SponsoredCategory_shown_Cian"];
-    [Statistics logEvent:kStatSearchSponsoredShow withParameters:@{kStatProvider : kStatCian}];
-  }
-}
-
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
   NSString * string = @(m_categories[indexPath.row].c_str());
+  auto query = [L(string) stringByAppendingString:@" "];
+
   [Statistics logEvent:kStatEventName(kStatSearch, kStatSelectResult)
         withParameters:@{kStatValue : string, kStatScreen : kStatCategories}];
   id<MWMSearchTabbedViewProtocol> delegate = self.delegate;
-  [delegate searchText:[L(string) stringByAppendingString:@" "]
-        forInputLocale:[[AppInfo sharedInfo] languageId]];
+  [delegate searchText:query forInputLocale:[[AppInfo sharedInfo] languageId]];
   [delegate dismissKeyboard];
-  if ([string isEqualToString:kCianCategory])
-  {
-    delegate.state = MWMSearchManagerStateMapSearch;
-    [MRMyTracker trackEventWithName:@"Search_SponsoredCategory_selected_Cian"];
-    [Statistics logEvent:kStatSearchSponsoredSelect withParameters:@{kStatProvider : kStatCian}];
-  }
 }
 
 @end

@@ -2,11 +2,18 @@
 #import "MWMSearchFilterViewController.h"
 #import "MWMSearchItemType.h"
 #import "MWMSearchObserver.h"
+#import "MWMTypes.h"
 
 namespace search
 {
 class Result;
+struct ProductInfo;
 }  // namespace search
+
+namespace search_filter
+{
+struct HotelParams;
+}
 
 @interface MWMSearch : NSObject
 
@@ -21,9 +28,10 @@ class Result;
 + (MWMSearchItemType)resultTypeWithRow:(NSUInteger)row;
 + (NSUInteger)containerIndexWithRow:(NSUInteger)row;
 + (search::Result const &)resultWithContainerIndex:(NSUInteger)index;
-+ (BOOL)isLocalAdsWithContainerIndex:(NSUInteger)index;
++ (search::ProductInfo const &)productInfoWithContainerIndex:(NSUInteger)index;
 + (id<MWMBanner>)adWithContainerIndex:(NSUInteger)index;
 + (BOOL)isBookingAvailableWithContainerIndex:(NSUInteger)index;
++ (BOOL)isDealAvailableWithContainerIndex:(NSUInteger)index;
 
 + (void)update;
 + (void)clear;
@@ -38,6 +46,8 @@ class Result;
 + (BOOL)hasFilter;
 + (MWMSearchFilterViewController *)getFilter;
 + (void)clearFilter;
++ (void)showHotelFilterWithParams:(search_filter::HotelParams &&)params
+                 onFinishCallback:(MWMVoidBlock)callback;
 
 - (instancetype)init __attribute__((unavailable("unavailable")));
 - (instancetype)copy __attribute__((unavailable("unavailable")));

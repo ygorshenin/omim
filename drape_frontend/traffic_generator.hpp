@@ -2,7 +2,7 @@
 
 #include "drape_frontend/batchers_pool.hpp"
 #include "drape_frontend/color_constants.hpp"
-#include "drape_frontend/render_state.hpp"
+#include "drape_frontend/render_state_extension.hpp"
 #include "drape_frontend/tile_key.hpp"
 
 #include "drape/color.hpp"
@@ -16,16 +16,19 @@
 
 #include "geometry/polyline2d.hpp"
 
-#include "std/array.hpp"
-#include "std/map.hpp"
-#include "std/set.hpp"
-#include "std/string.hpp"
-#include "std/vector.hpp"
-#include "std/unordered_map.hpp"
+#include <array>
+#include <functional>
+#include <map>
+#include <unordered_map>
+#include <vector>
+
+namespace dp
+{
+  class GraphicsContext;
+}  // namespace dp
 
 namespace df
 {
-
 enum class RoadClass : uint8_t
 {
   Class0,
@@ -69,24 +72,32 @@ struct TrafficSegmentGeometry
   RoadClass m_roadClass;
 
   TrafficSegmentGeometry(m2::PolylineD && polyline, RoadClass const & roadClass)
-    : m_polyline(move(polyline))
+    : m_polyline(std::move(polyline))
     , m_roadClass(roadClass)
   {}
 };
 
-using TrafficSegmentsGeometry = map<MwmSet::MwmId, vector<pair<traffic::TrafficInfo::RoadSegmentId,
-                                                               TrafficSegmentGeometry>>>;
-using TrafficSegmentsColoring = map<MwmSet::MwmId, traffic::TrafficInfo::Coloring>;
+using TrafficSegmentsGeometryValue = std::vector<std::pair<traffic::TrafficInfo::RoadSegmentId,
+                                                           TrafficSegmentGeometry>>;
+using TrafficSegmentsGeometry = std::map<MwmSet::MwmId, TrafficSegmentsGeometryValue>;
+using TrafficSegmentsColoring = std::map<MwmSet::MwmId, traffic::TrafficInfo::Coloring>;
 
 struct TrafficRenderData
 {
-  dp::GLState m_state;
+  dp::RenderState m_state;
   drape_ptr<dp::RenderBucket> m_bucket;
   TileKey m_tileKey;
   MwmSet::MwmId m_mwmId;
-  RoadClass m_roadClass;
+  RoadClass m_roadClass = RoadClass::Class0;
 
-  TrafficRenderData(dp::GLState const & state) : m_state(state) {}
+  explicit TrafficRenderData(dp::RenderState const & state) : m_state(state) {}
+
+  bool operator<(TrafficRenderData const & renderData) const
+  {
+    if (m_roadClass != renderData.m_roadClass)
+      return m_roadClass > renderData.m_roadClass;
+    return m_state < renderData.m_state;
+  }
 };
 
 struct TrafficStaticVertex
@@ -123,24 +134,44 @@ struct TrafficLineStaticVertex
   TTexCoord m_colorTexCoord;
 };
 
-using TrafficTexCoords = unordered_map<size_t, glsl::vec2>;
+struct TrafficCircleStaticVertex
+{
+  using TPosition = glsl::vec4;
+  using TNormal = glsl::vec4;
+  using TTexCoord = glsl::vec2;
+
+  TrafficCircleStaticVertex() = default;
+  TrafficCircleStaticVertex(TPosition const & position, TNormal const & normal,
+                            TTexCoord const & colorTexCoord)
+    : m_position(position)
+    , m_normal(normal)
+    , m_colorTexCoord(colorTexCoord)
+  {}
+
+  TPosition m_position;
+  TNormal m_normal;
+  TTexCoord m_colorTexCoord;
+};
+
+using TrafficTexCoords = std::unordered_map<size_t, glsl::vec2>;
 
 class TrafficGenerator final
 {
 public:
-  using TFlushRenderDataFn = function<void (TrafficRenderData && renderData)>;
+  using FlushRenderDataFn = std::function<void(TrafficRenderData && renderData)>;
 
-  explicit TrafficGenerator(TFlushRenderDataFn flushFn)
-    : m_flushRenderDataFn(flushFn)
+  explicit TrafficGenerator(FlushRenderDataFn flushFn)
+    : m_flushRenderDataFn(std::move(flushFn))
     , m_providerTriangles(1 /* stream count */, 0 /* vertices count*/)
     , m_providerLines(1 /* stream count */, 0 /* vertices count*/)
+    , m_providerCircles(1 /* stream count */, 0 /* vertices count*/)
   {}
 
   void Init();
   void ClearGLDependentResources();
 
-  void FlushSegmentsGeometry(TileKey const & tileKey, TrafficSegmentsGeometry const & geom,
-                             ref_ptr<dp::TextureManager> textures);
+  void FlushSegmentsGeometry(ref_ptr<dp::GraphicsContext> context, TileKey const & tileKey,
+                             TrafficSegmentsGeometry const & geom, ref_ptr<dp::TextureManager> textures);
   void UpdateColoring(TrafficSegmentsColoring const & coloring);
 
   void ClearCache();
@@ -168,7 +199,7 @@ private:
 
   struct TrafficBatcherKeyComparator
   {
-    bool operator() (TrafficBatcherKey const & lhs, TrafficBatcherKey const & rhs) const
+    bool operator()(TrafficBatcherKey const & lhs, TrafficBatcherKey const & rhs) const
     {
       if (lhs.m_mwmId == rhs.m_mwmId)
       {
@@ -180,30 +211,37 @@ private:
     }
   };
 
-  void GenerateSegment(dp::TextureManager::ColorRegion const & colorRegion,
+  void GenerateSegment(RoadClass roadClass, dp::TextureManager::ColorRegion const & colorRegion,
                        m2::PolylineD const & polyline, m2::PointD const & tileCenter,
-                       bool generateCaps, float depth, float vOffset, float minU,
-                       vector<TrafficStaticVertex> & staticGeometry);
+                       bool generateCircles, float depth, float vOffset, float minU,
+                       bool isLeftHand, std::vector<TrafficStaticVertex> & staticGeometry,
+                       std::vector<TrafficCircleStaticVertex> & circlesGeometry);
   void GenerateLineSegment(dp::TextureManager::ColorRegion const & colorRegion,
                            m2::PolylineD const & polyline, m2::PointD const & tileCenter, float depth,
-                           vector<TrafficLineStaticVertex> & staticGeometry);
+                           std::vector<TrafficLineStaticVertex> & staticGeometry);
   void FillColorsCache(ref_ptr<dp::TextureManager> textures);
 
-  void FlushGeometry(TrafficBatcherKey const & key, dp::GLState const & state,
+  void FlushGeometry(TrafficBatcherKey const & key, dp::RenderState const & state,
                      drape_ptr<dp::RenderBucket> && buffer);
+  void GenerateSegmentsGeometry(MwmSet::MwmId const & mwmId, TileKey const & tileKey,
+                                TrafficSegmentsGeometryValue const & geometry,
+                                traffic::TrafficInfo::Coloring const & coloring,
+                                ref_ptr<dp::TextureManager> texturesMgr);
 
   TrafficSegmentsColoring m_coloring;
 
-  array<dp::TextureManager::ColorRegion, static_cast<size_t>(traffic::SpeedGroup::Count)> m_colorsCache;
+  std::array<dp::TextureManager::ColorRegion, static_cast<size_t>(traffic::SpeedGroup::Count)> m_colorsCache;
   bool m_colorsCacheValid = false;
 
-  drape_ptr<BatchersPool<TrafficBatcherKey, TrafficBatcherKeyComparator>> m_batchersPool;
-  TFlushRenderDataFn m_flushRenderDataFn;
+  using BatcherPoolType = BatchersPool<TrafficBatcherKey, TrafficBatcherKeyComparator>;
+  drape_ptr<BatcherPoolType> m_batchersPool;
+  drape_ptr<dp::Batcher> m_circlesBatcher;
+  FlushRenderDataFn m_flushRenderDataFn;
 
   dp::AttributeProvider m_providerTriangles;
   dp::AttributeProvider m_providerLines;
+  dp::AttributeProvider m_providerCircles;
 
   static bool m_simplifiedColorScheme;
 };
-
-} // namespace df
+}  // namespace df

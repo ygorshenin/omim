@@ -2,11 +2,11 @@
 
 #include "transit/transit_types.hpp"
 
-#include "indexer/geometry_coding.hpp"
-
 #include "geometry/point2d.hpp"
 
+#include "coding/geometry_coding.hpp"
 #include "coding/point_to_integer.hpp"
+#include "coding/pointd_to_pointu.hpp"
 #include "coding/read_write_utils.hpp"
 #include "coding/reader.hpp"
 #include "coding/varint.hpp"
@@ -42,33 +42,31 @@ public:
   explicit Serializer(Sink & sink) : m_sink(sink) {}
 
   template <typename T>
-  typename std::enable_if<(std::is_integral<T>::value || std::is_enum<T>::value) &&
-                          !std::is_same<T, uint32_t>::value && !std::is_same<T, uint64_t>::value &&
-                          !std::is_same<T, int32_t>::value &&
-                          !std::is_same<T, int64_t>::value>::type
+  std::enable_if_t<(std::is_integral<T>::value || std::is_enum<T>::value) &&
+                   !std::is_same<T, uint32_t>::value && !std::is_same<T, uint64_t>::value &&
+                   !std::is_same<T, int32_t>::value && !std::is_same<T, int64_t>::value>
   operator()(T const & t, char const * /* name */ = nullptr)
   {
     WriteToSink(m_sink, t);
   }
 
   template <typename T>
-  typename std::enable_if<std::is_same<T, uint32_t>::value ||
-                          std::is_same<T, uint64_t>::value>::type
-  operator()(T t, char const * /* name */ = nullptr) const
+  std::enable_if_t<std::is_same<T, uint32_t>::value || std::is_same<T, uint64_t>::value> operator()(
+      T t, char const * /* name */ = nullptr) const
   {
     WriteVarUint(m_sink, t);
   }
 
   template <typename T>
-  typename std::enable_if<std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value>::type
-  operator()(T t, char const * name = nullptr) const
+  std::enable_if_t<std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value> operator()(
+      T t, char const * name = nullptr) const
   {
     WriteVarInt(m_sink, t);
   }
 
   template <typename T>
-  typename std::enable_if<std::is_same<T, double>::value || std::is_same<T, float>::value>::type
-  operator()(T d, char const * name = nullptr)
+  std::enable_if_t<std::is_same<T, double>::value || std::is_same<T, float>::value> operator()(
+      T d, char const * name = nullptr)
   {
     CHECK_GREATER_OR_EQUAL(d, kMinDoubleAtTransitSection, ());
     CHECK_LESS_OR_EQUAL(d, kMaxDoubleAtTransitSection, ());
@@ -82,7 +80,7 @@ public:
 
   void operator()(m2::PointD const & p, char const * /* name */ = nullptr)
   {
-    WriteVarInt(m_sink, PointToInt64(p, POINT_COORD_BITS));
+    WriteVarInt(m_sink, PointToInt64Obsolete(p, POINT_COORD_BITS));
   }
 
   void operator()(std::vector<m2::PointD> const & vs, char const * /* name */ = nullptr)
@@ -92,8 +90,8 @@ public:
     m2::PointU lastEncodedPoint;
     for (auto const & p : vs)
     {
-      m2::PointU const pointU = PointD2PointU(p, POINT_COORD_BITS);
-      WriteVarUint(m_sink, EncodeDelta(pointU, lastEncodedPoint));
+      m2::PointU const pointU = PointDToPointU(p, POINT_COORD_BITS);
+      WriteVarUint(m_sink, coding::EncodePointDeltaAsUint(pointU, lastEncodedPoint));
       lastEncodedPoint = pointU;
     }
   }
@@ -156,8 +154,9 @@ public:
       (*this)(v);
   }
 
-  template<typename T>
-  typename std::enable_if<std::is_class<T>::value>::type operator()(T const & t, char const * /* name */ = nullptr)
+  template <typename T>
+  std::enable_if_t<std::is_class<T>::value> operator()(T const & t,
+                                                       char const * /* name */ = nullptr)
   {
     t.Visit(*this);
   }
@@ -175,33 +174,31 @@ public:
   explicit Deserializer(Source & source) : m_source(source) {}
 
   template <typename T>
-  typename std::enable_if<(std::is_integral<T>::value || std::is_enum<T>::value) &&
-                          !std::is_same<T, uint32_t>::value && !std::is_same<T, uint64_t>::value &&
-                          !std::is_same<T, int32_t>::value &&
-                          !std::is_same<T, int64_t>::value>::type
+  std::enable_if_t<(std::is_integral<T>::value || std::is_enum<T>::value) &&
+                   !std::is_same<T, uint32_t>::value && !std::is_same<T, uint64_t>::value &&
+                   !std::is_same<T, int32_t>::value && !std::is_same<T, int64_t>::value>
   operator()(T & t, char const * name = nullptr)
   {
     ReadPrimitiveFromSource(m_source, t);
   }
 
   template <typename T>
-  typename std::enable_if<std::is_same<T, uint32_t>::value ||
-                          std::is_same<T, uint64_t>::value>::type
-  operator()(T & t, char const * name = nullptr)
+  std::enable_if_t<std::is_same<T, uint32_t>::value || std::is_same<T, uint64_t>::value> operator()(
+      T & t, char const * name = nullptr)
   {
     t = ReadVarUint<T, Source>(m_source);
   }
 
   template <typename T>
-  typename std::enable_if<std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value>::type
-  operator()(T & t, char const * name = nullptr)
+  std::enable_if_t<std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value> operator()(
+      T & t, char const * name = nullptr)
   {
     t = ReadVarInt<T, Source>(m_source);
   }
 
   template <typename T>
-  typename std::enable_if<std::is_same<T, double>::value || std::is_same<T, float>::value>::type
-  operator()(T & d, char const * name = nullptr)
+  std::enable_if_t<std::is_same<T, double>::value || std::is_same<T, float>::value> operator()(
+      T & d, char const * name = nullptr)
   {
     uint32_t ui;
     (*this)(ui, name);
@@ -215,7 +212,7 @@ public:
 
   void operator()(m2::PointD & p, char const * /* name */ = nullptr)
   {
-    p = Int64ToPoint(ReadVarInt<int64_t, Source>(m_source), POINT_COORD_BITS);
+    p = Int64ToPointObsolete(ReadVarInt<int64_t, Source>(m_source), POINT_COORD_BITS);
   }
 
   void operator()(Edge::WrappedEdgeId & id, char const * /* name */ = nullptr)
@@ -292,8 +289,9 @@ public:
     vs.resize(size);
     for (auto & p : vs)
     {
-      m2::PointU const pointU = DecodeDelta(ReadVarUint<uint64_t, Source>(m_source), lastDecodedPoint);
-      p = PointU2PointD(pointU, POINT_COORD_BITS);
+      m2::PointU const pointU = coding::DecodePointDeltaFromUint(
+          ReadVarUint<uint64_t, Source>(m_source), lastDecodedPoint);
+      p = PointUToPointD(pointU, POINT_COORD_BITS);
       lastDecodedPoint = pointU;
     }
   }
@@ -308,8 +306,7 @@ public:
   }
 
   template <typename T>
-  typename std::enable_if<std::is_class<T>::value>::type
-  operator()(T & t, char const * /* name */ = nullptr)
+  std::enable_if_t<std::is_class<T>::value> operator()(T & t, char const * /* name */ = nullptr)
   {
     t.Visit(*this);
   }
@@ -327,8 +324,8 @@ public:
   explicit FixedSizeSerializer(Sink & sink) : m_sink(sink) {}
 
   template <typename T>
-  typename std::enable_if<std::is_integral<T>::value || std::is_enum<T>::value, void>::type
-  operator()(T const & t, char const * /* name */ = nullptr)
+  std::enable_if_t<std::is_integral<T>::value || std::is_enum<T>::value, void> operator()(
+      T const & t, char const * /* name */ = nullptr)
   {
     WriteToSink(m_sink, t);
   }
@@ -346,8 +343,8 @@ public:
   explicit FixedSizeDeserializer(Source & source) : m_source(source) {}
 
   template <typename T>
-  typename std::enable_if<std::is_integral<T>::value || std::is_enum<T>::value, void>::type
-  operator()(T & t, char const * name = nullptr)
+  std::enable_if_t<std::is_integral<T>::value || std::is_enum<T>::value, void> operator()(
+      T & t, char const * name = nullptr)
   {
     ReadPrimitiveFromSource(m_source, t);
   }

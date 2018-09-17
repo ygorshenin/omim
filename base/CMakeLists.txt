@@ -4,6 +4,7 @@ set(
   SRC
   array_adapters.hpp
   assert.hpp
+  atomic_shared_ptr.hpp
   base.cpp
   base.hpp
   bits.hpp
@@ -23,6 +24,9 @@ set(
   dfa_helpers.hpp
   exception.cpp
   exception.hpp
+  fifo_cache.hpp
+  geo_object_id.cpp
+  geo_object_id.hpp
   get_time.hpp
   gmtime.cpp
   gmtime.hpp
@@ -44,8 +48,6 @@ set(
   newtype.hpp
   normalize_unicode.cpp
   observer_list.hpp
-  osm_id.cpp
-  osm_id.hpp
   pprof.cpp
   pprof.hpp
   random.cpp
@@ -61,8 +63,6 @@ set(
   src_point.cpp
   src_point.hpp
   stats.hpp
-  std_serialization.hpp
-  stl_add.hpp
   stl_helpers.hpp
   stl_iterator.hpp
   string_format.cpp
@@ -98,6 +98,6 @@ set(
   worker_thread.hpp
 )
 
-add_library(${PROJECT_NAME} ${SRC})
+omim_add_library(${PROJECT_NAME} ${SRC})
 
 omim_add_test_subdirectory(base_tests)

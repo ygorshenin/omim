@@ -2,25 +2,30 @@ package com.mapswithme.maps.ads;
 
 import android.content.Context;
 import android.location.Location;
-import android.os.SystemClock;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.text.TextUtils;
 import android.view.View;
 import android.view.ViewGroup;
 
+import com.google.android.gms.ads.formats.NativeAdOptions;
 import com.mapswithme.maps.location.LocationHelper;
+import com.mapswithme.util.Language;
 import com.mapswithme.util.log.Logger;
 import com.mapswithme.util.log.LoggerFactory;
 import com.mopub.nativeads.BaseNativeAd;
+import com.mopub.nativeads.GooglePlayServicesNative;
 import com.mopub.nativeads.MoPubAdRenderer;
 import com.mopub.nativeads.MoPubNative;
+import com.mopub.nativeads.MopubNativeAdFactory;
 import com.mopub.nativeads.NativeAd;
 import com.mopub.nativeads.NativeErrorCode;
 import com.mopub.nativeads.RequestParameters;
 import com.mopub.nativeads.StaticNativeAd;
 
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.Map;
 
 class MopubNativeDownloader extends CachingNativeAdLoader
     implements MoPubNative.MoPubNativeNetworkListener, NativeAd.MoPubNativeEventListener
@@ -57,11 +62,19 @@ class MopubNativeDownloader extends CachingNativeAdLoader
                    RequestParameters.NativeAdAsset.TEXT,
                    RequestParameters.NativeAdAsset.CALL_TO_ACTION_TEXT,
                    RequestParameters.NativeAdAsset.ICON_IMAGE);
+    requestParameters.desiredAssets(assetsSet);
 
     Location l = LocationHelper.INSTANCE.getSavedLocation();
     if (l != null)
       requestParameters.location(l);
-    requestParameters.desiredAssets(assetsSet);
+
+    String locale = Language.nativeNormalize(Language.getDefaultLocale());
+    requestParameters.keywords("user_lang:" + locale);
+
+    Map<String, Object> extras
+        = Collections.singletonMap(GooglePlayServicesNative.KEY_EXTRA_AD_CHOICES_PLACEMENT,
+                                   NativeAdOptions.ADCHOICES_TOP_LEFT);
+    nativeAd.setLocalExtras(extras);
 
     nativeAd.makeRequest(requestParameters.build());
   }
@@ -78,8 +91,10 @@ class MopubNativeDownloader extends CachingNativeAdLoader
   {
     nativeAd.setMoPubNativeEventListener(this);
     LOGGER.d(TAG, "onNativeLoad nativeAd = " + nativeAd);
-    CachedMwmNativeAd ad = new MopubNativeAd(nativeAd, SystemClock.elapsedRealtime());
-    onAdLoaded(nativeAd.getAdUnitId(), ad);
+    CachedMwmNativeAd ad = MopubNativeAdFactory.createNativeAd(nativeAd);
+
+    if (ad != null)
+      onAdLoaded(nativeAd.getAdUnitId(), ad);
   }
 
   @Override
@@ -107,7 +122,6 @@ class MopubNativeDownloader extends CachingNativeAdLoader
 
   private static class DummyRenderer implements MoPubAdRenderer<StaticNativeAd>
   {
-
     @NonNull
     @Override
     public View createAdView(@NonNull Context context, @Nullable ViewGroup parent)
@@ -126,7 +140,7 @@ class MopubNativeDownloader extends CachingNativeAdLoader
     @Override
     public boolean supports(@NonNull BaseNativeAd nativeAd)
     {
-      return nativeAd instanceof StaticNativeAd;
+      return true;
     }
   }
 }

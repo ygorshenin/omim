@@ -11,8 +11,7 @@ include_directories(
 
 set(
   SRC
-   ${OMIM_ROOT}/3party/expat/expat_impl.h
-
+  ${OMIM_ROOT}/3party/expat/expat_impl.h
   base64.cpp
   base64.hpp
   bit_streams.hpp
@@ -41,6 +40,8 @@ set(
   file_writer.cpp
   file_writer.hpp
   fixed_bits_ddvector.hpp
+  geometry_coding.cpp
+  geometry_coding.hpp
   hex.cpp
   hex.hpp
   huffman.cpp
@@ -58,6 +59,8 @@ set(
   parse_xml.hpp
   point_to_integer.cpp
   point_to_integer.hpp
+  pointd_to_pointu.cpp
+  pointd_to_pointu.hpp
   polymorph_reader.hpp
   read_write_utils.hpp
   reader.cpp
@@ -68,12 +71,17 @@ set(
   reader_wrapper.hpp
   reader_writer_ops.cpp
   reader_writer_ops.hpp
+  serdes_binary_header.hpp
+  serdes_json.hpp
   simple_dense_coding.cpp
   simple_dense_coding.hpp
+  sha1.cpp
+  sha1.hpp
   streams.hpp
   streams_common.hpp
   streams_sink.hpp
   succinct_mapper.hpp
+  tesselator_decl.hpp
   text_storage.hpp
   traffic.cpp
   traffic.hpp
@@ -99,6 +107,6 @@ set(
   zlib.hpp
 )
 
-add_library(${PROJECT_NAME} ${SRC})
+omim_add_library(${PROJECT_NAME} ${SRC})
 
 omim_add_test_subdirectory(coding_tests)

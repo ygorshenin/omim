@@ -77,8 +77,7 @@ CGFloat const kMinOffset = 1;
 
   dispatch_async(dispatch_get_main_queue(), ^{
     place_page_layout::animate(^{
-      auto actionBar = self.actionBar;
-      actionBar.maxY = actionBar.superview.height;
+      [self.actionBar setVisible:YES];
       auto const targetOffset =
           self.state == State::Expanded ? self.expandedContentOffset : self.bottomContentOffset;
       [self setAnimatedContentOffset:targetOffset];
@@ -88,14 +87,13 @@ CGFloat const kMinOffset = 1;
 
 - (void)onClose
 {
+  self.actionBar = nil;
   place_page_layout::animate(^{
-    self.actionBar.minY = self.ownerView.height;
     [self setAnimatedContentOffset:0];
   },^{
     id<MWMPlacePageLayoutDelegate> delegate = self.delegate;
     // Workaround for preventing a situation when the scroll view destroyed before an animation finished.
     [delegate onPlacePageTopBoundChanged:0];
-    self.actionBar = nil;
     self.scrollView = nil;
     [delegate destroyLayout];
   });
@@ -113,9 +111,6 @@ CGFloat const kMinOffset = 1;
   sv.delegate = self;
   auto const size = frame.size;
   self.placePageView.minY = size.height;
-  auto actionBar = self.actionBar;
-  actionBar.frame = {{0., frame.origin.y + size.height - actionBar.height},
-                     {size.width, actionBar.height}};
   [self.delegate onPlacePageTopBoundChanged:self.scrollView.contentOffset.y];
   [self setAnimatedContentOffset:self.state == State::Top ? self.topContentOffset
                                                           : self.bottomContentOffset];
@@ -138,8 +133,6 @@ CGFloat const kMinOffset = 1;
 - (void)heightWasChanged
 {
   dispatch_async(dispatch_get_main_queue(), ^{
-    auto actionBar = self.actionBar;
-    actionBar.maxY = actionBar.superview.height;
     if (self.state == State::Bottom)
       [self setAnimatedContentOffset:self.bottomContentOffset];
   });
@@ -240,9 +233,6 @@ CGFloat const kMinOffset = 1;
   else if (actualOffset < self.bottomContentOffset)
   {
     (*targetContentOffset).y = 0;
-    place_page_layout::animate(^{
-      self.actionBar.minY = self.ownerView.height;
-    });
   }
   else
   {
@@ -300,7 +290,6 @@ CGFloat const kMinOffset = 1;
   auto cell = [tableView cellForRowAtIndexPath:indexPath];
   if ([cell isKindOfClass:[MWMAdBanner class]])
   {
-    [static_cast<MWMAdBanner *>(cell) highlightButton];
     return;
   }
 
@@ -351,8 +340,18 @@ CGFloat const kMinOffset = 1;
   if (actionBar)
   {
     auto superview = self.ownerView;
-    actionBar.minY = superview.height;
     [superview addSubview:actionBar];
+    NSLayoutXAxisAnchor * leadingAnchor = superview.leadingAnchor;
+    NSLayoutXAxisAnchor * trailingAnchor = superview.trailingAnchor;
+    if (@available(iOS 11.0, *))
+    {
+      UILayoutGuide * safeAreaLayoutGuide = superview.safeAreaLayoutGuide;
+      leadingAnchor = safeAreaLayoutGuide.leadingAnchor;
+      trailingAnchor = safeAreaLayoutGuide.trailingAnchor;
+    }
+    [actionBar.leadingAnchor constraintEqualToAnchor:leadingAnchor].active = YES;
+    [actionBar.trailingAnchor constraintEqualToAnchor:trailingAnchor].active = YES;
+    [actionBar setVisible:NO];
   }
   else
   {

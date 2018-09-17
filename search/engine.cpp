@@ -18,10 +18,11 @@
 
 #include "base/logging.hpp"
 #include "base/scope_guard.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <vector>
 
@@ -91,18 +92,18 @@ Engine::Params::Params(string const & locale, size_t numThreads)
 }
 
 // Engine ------------------------------------------------------------------------------------------
-Engine::Engine(Index & index, CategoriesHolder const & categories,
+Engine::Engine(DataSource & dataSource, CategoriesHolder const & categories,
                storage::CountryInfoGetter const & infoGetter, Params const & params)
   : m_shutdown(false)
 {
   InitSuggestions doInit;
-  categories.ForEachName(bind<void>(ref(doInit), _1));
+  categories.ForEachName(bind<void>(ref(doInit), placeholders::_1));
   doInit.GetSuggests(m_suggests);
 
   m_contexts.resize(params.m_numThreads);
   for (size_t i = 0; i < params.m_numThreads; ++i)
   {
-    auto processor = make_unique<Processor>(index, categories, m_suggests, infoGetter);
+    auto processor = make_unique<Processor>(dataSource, categories, m_suggests, infoGetter);
     processor->SetPreferredLocale(params.m_locale);
     m_contexts[i].m_processor = move(processor);
   }

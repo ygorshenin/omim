@@ -9,9 +9,13 @@ using namespace ugc;
 
 namespace ugc
 {
-Api::Api(Index const & index) : m_storage(index), m_loader(index)
+Api::Api(DataSource const & dataSource, NumberOfUnsynchronizedCallback const & callback)
+  : m_storage(dataSource), m_loader(dataSource)
 {
-  m_thread.Push([this] { m_storage.Load(); });
+  m_thread.Push([this, callback] {
+    m_storage.Load();
+    callback(m_storage.GetNumberOfUnsynchronized());
+  });
 }
 
 void Api::GetUGC(FeatureID const & id, UGCCallbackUnsafe const & callback)
@@ -44,6 +48,11 @@ void Api::SaveUGCOnDisk()
   m_thread.Push([this] { SaveUGCOnDiskImpl(); });
 }
 
+Loader & Api::GetLoader()
+{
+  return m_loader;
+}
+
 void Api::GetUGCImpl(FeatureID const & id, UGCCallbackUnsafe const & callback)
 {
   CHECK(callback, ());
@@ -68,7 +77,7 @@ void Api::GetUGCToSendImpl(UGCJsonToSendCallback const & callback)
 {
   CHECK(callback, ());
   auto json = m_storage.GetUGCToSend();
-  callback(move(json));
+  callback(move(json), m_storage.GetNumberOfUnsynchronized());
 }
 
 void Api::SendingCompletedImpl()

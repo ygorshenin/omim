@@ -1,4 +1,5 @@
 #pragma once
+
 #include "indexer/feature_decl.hpp"
 #include "indexer/feature_meta.hpp"
 
@@ -8,13 +9,15 @@
 #include "coding/reader.hpp"
 #include "coding/value_opt_string.hpp"
 
-#include "std/algorithm.hpp"
-#include "std/string.hpp"
-#include "std/vector.hpp"
-#include "std/utility.hpp"
+#include <algorithm>
+#include <array>
+#include <iterator>
+#include <string>
+#include <utility>
+#include <vector>
 
 struct FeatureParamsBase;
-class FeatureBase;
+class FeatureType;
 
 namespace feature
 {
@@ -50,14 +53,12 @@ namespace feature
 
   class TypesHolder
   {
-    uint32_t m_types[kMaxTypesCount];
-    size_t m_size;
-
-    EGeomType m_geoType;
-
   public:
-    TypesHolder(EGeomType geoType = GEOM_UNDEFINED) : m_size(0), m_geoType(geoType) {}
-    TypesHolder(FeatureBase const & f);
+    using Types = std::array<uint32_t, kMaxTypesCount>;
+
+    TypesHolder() = default;
+    explicit TypesHolder(EGeomType geoType) : m_geoType(geoType) {}
+    explicit TypesHolder(FeatureType & f);
 
     void Assign(uint32_t type)
     {
@@ -75,38 +76,34 @@ namespace feature
 
     /// @name Selectors.
     //@{
-    inline EGeomType GetGeoType() const { return m_geoType; }
+    EGeomType GetGeoType() const { return m_geoType; }
 
-    inline size_t Size() const { return m_size; }
-    inline bool Empty() const { return (m_size == 0); }
-    inline uint32_t const * begin() const { return m_types; }
-    inline uint32_t const * end() const { return m_types + m_size; }
+    size_t Size() const { return m_size; }
+    bool Empty() const { return (m_size == 0); }
+    Types::const_iterator begin() const { return m_types.cbegin(); }
+    Types::const_iterator end() const { return m_types.cbegin() + m_size; }
+    Types::iterator begin() { return m_types.begin(); }
+    Types::iterator end() { return m_types.begin() + m_size; }
 
     /// Assume that m_types is already sorted by SortBySpec function.
-    inline uint32_t GetBestType() const
+    uint32_t GetBestType() const
     {
       // 0 - is an empty type.
       return (m_size > 0 ? m_types[0] : 0);
     }
 
-    inline bool Has(uint32_t t) const
-    {
-      return (find(begin(), end(), t) != end());
-    }
+    bool Has(uint32_t t) const { return std::find(begin(), end(), t) != end(); }
     //@}
 
-    template <class TFn> bool RemoveIf(TFn && fn)
+    template <typename Fn>
+    bool RemoveIf(Fn && fn)
     {
-      if (m_size > 0)
-      {
-        size_t const oldSize = m_size;
+      size_t const oldSize = m_size;
 
-        uint32_t * e = remove_if(m_types, m_types + m_size, forward<TFn>(fn));
-        m_size = distance(m_types, e);
+      auto const e = std::remove_if(begin(), end(), std::forward<Fn>(fn));
+      m_size = distance(begin(), e);
 
-        return (m_size != oldSize);
-      }
-      return false;
+      return (m_size != oldSize);
     }
 
     void Remove(uint32_t type);
@@ -118,10 +115,16 @@ namespace feature
     /// in any order. Works in O(n log n).
     bool Equals(TypesHolder const & other) const;
 
-    vector<string> ToObjectNames() const;
+    std::vector<std::string> ToObjectNames() const;
+
+  private:
+    Types m_types;
+    size_t m_size = 0;
+
+    EGeomType m_geoType = GEOM_UNDEFINED;
   };
 
-  string DebugPrint(TypesHolder const & holder);
+  std::string DebugPrint(TypesHolder const & holder);
 
   uint8_t CalculateHeader(size_t const typesCount, uint8_t const headerGeomType,
                           FeatureParamsBase const & params);
@@ -132,7 +135,7 @@ struct FeatureParamsBase
 {
   StringUtf8Multilang name;
   StringNumericOptimal house;
-  string ref;
+  std::string ref;
   int8_t layer;
   uint8_t rank;
 
@@ -143,7 +146,7 @@ struct FeatureParamsBase
   bool operator == (FeatureParamsBase const & rhs) const;
 
   bool CheckValid() const;
-  string DebugString() const;
+  std::string DebugString() const;
 
   /// @return true if feature doesn't have any drawable strings (names, houses, etc).
   bool IsEmptyNames() const;
@@ -209,7 +212,7 @@ struct FeatureParamsBase
 
 class FeatureParams : public FeatureParamsBase
 {
-  typedef FeatureParamsBase BaseT;
+  using Base = FeatureParamsBase;
 
   uint8_t m_geomType;
 
@@ -217,8 +220,8 @@ class FeatureParams : public FeatureParamsBase
   feature::AddressData m_addrTags;
 
 public:
-  typedef vector<uint32_t> TTypes;
-  TTypes m_Types;
+  using Types = std::vector<uint32_t>;
+  Types m_types;
 
   bool m_reverseGeometry;
 
@@ -226,42 +229,41 @@ public:
 
   void ClearName();
 
-  bool AddName(string const & lang, string const & s);
-  bool AddHouseName(string const & s);
-  bool AddHouseNumber(string houseNumber);
+  bool AddName(std::string const & lang, std::string const & s);
+  bool AddHouseName(std::string const & s);
+  bool AddHouseNumber(std::string houseNumber);
 
   /// @name Used in storing full street address only.
   //@{
-  void AddStreet(string s);
-  void AddPlace(string const & s);
-  void AddPostcode(string const & s);
-  void AddAddress(string const & s);
+  void AddStreet(std::string s);
+  void AddPlace(std::string const & s);
+  void AddPostcode(std::string const & s);
+  void AddAddress(std::string const & s);
 
-  bool FormatFullAddress(m2::PointD const & pt, string & res) const;
+  bool FormatFullAddress(m2::PointD const & pt, std::string & res) const;
   //@}
 
   /// Used for testing purposes now.
-  string GetStreet() const;
+  std::string GetStreet() const;
   feature::AddressData const & GetAddressData() const { return m_addrTags; }
 
   /// Assign parameters except geometry type.
   /// Geometry is independent state and it's set by FeatureType's geometry functions.
-  inline void SetParams(FeatureParams const & rhs)
+  void SetParams(FeatureParams const & rhs)
   {
-    BaseT::operator=(rhs);
+    Base::operator=(rhs);
 
-    m_Types = rhs.m_Types;
+    m_types = rhs.m_types;
     m_addrTags = rhs.m_addrTags;
     m_metadata = rhs.m_metadata;
   }
 
-  inline bool IsValid() const { return !m_Types.empty(); }
-
+  bool IsValid() const { return !m_types.empty(); }
   void SetGeomType(feature::EGeomType t);
   void SetGeomTypePointEx();
   feature::EGeomType GetGeomType() const;
 
-  inline void AddType(uint32_t t) { m_Types.push_back(t); }
+  void AddType(uint32_t t) { m_types.push_back(t); }
 
   /// Special function to replace a regular railway station type with
   /// the special subway type for the correspondent city.
@@ -297,8 +299,8 @@ public:
 
     WriteToSink(sink, header);
 
-    for (size_t i = 0; i < m_Types.size(); ++i)
-      WriteVarUint(sink, GetIndexForType(m_Types[i]));
+    for (size_t i = 0; i < m_types.size(); ++i)
+      WriteVarUint(sink, GetIndexForType(m_types[i]));
 
     if (fullStoring)
     {
@@ -306,7 +308,7 @@ public:
       m_addrTags.Serialize(sink);
     }
 
-    BaseT::Write(sink, header);
+    Base::Write(sink, header);
   }
 
   template <class TSource> void Read(TSource & src)
@@ -318,12 +320,12 @@ public:
 
     size_t const count = (header & HEADER_TYPE_MASK) + 1;
     for (size_t i = 0; i < count; ++i)
-      m_Types.push_back(GetTypeForIndex(ReadVarUint<uint32_t>(src)));
+      m_types.push_back(GetTypeForIndex(ReadVarUint<uint32_t>(src)));
 
     m_metadata.Deserialize(src);
     m_addrTags.Deserialize(src);
 
-    BaseT::Read(src, header);
+    Base::Read(src, header);
   }
 
 private:
@@ -333,4 +335,4 @@ private:
   static uint32_t GetTypeForIndex(uint32_t i);
 };
 
-string DebugPrint(FeatureParams const & p);
+std::string DebugPrint(FeatureParams const & p);

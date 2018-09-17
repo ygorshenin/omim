@@ -9,6 +9,7 @@
 "make_a_sharp_left_turn":"Kanyarodjon élesen balra.",
 "make_a_u_turn":"Forduljon vissza.",
 "go_straight":"Hajtson előre.",
+"exit":"Kilépés.",
 "destination":"Megérkezik.",
 "you_have_reached_the_destination":"Ön megérkezett.",
 "in_50_meters":"Ötven méter után",
@@ -61,5 +62,6 @@
 "in_5000_feet":"Ötezer láb után",
 "in_1_mile":"Egy mérföld után",
 "in_1_5_miles":"Másfél mérföld után",
-"in_2_miles":"Két mérföld után"
+"in_2_miles":"Két mérföld után",
+"unknown_camera":"Speed camera ahead"
 }

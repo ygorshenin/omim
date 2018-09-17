@@ -11,6 +11,9 @@ public final class Constants
   public static final int MB = 1024 * 1024;
   public static final int GB = 1024 * 1024 * 1024;
 
+  static final int CONNECTION_TIMEOUT_MS = 5000;
+  static final int READ_TIMEOUT_MS = 30000;
+
   public static class Url
   {
     public static final String GE0_PREFIX = "ge0://";
@@ -27,7 +30,6 @@ public final class Constants
     public static final String TWITTER_MAPSME_HTTP = "https://twitter.com/MAPS_ME";
 
     public static final String WEB_SITE = "http://maps.me";
-    public static final String WEB_BLOG = "http://blog.maps.me";
 
     public static final String COPYRIGHT = "file:///android_asset/copyright.html";
     public static final String FAQ = "file:///android_asset/faq.html";
@@ -44,7 +46,6 @@ public final class Constants
   {
     public static final String FEEDBACK = "android@maps.me";
     public static final String SUPPORT = BuildConfig.SUPPORT_MAIL;
-    public static final String SUBSCRIBE = "subscribe@maps.me";
     public static final String RATING = "rating@maps.me";
 
     private Email() {}
@@ -59,6 +60,13 @@ public final class Constants
     public static final String TWITTER_PACKAGE = "com.twitter.android";
 
     private Package() {}
+  }
+
+  public static class Rating
+  {
+    public static final float RATING_INCORRECT_VALUE = -1.0f;
+
+    private Rating() {};
   }
 
 

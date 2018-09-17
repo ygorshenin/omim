@@ -1,35 +1,83 @@
-#include "hw_texture.hpp"
+#include "drape/hw_texture.hpp"
 
-#include "glextensions_list.hpp"
-#include "glfunctions.hpp"
+#include "drape/glextensions_list.hpp"
+#include "drape/glfunctions.hpp"
+#include "drape/utils/gpu_mem_tracker.hpp"
 
 #include "platform/platform.hpp"
 
 #include "base/logging.hpp"
 #include "base/math.hpp"
 
-#ifdef DEBUG
-#include "3party/glm/glm/gtx/bit.hpp"
-#endif
-
 #if defined(OMIM_OS_IPHONE)
-#include "hw_texture_ios.hpp"
+#include "drape/hw_texture_ios.hpp"
 #endif
 
 #define ASSERT_ID ASSERT(GetID() != 0, ())
 
 namespace dp
 {
-HWTexture::HWTexture()
-  : m_width(0)
-  , m_height(0)
-  , m_format(UNSPECIFIED)
-  , m_textureID(0)
-  , m_filter(gl_const::GLLinear)
-  , m_pixelBufferID(0)
-  , m_pixelBufferSize(0)
-  , m_pixelBufferElementSize(0)
-{}
+void UnpackFormat(TextureFormat format, glConst & layout, glConst & pixelType)
+{
+  switch (format)
+  {
+  case TextureFormat::RGBA8:
+    layout = gl_const::GLRGBA;
+    pixelType = gl_const::GL8BitOnChannel;
+    return;
+
+  case TextureFormat::Alpha:
+    // On OpenGL ES3 GLAlpha is not supported, we use GLRed instead.
+    layout = GLFunctions::CurrentApiVersion == dp::ApiVersion::OpenGLES2 ? gl_const::GLAlpha
+                                                                         : gl_const::GLRed;
+    pixelType = gl_const::GL8BitOnChannel;
+    return;
+
+  case TextureFormat::RedGreen:
+    // On OpenGL ES2 2-channel textures are not supported.
+    layout = GLFunctions::CurrentApiVersion == dp::ApiVersion::OpenGLES2 ? gl_const::GLRGBA
+                                                                         : gl_const::GLRedGreen;
+    pixelType = gl_const::GL8BitOnChannel;
+    return;
+
+  case TextureFormat::DepthStencil:
+    // OpenGLES2 does not support texture-based depth-stencil.
+    CHECK(GLFunctions::CurrentApiVersion != dp::ApiVersion::OpenGLES2, ());
+    layout = gl_const::GLDepthStencil;
+    pixelType = gl_const::GLUnsignedInt24_8Type;
+    return;
+
+  case TextureFormat::Depth:
+    layout = gl_const::GLDepthComponent;
+    pixelType = gl_const::GLUnsignedIntType;
+    return;
+
+  case TextureFormat::Unspecified:
+    CHECK(false, ());
+    return;
+  }
+  ASSERT(false, ());
+}
+
+glConst DecodeTextureFilter(TextureFilter filter)
+{
+  switch (filter)
+  {
+  case TextureFilter::Linear: return gl_const::GLLinear;
+  case TextureFilter::Nearest: return gl_const::GLNearest;
+  }
+  CHECK_SWITCH();
+}
+
+glConst DecodeTextureWrapping(TextureWrapping wrapping)
+{
+  switch (wrapping)
+  {
+  case TextureWrapping::ClampToEdge: return gl_const::GLClampToEdge;
+  case TextureWrapping::Repeat: return gl_const::GLRepeat;
+  }
+  CHECK_SWITCH();
+}
 
 HWTexture::~HWTexture()
 {
@@ -41,7 +89,7 @@ HWTexture::~HWTexture()
 
 void HWTexture::Create(Params const & params) { Create(params, nullptr); }
 
-void HWTexture::Create(Params const & params, ref_ptr<void> /*data*/)
+void HWTexture::Create(Params const & params, ref_ptr<void> /* data */)
 {
   m_width = params.m_width;
   m_height = params.m_height;
@@ -86,37 +134,13 @@ uint32_t HWTexture::GetHeight() const
 float HWTexture::GetS(uint32_t x) const
 {
   ASSERT_ID;
-  return x / (float)m_width;
+  return x / static_cast<float>(m_width);
 }
 
 float HWTexture::GetT(uint32_t y) const
 {
   ASSERT_ID;
-  return y / (float)m_height;
-}
-
-void HWTexture::UnpackFormat(TextureFormat format, glConst & layout, glConst & pixelType)
-{
-  // Now we support only 1-byte-per-channel textures.
-  pixelType = gl_const::GL8BitOnChannel;
-
-  switch (format)
-  {
-  case RGBA8:
-    layout = gl_const::GLRGBA;
-    break;
-  case ALPHA:
-    // On OpenGL ES3 GLAlpha is not supported, we use GLRed instead.
-    layout = GLFunctions::CurrentApiVersion == dp::ApiVersion::OpenGLES2 ? gl_const::GLAlpha
-                                                                         : gl_const::GLRed;
-    break;
-  case RED_GREEN:
-    // On OpenGL ES2 2-channel textures are not supported.
-    layout = GLFunctions::CurrentApiVersion == dp::ApiVersion::OpenGLES2 ? gl_const::GLRGBA
-                                                                         : gl_const::GLRedGreen;
-    break;
-  default: ASSERT(false, ()); break;
-  }
+  return y / static_cast<float>(m_height);
 }
 
 void HWTexture::Bind() const
@@ -126,13 +150,14 @@ void HWTexture::Bind() const
     GLFunctions::glBindTexture(GetID());
 }
 
-void HWTexture::SetFilter(glConst filter)
+void HWTexture::SetFilter(TextureFilter filter)
 {
   if (m_filter != filter)
   {
     m_filter = filter;
-    GLFunctions::glTexParameter(gl_const::GLMinFilter, m_filter);
-    GLFunctions::glTexParameter(gl_const::GLMagFilter, m_filter);
+    auto const f = DecodeTextureFilter(m_filter);
+    GLFunctions::glTexParameter(gl_const::GLMinFilter, f);
+    GLFunctions::glTexParameter(gl_const::GLMagFilter, f);
   }
 }
 
@@ -149,10 +174,7 @@ OpenGLHWTexture::~OpenGLHWTexture()
 
 void OpenGLHWTexture::Create(Params const & params, ref_ptr<void> data)
 {
-  TBase::Create(params, data);
-
-  ASSERT(glm::isPowerOfTwo(static_cast<int>(m_width)), (m_width));
-  ASSERT(glm::isPowerOfTwo(static_cast<int>(m_height)), (m_height));
+  Base::Create(params, data);
 
   m_textureID = GLFunctions::glGenTexture();
   Bind();
@@ -161,11 +183,12 @@ void OpenGLHWTexture::Create(Params const & params, ref_ptr<void> data)
   glConst pixelType;
   UnpackFormat(m_format, layout, pixelType);
 
+  auto const f = DecodeTextureFilter(m_filter);
   GLFunctions::glTexImage2D(m_width, m_height, layout, pixelType, data.get());
-  GLFunctions::glTexParameter(gl_const::GLMinFilter, params.m_filter);
-  GLFunctions::glTexParameter(gl_const::GLMagFilter, params.m_filter);
-  GLFunctions::glTexParameter(gl_const::GLWrapS, params.m_wrapSMode);
-  GLFunctions::glTexParameter(gl_const::GLWrapT, params.m_wrapTMode);
+  GLFunctions::glTexParameter(gl_const::GLMinFilter, f);
+  GLFunctions::glTexParameter(gl_const::GLMagFilter, f);
+  GLFunctions::glTexParameter(gl_const::GLWrapS, DecodeTextureWrapping(params.m_wrapSMode));
+  GLFunctions::glTexParameter(gl_const::GLWrapT, DecodeTextureWrapping(params.m_wrapTMode));
 
   if (m_pixelBufferSize > 0)
   {
@@ -176,8 +199,8 @@ void OpenGLHWTexture::Create(Params const & params, ref_ptr<void> data)
     GLFunctions::glBindBuffer(0, gl_const::GLPixelBufferWrite);
   }
 
-  GLFunctions::glFlush();
   GLFunctions::glBindTexture(0);
+  GLFunctions::glFlush();
 }
 
 void OpenGLHWTexture::UploadData(uint32_t x, uint32_t y, uint32_t width, uint32_t height,
@@ -208,10 +231,14 @@ drape_ptr<HWTexture> OpenGLHWTextureAllocator::CreateTexture()
   return make_unique_dp<OpenGLHWTexture>();
 }
 
+void OpenGLHWTextureAllocator::Flush()
+{
+  GLFunctions::glFlush();
+}
+
 drape_ptr<HWTextureAllocator> CreateAllocator()
 {
-  if (GLFunctions::CurrentApiVersion == dp::ApiVersion::OpenGLES3 ||
-      !Platform::IsCustomTextureAllocatorSupported())
+  if (GLFunctions::CurrentApiVersion == dp::ApiVersion::OpenGLES3)
   {
     return make_unique_dp<OpenGLHWTextureAllocator>();
   }

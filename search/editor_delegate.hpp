@@ -1,15 +1,15 @@
 #pragma once
 
-#include "indexer/osm_editor.hpp"
+#include "editor/osm_editor.hpp"
 
-class Index;
+class DataSource;
 
 namespace search
 {
 class EditorDelegate : public osm::Editor::Delegate
 {
 public:
-  EditorDelegate(Index const & index);
+  EditorDelegate(DataSource const & dataSource);
 
   // osm::Editor::Delegate overrides:
   MwmSet::MwmId GetMwmIdByMapName(string const & name) const override;
@@ -19,6 +19,6 @@ public:
                              m2::PointD const & point) const override;
 
 private:
-  Index const & m_index;
+  DataSource const & m_dataSource;
 };
 }  // namespace search

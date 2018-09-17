@@ -228,7 +228,7 @@ m2::Spline::iterator PathTextContext::GetProjectedPoint(std::vector<m2::Spline> 
         nearestStep = step + t;
       }
 
-      double const dist = pt.SquareLength(nearestPt);
+      double const dist = pt.SquaredLength(nearestPt);
       if (dist < minDist)
       {
         minDist = dist;
@@ -252,9 +252,10 @@ PathTextHandle::PathTextHandle(dp::OverlayID const & id,
                                float depth, uint32_t textIndex,
                                uint64_t priority, int fixedHeight,
                                ref_ptr<dp::TextureManager> textureManager,
+                               int minVisibleScale,
                                bool isBillboard)
   : TextHandle(id, context->GetLayout()->GetText(), dp::Center, priority,
-               fixedHeight, textureManager, isBillboard)
+               fixedHeight, textureManager, minVisibleScale, isBillboard)
   , m_context(context)
   , m_textIndex(textIndex)
   , m_depth(depth)
@@ -301,7 +302,7 @@ m2::RectD PathTextHandle::GetPixelRect(ScreenBase const & screen, bool perspecti
 
   m2::RectD result;
   for (gpu::TextDynamicVertex const & v : m_buffer)
-    result.Add(pixelPivot + glsl::ToPoint(v.m_normal));
+    result.Add(pixelPivot + m2::PointD(glsl::ToPoint(v.m_normal)));
 
   return result;
 }
@@ -312,10 +313,10 @@ void PathTextHandle::GetPixelShape(ScreenBase const & screen, bool perspective, 
   for (size_t quadIndex = 0; quadIndex < m_buffer.size(); quadIndex += 4)
   {
     m2::RectF r;
-    r.Add(pixelPivot + glsl::ToPoint(m_buffer[quadIndex].m_normal));
-    r.Add(pixelPivot + glsl::ToPoint(m_buffer[quadIndex + 1].m_normal));
-    r.Add(pixelPivot + glsl::ToPoint(m_buffer[quadIndex + 2].m_normal));
-    r.Add(pixelPivot + glsl::ToPoint(m_buffer[quadIndex + 3].m_normal));
+    r.Add(m2::PointF(pixelPivot) + glsl::ToPoint(m_buffer[quadIndex].m_normal));
+    r.Add(m2::PointF(pixelPivot) + glsl::ToPoint(m_buffer[quadIndex + 1].m_normal));
+    r.Add(m2::PointF(pixelPivot) + glsl::ToPoint(m_buffer[quadIndex + 2].m_normal));
+    r.Add(m2::PointF(pixelPivot) + glsl::ToPoint(m_buffer[quadIndex + 3].m_normal));
 
     if (perspective)
     {
@@ -323,8 +324,8 @@ void PathTextHandle::GetPixelShape(ScreenBase const & screen, bool perspective, 
       {
         m2::PointD const pxPivotPerspective = screen.PtoP3d(pixelPivot);
 
-        r.Offset(-pixelPivot);
-        r.Offset(pxPivotPerspective);
+        r.Offset(m2::PointF(-pixelPivot));
+        r.Offset(m2::PointF(pxPivotPerspective));
       }
       else
       {
@@ -332,7 +333,7 @@ void PathTextHandle::GetPixelShape(ScreenBase const & screen, bool perspective, 
       }
     }
 
-    bool const needAddRect = perspective ? !screen.IsReverseProjection3d(r.Center()) : true;
+    bool const needAddRect = perspective ? !screen.IsReverseProjection3d(m2::PointD(r.Center())) : true;
     if (needAddRect)
       rects.emplace_back(move(r));
   }

@@ -11,11 +11,15 @@
 
 #include "storage/index.hpp"
 
+#include "routing/routing_callbacks.hpp"
+
 #include "indexer/editable_map_object.hpp"
 
 #include "platform/settings.hpp"
 #include "platform/platform.hpp"
 #include "platform/settings.hpp"
+
+#include "base/assert.hpp"
 
 #include <QtGui/QMouseEvent>
 #include <QtGui/QGuiApplication>
@@ -43,7 +47,7 @@ DrawWidget::DrawWidget(Framework & framework, bool apiOpenGLES3, QWidget * paren
       [](bool /* switchFullScreenMode */) {});  // Empty deactivation listener.
 
   m_framework.GetRoutingManager().SetRouteBuildingListener(
-      [](routing::IRouter::ResultCode, storage::TCountriesVec const &) {});
+      [](routing::RouterResultCode, storage::TCountriesVec const &) {});
 
   m_framework.GetRoutingManager().SetRouteRecommendationListener(
     [this](RoutingManager::Recommendation r)
@@ -157,9 +161,11 @@ void DrawWidget::initializeGL()
   m_framework.LoadBookmarks();
   MapWidget::initializeGL();
 
-  auto & routingManager = m_framework.GetRoutingManager();
-  if (routingManager.LoadRoutePoints())
-    routingManager.BuildRoute(0 /* timeoutSec */);
+  m_framework.GetRoutingManager().LoadRoutePoints([this](bool success)
+  {
+    if (success)
+      m_framework.GetRoutingManager().BuildRoute(0 /* timeoutSec */);
+  });
 }
 
 void DrawWidget::mousePressEvent(QMouseEvent * e)
@@ -183,7 +189,7 @@ void DrawWidget::mousePressEvent(QMouseEvent * e)
     {
       SubmitBookmark(pt);
     }
-    else if (!m_selectionMode || IsCommandModifier(e))
+    else if (!(m_selectionMode || m_cityBoundariesSelectionMode) || IsCommandModifier(e))
     {
       ShowInfoPopup(e, pt);
     }
@@ -204,7 +210,8 @@ void DrawWidget::mouseMoveEvent(QMouseEvent * e)
   if (IsLeftButton(e) && !IsAltModifier(e))
     m_framework.TouchEvent(GetTouchEvent(e, df::TouchEvent::TOUCH_MOVE));
 
-  if (m_selectionMode && m_rubberBand != nullptr && m_rubberBand->isVisible())
+  if ((m_selectionMode || m_cityBoundariesSelectionMode) && m_rubberBand != nullptr &&
+      m_rubberBand->isVisible())
   {
     m_rubberBand->setGeometry(QRect(m_rubberBandOrigin, e->pos()).normalized());
   }
@@ -217,15 +224,25 @@ void DrawWidget::mouseReleaseEvent(QMouseEvent * e)
   {
     m_framework.TouchEvent(GetTouchEvent(e, df::TouchEvent::TOUCH_UP));
   }
-  else if (m_selectionMode && IsRightButton(e) && m_rubberBand != nullptr &&
-           m_rubberBand->isVisible())
+  else if ((m_selectionMode || m_cityBoundariesSelectionMode) && IsRightButton(e) &&
+           m_rubberBand != nullptr && m_rubberBand->isVisible())
   {
     QPoint const lt = m_rubberBand->geometry().topLeft();
     QPoint const rb = m_rubberBand->geometry().bottomRight();
     m2::RectD rect;
     rect.Add(m_framework.PtoG(m2::PointD(L2D(lt.x()), L2D(lt.y()))));
     rect.Add(m_framework.PtoG(m2::PointD(L2D(rb.x()), L2D(rb.y()))));
-    m_framework.VisualizeRoadsInRect(rect);
+    if (m_selectionMode)
+    {
+      CHECK(!m_cityBoundariesSelectionMode, ());
+      m_framework.VisualizeRoadsInRect(rect);
+    }
+    else
+    {
+      CHECK(m_cityBoundariesSelectionMode, ());
+      m_framework.VisualizeCityBoundariesInRect(rect);
+    }
+
     m_rubberBand->hide();
   }
 }
@@ -370,12 +387,12 @@ void DrawWidget::SubmitRoutingPoint(m2::PointD const & pt)
 
 void DrawWidget::SubmitBookmark(m2::PointD const & pt)
 {
-  size_t categoryIndex = 0;
-  auto category = m_framework.GetBookmarkManager().GetBmCategory(categoryIndex);
-  if (category == nullptr)
-    categoryIndex = m_framework.GetBookmarkManager().CreateBmCategory("Desktop_bookmarks");
-  BookmarkData data("", "placemark-red");
-  m_framework.GetBookmarkManager().AddBookmark(categoryIndex, m_framework.P3dtoG(pt), data);
+  if (!m_framework.GetBookmarkManager().HasBmCategory(m_bookmarksCategoryId))
+    m_bookmarksCategoryId = m_framework.GetBookmarkManager().CreateBookmarkCategory("Desktop_bookmarks");
+  kml::BookmarkData data;
+  data.m_color.m_predefinedColor = kml::PredefinedColor::Red;
+  data.m_point = m_framework.P3dtoG(pt);
+  m_framework.GetBookmarkManager().GetEditSession().CreateBookmark(std::move(data), m_bookmarksCategoryId);
 }
 
 void DrawWidget::FollowRoute()
@@ -502,6 +519,11 @@ void DrawWidget::SetRouter(routing::RouterType routerType)
 }
 
 void DrawWidget::SetSelectionMode(bool mode) { m_selectionMode = mode; }
+
+void DrawWidget::SetCityBoundariesSelectionMode(bool mode)
+{
+  m_cityBoundariesSelectionMode = mode;
+}
 
 // static
 void DrawWidget::SetDefaultSurfaceFormat(bool apiOpenGLES3)

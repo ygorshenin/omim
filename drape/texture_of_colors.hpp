@@ -6,15 +6,16 @@
 
 #include "base/buffer_vector.hpp"
 
-#include "std/mutex.hpp"
+#include <map>
+#include <mutex>
 
 namespace dp
 {
 class ColorKey : public Texture::Key
 {
 public:
-  ColorKey(Color color) : Texture::Key(), m_color(color) {}
-  virtual Texture::ResourceType GetType() const { return Texture::Color; }
+  explicit ColorKey(Color color) : Texture::Key(), m_color(color) {}
+  virtual Texture::ResourceType GetType() const { return Texture::ResourceType::Color; }
 
   Color m_color;
 };
@@ -22,14 +23,14 @@ public:
 class ColorResourceInfo : public Texture::ResourceInfo
 {
 public:
-  ColorResourceInfo(m2::RectF const & texRect) : Texture::ResourceInfo(texRect) { }
-  virtual Texture::ResourceType GetType() const { return Texture::Color; }
+  explicit ColorResourceInfo(m2::RectF const & texRect) : Texture::ResourceInfo(texRect) { }
+  virtual Texture::ResourceType GetType() const { return Texture::ResourceType::Color; }
 };
 
 class ColorPalette
 {
 public:
-  ColorPalette(m2::PointU const & canvasSize);
+  explicit ColorPalette(m2::PointU const & canvasSize);
 
   ref_ptr<Texture::ResourceInfo> ReserveResource(bool predefined, ColorKey const & key, bool & newResource);
   ref_ptr<Texture::ResourceInfo> MapResource(ColorKey const & key, bool & newResource);
@@ -38,7 +39,7 @@ public:
   void SetIsDebug(bool isDebug) { m_isDebug = isDebug; }
 
 private:
-  typedef map<Color, ColorResourceInfo> TPalette;
+  typedef std::map<Color, ColorResourceInfo> TPalette;
 
   struct PendingColor
   {
@@ -52,18 +53,18 @@ private:
   m2::PointU m_textureSize;
   m2::PointU m_cursor;
   bool m_isDebug = false;
-  mutex m_lock;
-  mutex m_mappingLock;
+  std::mutex m_lock;
+  std::mutex m_mappingLock;
 };
 
-class ColorTexture : public DynamicTexture<ColorPalette, ColorKey, Texture::Color>
+class ColorTexture : public DynamicTexture<ColorPalette, ColorKey, Texture::ResourceType::Color>
 {
-  typedef DynamicTexture<ColorPalette, ColorKey, Texture::Color> TBase;
+  typedef DynamicTexture<ColorPalette, ColorKey, Texture::ResourceType::Color> TBase;
 public:
   ColorTexture(m2::PointU const & size, ref_ptr<HWTextureAllocator> allocator)
     : m_palette(size)
   {
-    TBase::TextureParams params{size, TextureFormat::RGBA8, gl_const::GLNearest, false /* m_usePixelBuffer */};
+    TBase::TextureParams params{size, TextureFormat::RGBA8, TextureFilter::Nearest, false /* m_usePixelBuffer */};
     TBase::Init(allocator, make_ref(&m_palette), params);
   }
 

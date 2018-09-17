@@ -2,7 +2,7 @@
 
 #include "openlr/openlr_model_xml.hpp"
 
-#include "indexer/index.hpp"
+#include "indexer/data_source.hpp"
 #include "indexer/scales.hpp"
 
 #include "base/scope_guard.hpp"
@@ -102,13 +102,12 @@ void RoadPointCandidate::SetActivePoint(FeatureID const & fid)
 namespace openlr
 {
 // TrafficMode -------------------------------------------------------------------------------------
-TrafficMode::TrafficMode(std::string const & dataFileName,
-                         Index const & index,
+TrafficMode::TrafficMode(std::string const & dataFileName, DataSource const & dataSource,
                          std::unique_ptr<TrafficDrawerDelegateBase> drawerDelegate,
                          std::unique_ptr<PointsControllerDelegateBase> pointsDelegate,
                          QObject * parent)
   : QAbstractTableModel(parent)
-  , m_index(index)
+  , m_dataSource(dataSource)
   , m_drawerDelegate(move(drawerDelegate))
   , m_pointsDelegate(move(pointsDelegate))
 {
@@ -146,11 +145,11 @@ TrafficMode::TrafficMode(std::string const & dataFileName,
         MYTHROW(TrafficModeError, ("An error occured while parsing: can't parse segment"));
 
       if (auto const route = xmlSegment.child("Route"))
-        openlr::PathFromXML(route, m_index, matchedPath);
+        openlr::PathFromXML(route, m_dataSource, matchedPath);
       if (auto const route = xmlSegment.child("FakeRoute"))
-        openlr::PathFromXML(route, m_index, fakePath);
+        openlr::PathFromXML(route, m_dataSource, fakePath);
       if (auto const route = xmlSegment.child("GoldenRoute"))
-        openlr::PathFromXML(route, m_index, goldenPath);
+        openlr::PathFromXML(route, m_dataSource, goldenPath);
 
       m_segments.emplace_back(segment, matchedPath, fakePath, goldenPath, partnerSegmentXML);
       if (auto const status = xmlSegment.child("Ignored"))
@@ -241,7 +240,7 @@ void TrafficMode::OnItemSelected(QItemSelection const & selected, QItemSelection
 
   auto const row = selected.front().top();
 
-  CHECK_LESS(row, m_segments.size(), ());
+  CHECK_LESS(static_cast<size_t>(row), m_segments.size(), ());
   m_currentSegment = &m_segments[row];
 
   auto const & partnerSegment = m_currentSegment->GetPartnerSegment();
@@ -350,7 +349,8 @@ void TrafficMode::CommitPath()
     std::tie(prevFid, prevSegId) = prevPoint.GetPoint();
     std::tie(fid, segId) = point.GetPoint();
 
-    path.push_back(Edge::MakeReal(fid, prevSegId < segId /* forward */, prevSegId,
+    path.push_back(Edge::MakeReal(fid, prevSegId < segId /* forward */,
+                                  base::checked_cast<uint32_t>(prevSegId),
                                   routing::Junction(prevPoint.GetCoordinate(), 0 /* altitude */),
                                   routing::Junction(point.GetCoordinate(), 0 /* altitude */)));
   }

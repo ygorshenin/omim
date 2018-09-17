@@ -1,7 +1,8 @@
 #pragma once
 
 #include "map/api_mark_point.hpp"
-#include "map/booking_filter.hpp"
+#include "map/booking_filter_params.hpp"
+#include "map/booking_filter_processor.hpp"
 #include "map/bookmark.hpp"
 #include "map/bookmark_manager.hpp"
 #include "map/discovery/discovery_manager.hpp"
@@ -10,12 +11,15 @@
 #include "map/local_ads_manager.hpp"
 #include "map/mwm_url.hpp"
 #include "map/place_page_info.hpp"
+#include "map/purchase.hpp"
 #include "map/routing_manager.hpp"
 #include "map/routing_mark.hpp"
 #include "map/search_api.hpp"
 #include "map/search_mark.hpp"
+#include "map/tips_api.hpp"
 #include "map/track.hpp"
 #include "map/traffic_manager.hpp"
+#include "map/transit/transit_reader.hpp"
 #include "map/user.hpp"
 
 #include "drape_frontend/gui/skin.hpp"
@@ -23,16 +27,20 @@
 #include "drape_frontend/drape_engine.hpp"
 #include "drape_frontend/user_event_stream.hpp"
 
-#include "drape/oglcontextfactory.hpp"
+#include "drape/graphics_context_factory.hpp"
+
+#include "kml/type_utils.hpp"
 
 #include "ugc/api.hpp"
 
-#include "indexer/data_header.hpp"
-#include "indexer/index_helpers.hpp"
-#include "indexer/map_style.hpp"
-#include "indexer/new_feature_categories.hpp"
-
+#include "editor/new_feature_categories.hpp"
 #include "editor/user_stats.hpp"
+
+#include "indexer/data_header.hpp"
+#include "indexer/data_source.hpp"
+#include "indexer/data_source_helpers.hpp"
+#include "indexer/map_style.hpp"
+#include "indexer/popularity_loader.hpp"
 
 #include "search/city_finder.hpp"
 #include "search/displayed_categories.hpp"
@@ -46,10 +54,11 @@
 #include "tracking/reporter.hpp"
 
 #include "partners_api/booking_api.hpp"
-#include "partners_api/cian_api.hpp"
 #include "partners_api/locals_api.hpp"
 #include "partners_api/taxi_engine.hpp"
 #include "partners_api/viator_api.hpp"
+
+#include "metrics/eye_info.hpp"
 
 #include "platform/country_defines.hpp"
 #include "platform/location.hpp"
@@ -123,7 +132,9 @@ struct FrameworkParams
   {}
 };
 
-class Framework : public SearchAPI::Delegate, public RoutingManager::Delegate
+class Framework : public SearchAPI::Delegate,
+                  public RoutingManager::Delegate,
+                  public TipsApi::Delegate
 {
   DISALLOW_COPY(Framework);
 
@@ -145,6 +156,10 @@ class Framework : public SearchAPI::Delegate, public RoutingManager::Delegate
 
   } m_fixedPos;
 #endif
+    
+private:
+  // Must be first member in Framework and must be destroyed first in Framework destructor.
+  unique_ptr<Platform::ThreadRunner> m_threadRunner = make_unique<Platform::ThreadRunner>();
 
 protected:
   using TDrapeFunction = function<void (df::DrapeEngine *)>;
@@ -164,6 +179,8 @@ protected:
 
   unique_ptr<ugc::Api> m_ugcApi;
 
+  LocalAdsManager m_localAdsManager;
+
   unique_ptr<SearchAPI> m_searchAPI;
 
   search::QuerySaver m_searchQuerySaver;
@@ -176,8 +193,8 @@ protected:
 
   drape_ptr<df::DrapeEngine> m_drapeEngine;
 
-  double m_startForegroundTime;
-  double m_startBackgroundTime;
+  double m_startForegroundTime = 0.0;
+  double m_startBackgroundTime = 0.0;
 
   StorageDownloadingPolicy m_storageDownloadingPolicy;
   storage::Storage m_storage;
@@ -186,27 +203,28 @@ protected:
   location::TMyPositionModeChanged m_myPositionListener;
 
   unique_ptr<BookmarkManager> m_bmManager;
+
   SearchMarks m_searchMarks;
 
   unique_ptr<booking::Api> m_bookingApi = make_unique<booking::Api>();
   unique_ptr<viator::Api> m_viatorApi = make_unique<viator::Api>();
-  unique_ptr<cian::Api> m_cianApi = make_unique<cian::Api>();
   unique_ptr<locals::Api> m_localsApi = make_unique<locals::Api>();
 
   df::DrapeApi m_drapeApi;
 
   bool m_isRenderingEnabled;
 
+  TransitReadManager m_transitManager;
+
   // Note. |m_routingManager| should be declared before |m_trafficManager|
   RoutingManager m_routingManager;
 
   TrafficManager m_trafficManager;
 
-  LocalAdsManager m_localAdsManager;
-
   User m_user;
 
-  booking::filter::Filter m_bookingFilter;
+  booking::filter::FilterProcessor m_bookingFilterProcessor;
+  booking::AvailabilityParams m_bookingAvailabilityParams;
 
   /// This function will be called by m_storage when latest local files
   /// is downloaded.
@@ -236,7 +254,6 @@ public:
   booking::Api const * GetBookingApi(platform::NetworkPolicy const & policy) const;
   viator::Api * GetViatorApi(platform::NetworkPolicy const & policy);
   taxi::Engine * GetTaxiEngine(platform::NetworkPolicy const & policy);
-  cian::Api * GetCianApi(platform::NetworkPolicy const & policy);
   locals::Api * GetLocalsApi(platform::NetworkPolicy const & policy);
   ugc::Api * GetUGCApi() { return m_ugcApi.get(); }
   ugc::Api const * GetUGCApi() const { return m_ugcApi.get(); }
@@ -270,8 +287,9 @@ public:
   /// Shows group or leaf mwm on the map.
   void ShowNode(storage::TCountryId const & countryId);
 
+  // TipsApi::Delegate override.
   /// Checks, whether the country which contains the specified point is loaded.
-  bool IsCountryLoaded(m2::PointD const & pt) const;
+  bool IsCountryLoaded(m2::PointD const & pt) const override;
   /// Checks, whether the country is loaded.
   bool IsCountryLoadedByName(string const & name) const;
   //@}
@@ -301,7 +319,7 @@ public:
   storage::CountryInfoGetter & GetCountryInfoGetter() { return *m_infoGetter; }
   StorageDownloadingPolicy & GetDownloadingPolicy() { return m_storageDownloadingPolicy; }
 
-  Index const & GetIndex() const { return m_model.GetIndex(); }
+  DataSource const & GetDataSource() const { return m_model.GetDataSource(); }
 
   SearchAPI & GetSearchAPI();
   SearchAPI const & GetSearchAPI() const;
@@ -311,39 +329,26 @@ public:
   /// Scans and loads all kml files with bookmarks in WritableDir.
   void LoadBookmarks();
 
-  /// @return Created bookmark index in category.
-  size_t AddBookmark(size_t categoryIndex, m2::PointD const & ptOrg, BookmarkData & bm);
-  /// @return New moved bookmark index in category.
-  size_t MoveBookmark(size_t bmIndex, size_t curCatIndex, size_t newCatIndex);
-  void ReplaceBookmark(size_t catIndex, size_t bmIndex, BookmarkData const & bm);
-  /// @return Created bookmark category index.
-  size_t AddCategory(string const & categoryName);
+  /// @return Created bookmark category id.
+  kml::MarkGroupId AddCategory(string const & categoryName);
 
-  inline size_t GetBmCategoriesCount() const { return GetBookmarkManager().GetBmCategoriesCount(); }
-  /// @returns 0 if category is not found
-  BookmarkCategory * GetBmCategory(size_t index) const;
+  kml::MarkGroupId LastEditedBMCategory() { return GetBookmarkManager().LastEditedBMCategory(); }
+  kml::PredefinedColor LastEditedBMColor() const { return GetBookmarkManager().LastEditedBMColor(); }
 
-  size_t LastEditedBMCategory() { return GetBookmarkManager().LastEditedBMCategory(); }
-  string LastEditedBMType() const { return GetBookmarkManager().LastEditedBMType(); }
-
-  /// Delete bookmarks category with all bookmarks.
-  /// @return true if category was deleted
-  bool DeleteBmCategory(size_t index);
-
-  void ShowBookmark(BookmarkAndCategory const & bnc);
-  void ShowTrack(Track const & track);
+  void ShowBookmark(kml::MarkId id);
+  void ShowBookmark(Bookmark const * bookmark);
+  void ShowTrack(kml::TrackId trackId);
   void ShowFeatureByMercator(m2::PointD const & pt);
-
-  void ClearBookmarks();
+  void ShowBookmarkCategory(kml::MarkGroupId categoryId);
 
   void AddBookmarksFile(string const & filePath, bool isTemporaryFile);
 
-  BookmarkAndCategory FindBookmark(UserMark const * mark) const;
   BookmarkManager & GetBookmarkManager();
   BookmarkManager const & GetBookmarkManager() const;
 
   // Utilities
   void VisualizeRoadsInRect(m2::RectD const & rect);
+  void VisualizeCityBoundariesInRect(m2::RectD const & rect);
 
   ads::Engine const & GetAdsEngine() const;
 
@@ -351,12 +356,16 @@ public:
   // SearchAPI::Delegate overrides:
   void RunUITask(function<void()> fn) override;
   void SetSearchDisplacementModeEnabled(bool enabled) override;
-  void ShowViewportSearchResults(bool clear, search::Results::ConstIter begin,
-                                 search::Results::ConstIter end) override;
+  void ShowViewportSearchResults(search::Results::ConstIter begin,
+                                 search::Results::ConstIter end, bool clear) override;
+  void ShowViewportSearchResults(search::Results::ConstIter begin,
+                                 search::Results::ConstIter end, bool clear,
+                                 booking::filter::Types types) override;
   void ClearViewportSearchResults() override;
+  // SearchApi::Delegate and TipsApi::Delegate override.
   boost::optional<m2::PointD> GetCurrentPosition() const override;
   bool ParseSearchQueryCommand(search::SearchParams const & params) override;
-  bool IsLocalAdsCustomer(search::Result const & result) const override;
+  search::ProductInfo GetProductInfo(search::Result const & result) const override;
   double GetMinDistanceBetweenResults() const override;
 
 private:
@@ -364,6 +373,7 @@ private:
                             df::SelectionShape::ESelectedObject selectionType,
                             place_page::Info const & info);
   void InvalidateUserMarks();
+
 public:
   void DeactivateMapSelection(bool notifyUI);
   /// Used to "refresh" UI in some cases (e.g. feature editing).
@@ -380,6 +390,7 @@ public:
   void ResetLastTapEvent();
 
   void InvalidateRendering();
+  void EnableDebugRectRendering(bool enabled);
 
   void EnableChoosePositionMode(bool enable, bool enableBounds, bool applyPosition, m2::PointD const & position);
   void BlockTapEvents(bool block);
@@ -392,8 +403,8 @@ public:
   vector<MwmSet::MwmId> GetMwmsByRect(m2::RectD const & rect, bool rough) const;
   MwmSet::MwmId GetMwmIdByName(string const & name) const;
 
-  void ReadFeatures(function<void(FeatureType const &)> const & reader,
-                    set<FeatureID> const & features);
+  void ReadFeatures(function<void(FeatureType &)> const & reader,
+                    vector<FeatureID> const & features);
 
 private:
   struct TapEvent
@@ -420,7 +431,7 @@ private:
   void OnTapEvent(TapEvent const & tapEvent);
   /// outInfo is valid only if return value is not df::SelectionShape::OBJECT_EMPTY.
   df::SelectionShape::ESelectedObject OnTapEventImpl(TapEvent const & tapEvent,
-                                                     place_page::Info & outInfo) const;
+                                                     place_page::Info & outInfo);
   unique_ptr<TapEvent> MakeTapEvent(m2::PointD const & center, FeatureID const & fid,
                                     TapEvent::Source source) const;
   UserMark const * FindUserMarkInTapPosition(df::TapInfo const & tapInfo) const;
@@ -470,12 +481,12 @@ public:
     df::Hints m_hints;
   };
 
-  void CreateDrapeEngine(ref_ptr<dp::OGLContextFactory> contextFactory, DrapeCreationParams && params);
+  void CreateDrapeEngine(ref_ptr<dp::GraphicsContextFactory> contextFactory, DrapeCreationParams && params);
   ref_ptr<df::DrapeEngine> GetDrapeEngine();
   bool IsDrapeEngineCreated() const { return m_drapeEngine != nullptr; }
   void DestroyDrapeEngine();
   /// Called when graphics engine should be temporarily paused and then resumed.
-  void SetRenderingEnabled(ref_ptr<dp::OGLContextFactory> contextFactory = nullptr);
+  void SetRenderingEnabled(ref_ptr<dp::GraphicsContextFactory> contextFactory = nullptr);
   void SetRenderingDisabled(bool destroyContext);
 
   void OnRecoverGLContext(int width, int height);
@@ -513,13 +524,15 @@ private:
 
   bool m_connectToGpsTrack; // need to connect to tracker when Drape is being constructed
 
-  void OnUpdateCurrentCountry(m2::PointF const & pt, int zoomLevel);
+  void OnUpdateCurrentCountry(m2::PointD const & pt, int zoomLevel);
 
   storage::TCountryId m_lastReportedCountry;
   TCurrentCountryChanged m_currentCountryChanged;
 
   void OnUpdateGpsTrackPointsCallback(vector<pair<size_t, location::GpsTrackInfo>> && toAdd,
                                       pair<size_t, size_t> const & toRemove);
+
+  CachingPopularityLoader m_popularityLoader;
 
 public:
   using TSearchRequest = search::QuerySaver::TSearchRequest;
@@ -539,6 +552,9 @@ public:
   // Search for maps by countries or cities.
   bool SearchInDownloader(storage::DownloaderSearchParams const & params);
 
+  // Search for bookmarks by query string.
+  bool SearchInBookmarks(search::BookmarksSearchParams const & params);
+
   void CancelSearch(search::Mode mode);
   void CancelAllSearches();
 
@@ -551,13 +567,11 @@ public:
 
   size_t ShowSearchResults(search::Results const & results);
 
-  using SearchMarkPostProcesing = function<void(SearchMarkPoint & mark)>;
+  using SearchMarkPostProcessing = function<void(SearchMarkPoint & mark)>;
 
   void FillSearchResultsMarks(bool clear, search::Results const & results);
-  void FillSearchResultsMarks(bool clear, search::Results::ConstIter begin,
-                              search::Results::ConstIter end, SearchMarkPostProcesing fn = nullptr);
-  void ClearSearchResultsMarks();
-
+  void FillSearchResultsMarks(search::Results::ConstIter begin, search::Results::ConstIter end,
+                                bool clear, SearchMarkPostProcessing fn = nullptr);
   list<TSearchRequest> const & GetLastSearchQueries() const { return m_searchQuerySaver.Get(); }
   void SaveSearchQuery(TSearchRequest const & query) { m_searchQuerySaver.Add(query); }
   void ClearSearchHistory() { m_searchQuerySaver.Clear(); }
@@ -645,20 +659,23 @@ private:
   //void GetLocality(m2::PointD const & pt, search::AddressInfo & info) const;
   /// @returns true if command was handled by editor.
   bool ParseEditorDebugCommand(search::SearchParams const & params);
+
   /// @returns true if command was handled by drape.
   bool ParseDrapeDebugCommand(string const & query);
+
+  bool ParseRoutingDebugCommand(search::SearchParams const & params);
 
   void FillFeatureInfo(FeatureID const & fid, place_page::Info & info) const;
   /// @param customTitle, if not empty, overrides any other calculated name.
   void FillPointInfo(m2::PointD const & mercator, string const & customTitle, place_page::Info & info) const;
-  void FillInfoFromFeatureType(FeatureType const & ft, place_page::Info & info) const;
+  void FillInfoFromFeatureType(FeatureType & ft, place_page::Info & info) const;
   void FillApiMarkInfo(ApiMarkPoint const & api, place_page::Info & info) const;
   void FillSearchResultInfo(SearchMarkPoint const & smp, place_page::Info & info) const;
   void FillMyPositionInfo(place_page::Info & info, df::TapInfo const & tapInfo) const;
   void FillRouteMarkInfo(RouteMarkPoint const & rmp, place_page::Info & info) const;
 
 public:
-  void FillBookmarkInfo(Bookmark const & bmk, BookmarkAndCategory const & bac, place_page::Info & info) const;
+  void FillBookmarkInfo(Bookmark const & bmk, place_page::Info & info) const;
   void ResetBookmarkInfo(Bookmark const & bmk, place_page::Info & info) const;
 
   /// @returns address of nearby building with house number in approx 1km distance.
@@ -671,7 +688,7 @@ public:
   search::AddressInfo GetFeatureAddressInfo(FeatureID const & fid) const;
   //@}
 
-  vector<string> GetPrintableFeatureTypes(FeatureType const & ft) const;
+  vector<string> GetPrintableFeatureTypes(FeatureType & ft) const;
   /// Get "best for the user" feature at given point even if it's invisible on the screen.
   /// Ignores coastlines and prefers buildings over other area features.
   /// @returns nullptr if no feature was found at the given mercator point.
@@ -679,7 +696,7 @@ public:
   template <typename TFn>
   void ForEachFeatureAtPoint(TFn && fn, m2::PointD const & mercator) const
   {
-    indexer::ForEachFeatureAtPoint(m_model.GetIndex(), fn, mercator, 0.0);
+    indexer::ForEachFeatureAtPoint(m_model.GetDataSource(), fn, mercator, 0.0);
   }
   /// Set parse to false if you don't need all feature fields ready.
   /// TODO(AlexZ): Refactor code which uses this method to get rid of it.
@@ -726,7 +743,6 @@ public:
   //@}
 
 public:
-
   void AllowTransliteration(bool allowTranslit);
   bool LoadTransliteration();
   void SaveTransliteration(bool allowTranslit);
@@ -747,11 +763,16 @@ public:
 
   LocalAdsManager & GetLocalAdsManager();
 
+  TransitReadManager & GetTransitManager();
+
   bool LoadTrafficEnabled();
   void SaveTrafficEnabled(bool trafficEnabled);
 
   bool LoadTrafficSimplifiedColors();
   void SaveTrafficSimplifiedColors(bool simplified);
+
+  bool LoadTransitSchemeEnabled();
+  void SaveTransitSchemeEnabled(bool enabled);
 
 public:
   template <typename ResultCallback>
@@ -820,7 +841,6 @@ private:
   //@}
 
 public:
-  bool OriginalFeatureHasDefaultName(FeatureID const & fid) const;
   storage::TCountriesVec GetTopmostCountries(ms::LatLon const & latlon) const;
 
 private:
@@ -839,7 +859,7 @@ private:
   /// Find feature with viator near point, provided in |info|, and inject viator data into |info|.
   void InjectViator(place_page::Info & info);
 
-  void FillLocalExperts(FeatureType const & ft, place_page::Info & info) const;
+  void FillLocalExperts(FeatureType & ft, place_page::Info & info) const;
 
 public:
   // UGC.
@@ -850,11 +870,28 @@ private:
   ugc::Reviews FilterUGCReviews(ugc::Reviews const & reviews) const;
 
 public:
-  void FilterSearchResultsOnBooking(booking::filter::availability::Params const & params,
-                                    search::Results const & results, bool inViewport) override;
-  void OnBookingFilterParamsUpdate(booking::AvailabilityParams const & params) override;
+  void FilterResultsForHotelsQuery(booking::filter::Tasks const & filterTasks,
+                                   search::Results const & results, bool inViewport) override;
+  void OnBookingFilterParamsUpdate(booking::filter::Tasks const & filterTasks) override;
+
+  booking::AvailabilityParams GetLastBookingAvailabilityParams() const;
 
 private:
   // m_discoveryManager must be bellow m_searchApi, m_viatorApi, m_localsApi
   unique_ptr<discovery::Manager> m_discoveryManager;
+
+public:
+  std::unique_ptr<Purchase> const & GetPurchase() const { return m_purchase; }
+  std::unique_ptr<Purchase> & GetPurchase() { return m_purchase; }
+
+private:
+  std::unique_ptr<Purchase> m_purchase;
+  TipsApi m_tipsApi;
+
+public:
+  TipsApi const & GetTipsApi() const;
+
+  // TipsApi::Delegate override.
+  bool HaveTransit(m2::PointD const & pt) const override;
+  double GetLastBackgroundTime() const override;
 };

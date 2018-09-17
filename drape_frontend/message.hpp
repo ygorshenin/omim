@@ -2,7 +2,6 @@
 
 namespace df
 {
-
 class Message
 {
 public:
@@ -78,16 +77,26 @@ public:
     DrapeApiFlush,
     SetCustomFeatures,
     RemoveCustomFeatures,
-    UpdateCustomFeatures,
+    SetTrackedFeatures,
     SetPostprocessStaticTextures,
     SetPosteffectEnabled,
     RunFirstLaunchAnimation,
     UpdateMetalines,
     PostUserEvent,
     FinishTexturesInitialization,
+    EnableUGCRendering,
+    EnableDebugRectRendering,
+    EnableTransitScheme,
+    UpdateTransitScheme,
+    ClearTransitSchemeData,
+    ClearAllTransitSchemeData,
+    RegenerateTransitScheme,
+    FlushTransitScheme,
+    ShowDebugInfo,
+    NotifyRenderThread
   };
 
-  virtual ~Message() {}
+  virtual ~Message() = default;
   virtual Type GetType() const { return Unknown; }
   virtual bool IsGLContextDependent() const { return false; }
 };
@@ -107,5 +116,4 @@ enum class MessagePriority
   // This priority allows to process messages after any other messages in queue.
   Low
 };
-
-} // namespace df
+}  // namespace df

@@ -26,9 +26,11 @@ UIImage * image(routing::turns::CarDirection t, bool isNextTurn)
   NSString * imageName;
   switch (t)
   {
+  case CarDirection::ExitHighwayToRight: imageName = @"ic_exit_highway_to_right"; break;
   case CarDirection::TurnSlightRight: imageName = @"slight_right"; break;
   case CarDirection::TurnRight: imageName = @"simple_right"; break;
   case CarDirection::TurnSharpRight: imageName = @"sharp_right"; break;
+  case CarDirection::ExitHighwayToLeft: imageName = @"ic_exit_highway_to_left"; break;
   case CarDirection::TurnSlightLeft: imageName = @"slight_left"; break;
   case CarDirection::TurnLeft: imageName = @"simple_left"; break;
   case CarDirection::TurnSharpLeft: imageName = @"sharp_left"; break;
@@ -40,7 +42,6 @@ UIImage * image(routing::turns::CarDirection t, bool isNextTurn)
   case CarDirection::GoStraight: imageName = @"straight"; break;
   case CarDirection::StartAtEndOfStreet:
   case CarDirection::StayOnRoundAbout:
-  case CarDirection::TakeTheExit:
   case CarDirection::Count:
   case CarDirection::None: imageName = isNextTurn ? nil : @"straight"; break;
   }

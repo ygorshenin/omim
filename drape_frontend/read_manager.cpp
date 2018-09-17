@@ -6,7 +6,7 @@
 #include "drape/constants.hpp"
 
 #include "base/buffer_vector.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 
 #include <algorithm>
 #include <functional>
@@ -44,7 +44,7 @@ bool ReadManager::LessByTileInfo::operator()(std::shared_ptr<TileInfo> const & l
 }
 
 ReadManager::ReadManager(ref_ptr<ThreadsCommutator> commutator, MapDataProvider & model,
-                         bool allow3dBuildings, bool trafficEnabled)
+                         bool allow3dBuildings, bool trafficEnabled, EngineContext::TIsUGCFn && isUGCFn)
   : m_commutator(commutator)
   , m_model(model)
   , m_have3dBuildings(false)
@@ -52,10 +52,12 @@ ReadManager::ReadManager(ref_ptr<ThreadsCommutator> commutator, MapDataProvider 
   , m_trafficEnabled(trafficEnabled)
   , m_displacementMode(dp::displacement::kDefaultMode)
   , m_modeChanged(false)
+  , m_ugcRenderingEnabled(false)
   , m_tasksPool(64, ReadMWMTaskFactory(m_model))
   , m_counter(0)
   , m_generationCounter(0)
   , m_userMarksGenerationCounter(0)
+  , m_isUGCFn(std::move(isUGCFn))
 {
   Start();
 }
@@ -105,13 +107,19 @@ void ReadManager::OnTaskFinished(threads::IRoutine * task)
 
     if (!task->IsCancelled())
     {
-      m_activeTiles.erase(t->GetTileKey());
+      auto const it = m_activeTiles.find(t->GetTileKey());
+      ASSERT(it != m_activeTiles.end(), ());
 
+      // Use the tile key from active tiles with the actual user marks generation.
+      auto const tileKey = *it;
       TTilesCollection tiles;
-      tiles.emplace(t->GetTileKey());
+      tiles.emplace(tileKey);
+
+      m_activeTiles.erase(it);
+
       m_commutator->PostMessage(ThreadsCommutator::ResourceUploadThread,
                                 make_unique_dp<FinishTileReadMessage>(std::move(tiles),
-                                                                      false /* forceUpdateUserMarks */),
+                                                                      true /* forceUpdateUserMarks */),
                                 MessagePriority::Normal);
     }
   }
@@ -229,7 +237,8 @@ void ReadManager::PushTaskBackForTileKey(TileKey const & tileKey,
                                                m_commutator, texMng, metalineMng,
                                                m_customFeaturesContext,
                                                m_have3dBuildings && m_allow3dBuildings,
-                                               m_trafficEnabled, m_displacementMode);
+                                               m_trafficEnabled, m_displacementMode,
+                                               m_ugcRenderingEnabled ? m_isUGCFn : nullptr);
   std::shared_ptr<TileInfo> tileInfo = std::make_shared<TileInfo>(std::move(context));
   m_tileInfos.insert(tileInfo);
   ReadMWMTask * task = m_tasksPool.Get();
@@ -237,7 +246,7 @@ void ReadManager::PushTaskBackForTileKey(TileKey const & tileKey,
   task->Init(tileInfo);
   {
     std::lock_guard<std::mutex> lock(m_finishedTilesMutex);
-    m_activeTiles.insert(tileKey);
+    m_activeTiles.insert(TileKey(tileKey, m_generationCounter, m_userMarksGenerationCounter));
   }
   m_pool->PushBack(task);
 }
@@ -253,8 +262,20 @@ void ReadManager::CheckFinishedTiles(TTileInfoCollection const & requestedTiles,
 
   for (auto const & tile : requestedTiles)
   {
-    if (m_activeTiles.find(tile->GetTileKey()) == m_activeTiles.end())
+    auto const it = m_activeTiles.find(tile->GetTileKey());
+    if (it == m_activeTiles.end())
+    {
       finishedTiles.emplace(tile->GetTileKey(), m_generationCounter, m_userMarksGenerationCounter);
+    }
+    else if (forceUpdateUserMarks)
+    {
+      // In case of active tile reading update its user marks generation.
+      // User marks will be generated after finishing of tile reading with correct tile key.
+      auto tileKey = *it;
+      tileKey.m_userMarksGeneration = m_userMarksGenerationCounter;
+      m_activeTiles.erase(it);
+      m_activeTiles.insert(tileKey);
+    }
   }
 
   if (!finishedTiles.empty())
@@ -268,10 +289,8 @@ void ReadManager::CheckFinishedTiles(TTileInfoCollection const & requestedTiles,
 
 void ReadManager::CancelTileInfo(std::shared_ptr<TileInfo> const & tileToCancel)
 {
-  {
-    std::lock_guard<std::mutex> lock(m_finishedTilesMutex);
-    m_activeTiles.erase(tileToCancel->GetTileKey());
-  }
+  std::lock_guard<std::mutex> lock(m_finishedTilesMutex);
+  m_activeTiles.erase(tileToCancel->GetTileKey());
   tileToCancel->Cancel();
 }
 
@@ -321,12 +340,9 @@ void ReadManager::SetDisplacementMode(int displacementMode)
   }
 }
 
-bool ReadManager::SetCustomFeatures(std::set<FeatureID> && ids)
+void ReadManager::SetCustomFeatures(CustomFeatures && ids)
 {
-  size_t const sz = m_customFeaturesContext ? m_customFeaturesContext->m_features.size() : 0;
   m_customFeaturesContext = std::make_shared<CustomFeaturesContext>(std::move(ids));
-
-  return sz != m_customFeaturesContext->m_features.size();
 }
 
 std::vector<FeatureID> ReadManager::GetCustomFeaturesArray() const
@@ -336,7 +352,7 @@ std::vector<FeatureID> ReadManager::GetCustomFeaturesArray() const
   std::vector<FeatureID> features;
   features.reserve(m_customFeaturesContext->m_features.size());
   for (auto const & s : m_customFeaturesContext->m_features)
-    features.push_back(s);
+    features.push_back(s.first);
   return features;
 }
 
@@ -345,10 +361,10 @@ bool ReadManager::RemoveCustomFeatures(MwmSet::MwmId const & mwmId)
   if (!m_customFeaturesContext)
     return false;
 
-  std::set<FeatureID> features;
+  CustomFeatures features;
   for (auto const & s : m_customFeaturesContext->m_features)
   {
-    if (s.m_mwmId != mwmId)
+    if (s.first.m_mwmId != mwmId)
       features.insert(s);
   }
   if (features.size() == m_customFeaturesContext->m_features.size())
@@ -363,7 +379,13 @@ bool ReadManager::RemoveAllCustomFeatures()
   if (!m_customFeaturesContext || m_customFeaturesContext->m_features.empty())
     return false;
 
-  m_customFeaturesContext = std::make_shared<CustomFeaturesContext>(std::set<FeatureID>());
+  m_customFeaturesContext = std::make_shared<CustomFeaturesContext>(CustomFeatures());
   return true;
 }
+
+void ReadManager::EnableUGCRendering(bool enabled)
+{
+  m_ugcRenderingEnabled = enabled;
+}
+
 } // namespace df

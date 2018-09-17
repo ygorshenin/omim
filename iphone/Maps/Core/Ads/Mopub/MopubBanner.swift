@@ -131,8 +131,14 @@ final class MopubBanner: NSObject, Banner {
     return nativeAd?.properties[kAdCTATextKey] as? String ?? ""
   }
 
-  var privacyInfoURL: String? {
-    return nativeAd?.properties[kDAAIconTapDestinationURL] as? String
+  var privacyInfoURL: URL? {
+    guard let nativeAd = nativeAd else { return nil }
+
+    if nativeAd.adAdapter is FacebookNativeAdAdapter {
+      return (nativeAd.adAdapter as! FacebookNativeAdAdapter).fbNativeAd.adChoicesLinkURL
+    }
+
+    return URL(string: kDAAIconTapDestinationURL)
   }
 
   // MARK: - Helpers
@@ -143,6 +149,7 @@ final class MopubBanner: NSObject, Banner {
     let config = MPStaticNativeAdRenderer.rendererConfiguration(with: settings)!
     request = MPNativeAdRequest(adUnitIdentifier: placementID, rendererConfigurations: [config])
     let targeting = MPNativeAdRequestTargeting()
+    targeting.keywords = "user_lang:\(AppInfo.shared().twoLetterLanguageId)"
     targeting.desiredAssets = [kAdTitleKey, kAdTextKey, kAdIconImageKey, kAdCTATextKey]
     if let location = MWMLocationManager.lastLocation() {
       targeting.location = location

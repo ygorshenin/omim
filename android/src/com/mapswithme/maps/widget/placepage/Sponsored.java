@@ -25,30 +25,13 @@ public final class Sponsored
   public static final int TYPE_NONE = 0;
   public static final int TYPE_BOOKING = 1;
   public static final int TYPE_OPENTABLE = 2;
-  public static final int TYPE_GEOCHAT = 3;
-  public static final int TYPE_VIATOR = 4;
-  public static final int TYPE_CIAN = 5;
-  public static final int TYPE_THOR = 6;
-  public static final int TYPE_HOLIDAY = 7;
+  public static final int TYPE_VIATOR = 3;
+  public static final int TYPE_PARTNER = 4;
+  public static final int TYPE_HOLIDAY = 5;
 
   @Retention(RetentionPolicy.SOURCE)
-  @IntDef({ TYPE_NONE, TYPE_BOOKING, TYPE_OPENTABLE, TYPE_GEOCHAT,
-            TYPE_VIATOR, TYPE_CIAN, TYPE_THOR, TYPE_HOLIDAY })
+  @IntDef({ TYPE_NONE, TYPE_BOOKING, TYPE_OPENTABLE, TYPE_VIATOR, TYPE_PARTNER, TYPE_HOLIDAY })
   public @interface SponsoredType {}
-
-  private static class Price
-  {
-    @NonNull
-    final String mPrice;
-    @NonNull
-    final String mCurrency;
-
-    private Price(@NonNull String price, @NonNull String currency)
-    {
-      mPrice = price;
-      mCurrency = currency;
-    }
-  }
 
   static class FacilityType
   {
@@ -160,12 +143,10 @@ public final class Sponsored
      * This method is called from the native core on the UI thread
      * when the Hotel price will be obtained
      *
-     * @param id A hotel id
-     * @param price A price
-     * @param currency A price currency
+     * @param priceInfo
      */
     @UiThread
-    void onPriceReceived(@NonNull String id, @NonNull String price, @NonNull String currency);
+    void onPriceReceived(@NonNull HotelPriceInfo priceInfo);
   }
 
   interface OnHotelInfoReceivedListener
@@ -183,7 +164,7 @@ public final class Sponsored
 
   // Hotel ID -> Price
   @NonNull
-  private static final Map<String, Price> sPriceCache = new HashMap<>();
+  private static final Map<String, HotelPriceInfo> sPriceCache = new HashMap<>();
   // Hotel ID -> Description
   @NonNull
   private static final Map<String, HotelInfo> sInfoCache = new HashMap<>();
@@ -204,23 +185,32 @@ public final class Sponsored
   @NonNull
   private final String mUrl;
   @NonNull
+  private final String mDeepLink;
+  @NonNull
   private final String mDescriptionUrl;
   @NonNull
   private final String mReviewUrl;
   @SponsoredType
   private final int mType;
+  private final int mPartnerIndex;
+  @NonNull
+  private final String mPartnerName;
 
-  public Sponsored(@NonNull String rating, @UGC.Impress int impress, @NonNull String price, @NonNull String url,
-                   @NonNull String descriptionUrl, @NonNull String reviewUrl,
-                   @SponsoredType int type)
+  private Sponsored(@NonNull String rating, @UGC.Impress int impress, @NonNull String price,
+                    @NonNull String url, @NonNull String deepLink, @NonNull String descriptionUrl,
+                    @NonNull String reviewUrl, @SponsoredType int type, int partnerIndex,
+                    @NonNull String partnerName)
   {
     mRating = rating;
     mImpress = impress;
     mPrice = price;
     mUrl = url;
+    mDeepLink = deepLink;
     mDescriptionUrl = descriptionUrl;
     mReviewUrl = reviewUrl;
     mType = type;
+    mPartnerIndex = partnerIndex;
+    mPartnerName = partnerName;
   }
 
   void updateId(MapObject point)
@@ -259,6 +249,12 @@ public final class Sponsored
   }
 
   @NonNull
+  public String getDeepLink()
+  {
+    return mDeepLink;
+  }
+
+  @NonNull
   String getDescriptionUrl()
   {
     return mDescriptionUrl;
@@ -276,6 +272,17 @@ public final class Sponsored
     return mType;
   }
 
+  public int getPartnerIndex()
+  {
+    return mPartnerIndex;
+  }
+
+  @NonNull
+  public String getPartnerName()
+  {
+    return mPartnerName;
+  }
+
   static void setPriceListener(@NonNull OnPriceReceivedListener listener)
   {
     sPriceListener = new WeakReference<>(listener);
@@ -289,7 +296,7 @@ public final class Sponsored
   /**
    * Make request to obtain hotel price information.
    * This method also checks cache for requested hotel id
-   * and if cache exists - call {@link #onPriceReceived(String, String, String) onPriceReceived} immediately
+   * and if cache exists - call {@link #onPriceReceived(HotelPriceInfo) onPriceReceived} immediately
    *  @param id A Hotel id
    * @param currencyCode A user currency
    * @param policy A network policy
@@ -297,9 +304,9 @@ public final class Sponsored
   static void requestPrice(@NonNull String id, @NonNull String currencyCode,
                            @NonNull NetworkPolicy policy)
   {
-    Price p = sPriceCache.get(id);
+    HotelPriceInfo p = sPriceCache.get(id);
     if (p != null)
-      onPriceReceived(id, p.mPrice, p.mCurrency);
+      onPriceReceived(p);
 
     nativeRequestPrice(policy, id, currencyCode);
   }
@@ -316,9 +323,6 @@ public final class Sponsored
     {
       case TYPE_BOOKING:
         requestHotelInfo(id, locale, policy);
-        break;
-      case TYPE_GEOCHAT:
-//        TODO: request geochat info
         break;
       case TYPE_OPENTABLE:
 //        TODO: request opentable info
@@ -346,18 +350,17 @@ public final class Sponsored
     nativeRequestHotelInfo(policy, id, locale);
   }
 
-  private static void onPriceReceived(@NonNull String id, @NonNull String price,
-                                      @NonNull String currency)
+  private static void onPriceReceived(@NonNull HotelPriceInfo priceInfo)
   {
-    if (TextUtils.isEmpty(price))
+    if (TextUtils.isEmpty(priceInfo.getPrice()))
       return;
 
-    sPriceCache.put(id, new Price(price, currency));
+    sPriceCache.put(priceInfo.getId(), priceInfo);
 
 
     OnPriceReceivedListener listener = sPriceListener.get();
     if (listener != null)
-      listener.onPriceReceived(id, price, currency);
+      listener.onPriceReceived(priceInfo);
   }
 
   private static void onHotelInfoReceived(@NonNull String id, @NonNull HotelInfo info)
@@ -367,6 +370,18 @@ public final class Sponsored
     OnHotelInfoReceivedListener listener = sInfoListener.get();
     if (listener != null)
       listener.onHotelInfoReceived(id, info);
+  }
+
+  @NonNull
+  static String getPackageName(@SponsoredType int type)
+  {
+    switch (type)
+    {
+      case Sponsored.TYPE_BOOKING:
+        return "com.booking";
+      default:
+        throw new AssertionError("Unsupported sponsored type: " + type);
+    }
   }
 
   @Nullable

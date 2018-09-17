@@ -1,7 +1,6 @@
 #pragma once
 
 #include "drape/texture.hpp"
-#include "drape/glconstants.hpp"
 
 #include <atomic>
 #include <vector>
@@ -11,6 +10,7 @@ namespace dp
 template<typename TIndexer, typename TResourceKey, Texture::ResourceType TResourceType>
 class DynamicTexture : public Texture
 {
+  using Base = Texture;
 public:
   ~DynamicTexture() override
   {
@@ -24,6 +24,18 @@ public:
       return nullptr;
 
     return m_indexer->MapResource(static_cast<TResourceKey const &>(key), newResource);
+  }
+
+  void Create(Params const & params) override
+  {
+    ASSERT(Base::IsPowerOfTwo(params.m_width, params.m_height), (params.m_width, params.m_height));
+    Base::Create(params);
+  }
+
+  void Create(Params const & params, ref_ptr<void> data) override
+  {
+    ASSERT(Base::IsPowerOfTwo(params.m_width, params.m_height), (params.m_width, params.m_height));
+    Base::Create(params, data);
   }
 
   void UpdateState() override
@@ -78,7 +90,7 @@ public:
       Texture::Bind();
   }
 
-  void SetFilter(glConst filter) override
+  void SetFilter(TextureFilter filter) override
   {
     if (m_isInitialized)
       Texture::SetFilter(filter);
@@ -93,7 +105,7 @@ protected:
   {
     m2::PointU m_size;
     dp::TextureFormat m_format;
-    glConst m_filter;
+    TextureFilter m_filter;
     bool m_usePixelBuffer;
   };
 

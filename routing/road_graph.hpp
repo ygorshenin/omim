@@ -68,6 +68,8 @@ public:
 
   static Edge MakeReal(FeatureID const & featureId, bool forward, uint32_t segId,
                        Junction const & startJunction, Junction const & endJunction);
+  static Edge MakeFakeWithRealPart(FeatureID const & featureId, bool forward, uint32_t segId,
+                                   Junction const & startJunction, Junction const & endJunctio);
   static Edge MakeFake(Junction const & startJunction, Junction const & endJunction);
   static Edge MakeFake(Junction const & startJunction, Junction const & endJunction,
                        Edge const & prototype);
@@ -135,18 +137,13 @@ public:
   virtual void GetIngoingEdges(Junction const & junction, TEdgeVector & edges) const = 0;
 
   /// Returns max speed in KM/H
-  virtual double GetMaxSpeedKMPH() const = 0;
+  virtual double GetMaxSpeedKMpH() const = 0;
 
   /// @return Types for the specified edge
   virtual void GetEdgeTypes(Edge const & edge, feature::TypesHolder & types) const = 0;
 
   /// @return Types for specified junction
   virtual void GetJunctionTypes(Junction const & junction, feature::TypesHolder & types) const = 0;
-
-  // TODO: remove IsRouteEdgesImplemented and IsRouteSegmentsImplemented as soon as we get rid of
-  // IRoadGraph and RoadGraphRouter
-  virtual bool IsRouteEdgesImplemented() const;
-  virtual bool IsRouteSegmentsImplemented() const;
 
   virtual void GetRouteEdges(TEdgeVector & routeEdges) const;
   virtual void GetRouteSegments(std::vector<Segment> & segments) const;
@@ -279,10 +276,10 @@ public:
   virtual RoadInfo GetRoadInfo(FeatureID const & featureId) const = 0;
 
   /// Returns speed in KM/H for a road corresponding to featureId.
-  virtual double GetSpeedKMPH(FeatureID const & featureId) const = 0;
+  virtual double GetSpeedKMpH(FeatureID const & featureId) const = 0;
 
   /// Returns speed in KM/H for a road corresponding to edge.
-  double GetSpeedKMPH(Edge const & edge) const;
+  double GetSpeedKMpH(Edge const & edge) const;
 
   /// Calls edgesLoader on each feature which is close to cross.
   virtual void ForEachFeatureClosestToCross(m2::PointD const & cross,

@@ -52,9 +52,10 @@ public:
 
   size_t GetPointCount() const
   {
-    return UserMarkNotificationGuard(*m_m, type).m_controller.GetUserMarkCount();
+    return m_m->GetUserMarkIds(type).size();
   }
 
+  CatalogItem const & GetCatalogItem() const { return m_api.GetCatalogItem(); }
   vector<RoutePoint> GetRoutePoints() const { return m_api.GetRoutePoints(); }
   url_scheme::SearchRequest const & GetSearchRequest() const { return m_api.GetSearchRequest(); }
   string const & GetGlobalBackUrl() const { return m_api.GetGlobalBackUrl(); }
@@ -86,9 +87,11 @@ public:
 private:
   ApiMarkPoint const * GetMark(int index) const
   {
-    UserMarkNotificationGuard guard(*m_m, type);
-    TEST_LESS(index, static_cast<int>(guard.m_controller.GetUserMarkCount()), ());
-    return static_cast<ApiMarkPoint const *>(guard.m_controller.GetUserMark(index));
+    auto const & markIds = m_m->GetUserMarkIds(type);
+    TEST_LESS(index, static_cast<int>(markIds.size()), ());
+    auto it = markIds.begin();
+    std::advance(it, index);
+    return m_m->GetMark<ApiMarkPoint>(*it);
   }
 
 private:
@@ -103,10 +106,7 @@ bool IsValid(Framework & fm, string const & uriString)
   ParsedMapApi api;
   api.SetBookmarkManager(&fm.GetBookmarkManager());
   api.SetUriAndParse(uriString);
-  {
-    UserMarkNotificationGuard guard(fm.GetBookmarkManager(), UserMark::Type::API);
-    guard.m_controller.Clear();
-  }
+  fm.GetBookmarkManager().GetEditSession().ClearGroup(UserMark::Type::API);
 
   return api.IsValid();
 }
@@ -138,6 +138,32 @@ UNIT_TEST(RouteApiSmoke)
   TEST(test.TestRoutePoint(0, 1, 1, "name0"), ());
   TEST(test.TestRoutePoint(1, 2, 2, "name1"), ());
   TEST(test.TestRouteType("vehicle"), ());
+}
+
+UNIT_TEST(CatalogueApiSmoke)
+{
+  string const uriString = "mapsme://catalogue?id=440f02e5-ff38-45ed-95c0-44587c9a5fc7&name=CatalogGroupName";
+  TEST(Uri(uriString).IsValid(), ());
+
+  ApiTest test(uriString);
+  TEST(test.IsValid(), ());
+
+  auto const & catalogItem = test.GetCatalogItem();
+  TEST_EQUAL(catalogItem.m_id, "440f02e5-ff38-45ed-95c0-44587c9a5fc7", ());
+  TEST_EQUAL(catalogItem.m_name, "CatalogGroupName", ());
+}
+
+UNIT_TEST(CatalogueApiInvalidUrl)
+{
+  Framework f(kFrameworkParams);
+  TEST(!IsValid(f, "mapsme://catalogue?"), ("id parameter is required"));
+  TEST(IsValid(f, "mapsme://catalogue?id=440f02e5-ff38-45ed-95c0-44587c9a5fc7"), ("Name is optional"));
+  TEST(IsValid(f, "mapsme://catalogue?id=440f02e5-ff38-45ed-95c0-44587c9a5fc7&name=CatalogGroupName&otherExtraParam=xyz"),
+       ("We shouldn't fail on extra params"));
+  TEST(IsValid(f, "mapsme://catalogue?name=CatalogGroupName&id=440f02e5-ff38-45ed-95c0-44587c9a5fc7"),
+       ("parameter position doesn't matter"));
+  TEST(!IsValid(f, "mapsme://catalogue?ID=440f02e5-ff38-45ed-95c0-44587c9a5fc7"),
+       ("The parser is case sensitive"));
 }
 
 UNIT_TEST(SearchApiSmoke)
@@ -416,7 +442,7 @@ void generateRandomTest(uint32_t numberOfPoints, size_t stringLength)
 
   ApiTest api(result);
   TEST_EQUAL(api.GetPointCount(), vect.size(), ());
-  for (size_t i = 0; i < vect.size();++i)
+  for (size_t i = 0; i < vect.size(); ++i)
   {
     /// Mercator defined not on all range of lat\lon values.
     /// Some part of lat\lon is clamp on convertation
@@ -425,7 +451,7 @@ void generateRandomTest(uint32_t numberOfPoints, size_t stringLength)
     double lat = vect[i].m_lat;
     double lon = vect[i].m_lon;
     ToMercatoToLatLon(lat, lon);
-    int const ix = vect.size() - i - 1;
+    int const ix = static_cast<int>(vect.size() - i) - 1;
     TEST(api.TestLatLon(ix, lat, lon), ());
     TEST(api.TestName(ix, vect[i].m_name), ());
     TEST(api.TestID(ix, vect[i].m_id), ());

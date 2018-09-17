@@ -4,8 +4,6 @@
 #include "search/nested_rects_cache.hpp"
 #include "search/ranker.hpp"
 
-#include "indexer/index.hpp"
-
 #include "geometry/point2d.hpp"
 #include "geometry/rect2d.hpp"
 
@@ -18,6 +16,8 @@
 #include "std/utility.hpp"
 #include "std/vector.hpp"
 
+class DataSource;
+
 namespace search
 {
 // Fast and simple pre-ranker for search results.
@@ -26,9 +26,7 @@ class PreRanker
 public:
   struct Params
   {
-    m2::RectD m_viewport;
-
-    // A minimum distance between search results in meters, needed for
+    // Minimal distance between search results in mercators, needed for
     // filtering of viewport search results.
     double m_minDistanceOnMapBetweenResults = 0.0;
 
@@ -39,7 +37,11 @@ public:
     // fast filtering of features outside of the rectangle, while
     // |m_accuratePivotCenter| should be used when it's needed to
     // compute the distance from a feature to the pivot.
-    m2::PointD m_accuratePivotCenter = m2::PointD(0, 0);
+    m2::PointD m_accuratePivotCenter;
+
+    m2::PointD m_position;
+    m2::RectD m_viewport;
+
     int m_scale = 0;
 
     size_t m_batchSize = 100;
@@ -48,9 +50,10 @@ public:
     size_t m_limit = 0;
 
     bool m_viewportSearch = false;
+    bool m_categorialRequest = false;
   };
 
-  PreRanker(Index const & index, Ranker & ranker);
+  PreRanker(DataSource const & dataSource, Ranker & ranker);
 
   void Init(Params const & params);
 
@@ -89,7 +92,7 @@ public:
 private:
   void FilterForViewportSearch();
 
-  Index const & m_index;
+  DataSource const & m_dataSource;
   Ranker & m_ranker;
   vector<PreRankerResult> m_results;
   Params m_params;

@@ -1,6 +1,7 @@
 #include "search_index_builder.hpp"
 
 #include "search/common.hpp"
+#include "search/mwm_context.hpp"
 #include "search/reverse_geocoder.hpp"
 #include "search/search_index_values.hpp"
 #include "search/search_trie.hpp"
@@ -8,13 +9,13 @@
 
 #include "indexer/categories_holder.hpp"
 #include "indexer/classificator.hpp"
+#include "indexer/data_source.hpp"
 #include "indexer/feature_algo.hpp"
 #include "indexer/feature_impl.hpp"
 #include "indexer/feature_utils.hpp"
 #include "indexer/feature_visibility.hpp"
 #include "indexer/features_vector.hpp"
 #include "indexer/ftypes_matcher.hpp"
-#include "indexer/index.hpp"
 #include "indexer/search_delimiters.hpp"
 #include "indexer/search_string_utils.hpp"
 #include "indexer/trie_builder.hpp"
@@ -31,21 +32,21 @@
 #include "base/assert.hpp"
 #include "base/logging.hpp"
 #include "base/scope_guard.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 #include "base/timer.hpp"
 
 #include <algorithm>
 #include <fstream>
-#include <initializer_list>
-#include <limits>
+#include <map>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
+#include <thread>
 
 using namespace std;
 
 #define SYNONYMS_FILE "synonyms.txt"
-
 
 namespace
 {
@@ -68,7 +69,7 @@ public:
         continue;
 
       tokens.clear();
-      strings::Tokenize(line, ":,", MakeBackInsertFunctor(tokens));
+      strings::Tokenize(line, ":,", base::MakeBackInsertFunctor(tokens));
 
       if (tokens.size() > 1)
       {
@@ -101,37 +102,31 @@ public:
 void GetCategoryTypes(CategoriesHolder const & categories, pair<int, int> const & scaleRange,
                       feature::TypesHolder const & types, vector<uint32_t> & result)
 {
-  Classificator const & c = classif();
-  auto const & invisibleChecker = ftypes::IsInvisibleIndexedChecker::Instance();
-
   for (uint32_t t : types)
   {
-    // Leave only 2 levels of types - for example, do not distinguish:
-    // highway-primary-bridge and highway-primary-tunnel
-    // or amenity-parking-fee and amenity-parking-underground-fee.
-    ftype::TruncValue(t, 2);
+    // Truncate |t| up to 2 levels and choose the best category match to find explicit category if
+    // any and not distinguish types like highway-primary-bridge and highway-primary-tunnel or
+    // amenity-parking-fee and amenity-parking-underground-fee if we do not have such explicit
+    // categories.
+
+    for (uint8_t level = ftype::GetLevel(t); level >= 2; --level)
+    {
+      ftype::TruncValue(t, level);
+      if (categories.IsTypeExist(t))
+        break;
+    }
 
     // Only categorized types will be added to index.
     if (!categories.IsTypeExist(t))
       continue;
 
-    // There are some special non-drawable types we plan to search on.
-    if (invisibleChecker.IsMatched(t))
-    {
-      result.push_back(t);
-      continue;
-    }
+    // Drawable scale must be normalized to indexer scales.
+    auto indexedRange = scaleRange;
+    if (scaleRange.second == scales::GetUpperScale())
+      indexedRange.second = scales::GetUpperStyleScale();
 
     // Index only those types that are visible.
-    pair<int, int> r = feature::GetDrawableScaleRange(t);
-    CHECK_LESS_OR_EQUAL(r.first, r.second, (c.GetReadableObjectName(t)));
-
-    // Drawable scale must be normalized to indexer scales.
-    r.second = min(r.second, scales::GetUpperScale());
-    r.first = min(r.first, r.second);
-    CHECK(r.first != -1, (c.GetReadableObjectName(t)));
-
-    if (r.second >= scaleRange.first && r.first <= scaleRange.second)
+    if (feature::IsVisibleInRange(t, indexedRange))
       result.push_back(t);
   }
 }
@@ -167,7 +162,7 @@ struct FeatureNameInserter
 
     // split input string on tokens
     search::QueryTokens tokens;
-    SplitUniString(uniName, MakeBackInsertFunctor(tokens), search::Delimiters());
+    SplitUniString(uniName, base::MakeBackInsertFunctor(tokens), search::Delimiters());
 
     // add synonyms for input native string
     if (m_synonyms)
@@ -211,7 +206,7 @@ struct ValueBuilder<FeatureWithRankAndCenter>
 {
   ValueBuilder() = default;
 
-  void MakeValue(FeatureType const & ft, uint32_t index, FeatureWithRankAndCenter & v) const
+  void MakeValue(FeatureType & ft, uint32_t index, FeatureWithRankAndCenter & v) const
   {
     v.m_featureId = index;
 
@@ -256,7 +251,7 @@ public:
   {
   }
 
-  void operator() (FeatureType const & f, uint32_t index) const
+  void operator()(FeatureType & f, uint32_t index) const
   {
     using namespace search;
 
@@ -279,7 +274,7 @@ public:
       // See OSM TagInfo or Wiki about modern postcodes format. The
       // mean number of tokens is less than two.
       buffer_vector<strings::UniString, 2> tokens;
-      SplitUniString(NormalizeAndSimplifyString(postcode), MakeBackInsertFunctor(tokens),
+      SplitUniString(NormalizeAndSimplifyString(postcode), base::MakeBackInsertFunctor(tokens),
                      Delimiters());
       for (auto const & token : tokens)
         inserter.AddToken(kPostcodesLang, token);
@@ -323,56 +318,116 @@ void AddFeatureNameIndexPairs(FeaturesVectorTest const & features,
       synonyms.get(), keyValuePairs, categoriesHolder, header.GetScaleRange(), valueBuilder));
 }
 
-void BuildAddressTable(FilesContainerR & container, Writer & writer)
+bool GetStreetIndex(search::MwmContext & ctx, uint32_t featureID, string const & streetName,
+                    uint32_t & result)
 {
-  ReaderSource<ModelReaderPtr> src = container.GetReader(SEARCH_TOKENS_FILE_TAG);
+  size_t streetIndex = 0;
+  strings::UniString const street = search::GetStreetNameAsKey(streetName);
+
+  bool const hasStreet = !street.empty();
+  if (hasStreet)
+  {
+    FeatureType ft;
+    VERIFY(ctx.GetFeature(featureID, ft), ());
+
+    using TStreet = search::ReverseGeocoder::Street;
+    vector<TStreet> streets;
+    search::ReverseGeocoder::GetNearbyStreets(ctx, feature::GetCenter(ft), streets);
+
+    streetIndex = search::ReverseGeocoder::GetMatchedStreetIndex(street, streets);
+    if (streetIndex < streets.size())
+    {
+      result = base::checked_cast<uint32_t>(streetIndex);
+      return true;
+    }
+  }
+
+  result = hasStreet ? 1 : 0;
+  return false;
+}
+
+void BuildAddressTable(FilesContainerR & container, Writer & writer, uint32_t threadsCount)
+{
+  // Read all street names to memory.
+  ReaderSource<ModelReaderPtr> src(container.GetReader(SEARCH_TOKENS_FILE_TAG));
+  vector<feature::AddressData> addrs;
+  while (src.Size() > 0)
+  {
+    addrs.push_back({});
+    addrs.back().Deserialize(src);
+  }
+  uint32_t const featuresCount = base::checked_cast<uint32_t>(addrs.size());
+
+  // Initialize temporary source for the current mwm file.
+  FrozenDataSource dataSource;
+  MwmSet::MwmId mwmId;
+  {
+    auto const regResult =
+        dataSource.RegisterMap(platform::LocalCountryFile::MakeTemporary(container.GetFileName()));
+    ASSERT_EQUAL(regResult.second, MwmSet::RegResult::Success, ());
+    mwmId = regResult.first;
+  }
+
+  vector<unique_ptr<search::MwmContext>> contexts(threadsCount);
+
   uint32_t address = 0, missing = 0;
   map<size_t, size_t> bounds;
 
-  Index mwmIndex;
-  /// @ todo Make some better solution, or legalize MakeTemporary.
-  auto const res = mwmIndex.RegisterMap(platform::LocalCountryFile::MakeTemporary(container.GetFileName()));
-  ASSERT_EQUAL(res.second, MwmSet::RegResult::Success, ());
-  search::ReverseGeocoder rgc(mwmIndex);
+  uint32_t const kEmptyResult = uint32_t(-1);
+  vector<uint32_t> results(featuresCount, kEmptyResult);
 
-  {
-    FixedBitsDDVector<3, FileReader>::Builder<Writer> building2Street(writer);
+  mutex resMutex;
 
-    FeaturesVectorTest features(container);
-    for (uint32_t index = 0; src.Size() > 0; ++index)
+  // Thread working function.
+  auto const fn = [&](uint32_t threadIdx) {
+    uint64_t const fc = static_cast<uint64_t>(featuresCount);
+    uint32_t const beg = static_cast<uint32_t>(fc * threadIdx / threadsCount);
+    uint32_t const end = static_cast<uint32_t>(fc * (threadIdx + 1) / threadsCount);
+
+    for (uint32_t i = beg; i < end; ++i)
     {
-      feature::AddressData data;
-      data.Deserialize(src);
+      uint32_t streetIndex;
+      bool const found = GetStreetIndex(*(contexts[threadIdx]), i,
+                                        addrs[i].Get(feature::AddressData::STREET), streetIndex);
 
-      size_t streetIndex = 0;
-      bool streetMatched = false;
-      strings::UniString const street = search::GetStreetNameAsKey(data.Get(feature::AddressData::STREET));
-      if (!street.empty())
+      lock_guard<mutex> guard(resMutex);
+
+      if (found)
       {
-        FeatureType ft;
-        features.GetVector().GetByIndex(index, ft);
-        ft.SetID({res.first, index});
-
-        using TStreet = search::ReverseGeocoder::Street;
-        vector<TStreet> streets;
-        rgc.GetNearbyStreets(ft, streets);
-
-        streetIndex = rgc.GetMatchedStreetIndex(street, streets);
-        if (streetIndex < streets.size())
-        {
-          ++bounds[streetIndex];
-          streetMatched = true;
-        }
-        else
-        {
-          ++missing;
-        }
+        results[i] = streetIndex;
+        ++bounds[streetIndex];
         ++address;
       }
-      if (streetMatched)
-        building2Street.PushBack(base::checked_cast<decltype(building2Street)::ValueType>(streetIndex));
-      else
+      else if (streetIndex > 0)
+      {
+        ++missing;
+        ++address;
+      }
+    }
+  };
+
+  // Prepare threads and mwm contexts for each thread.
+  vector<thread> threads;
+  for (size_t i = 0; i < threadsCount; ++i)
+  {
+    auto handle = dataSource.GetMwmHandleById(mwmId);
+    contexts[i] = make_unique<search::MwmContext>(move(handle));
+    threads.emplace_back(fn, i);
+  }
+
+  // Wait for thread's finish.
+  for (auto & t : threads)
+    t.join();
+
+  // Flush results to disk.
+  {
+    FixedBitsDDVector<3, FileReader>::Builder<Writer> building2Street(writer);
+    for (auto i : results)
+    {
+      if (i == kEmptyResult)
         building2Street.PushBackUndefined();
+      else
+        building2Street.PushBack(i);
     }
 
     LOG(LINFO, ("Address: Building -> Street (opt, all)", building2Street.GetCount()));
@@ -388,7 +443,7 @@ void BuildAddressTable(FilesContainerR & container, Writer & writer)
 
 namespace indexer
 {
-bool BuildSearchIndexFromDataFile(string const & filename, bool forceRebuild)
+bool BuildSearchIndexFromDataFile(string const & filename, bool forceRebuild, uint32_t threadsCount)
 {
   Platform & platform = GetPlatform();
 
@@ -396,16 +451,9 @@ bool BuildSearchIndexFromDataFile(string const & filename, bool forceRebuild)
   if (readContainer.IsExist(SEARCH_INDEX_FILE_TAG) && !forceRebuild)
     return true;
 
-  string mwmName = filename;
-  my::GetNameFromFullPath(mwmName);
-  my::GetNameWithoutExt(mwmName);
-
-  string const indexFilePath = platform.WritablePathForFile(
-        mwmName + "." SEARCH_INDEX_FILE_TAG EXTENSION_TMP);
+  string const indexFilePath = filename + "." + SEARCH_INDEX_FILE_TAG EXTENSION_TMP;
+  string const addrFilePath = filename + "." + SEARCH_ADDRESS_FILE_TAG EXTENSION_TMP;
   MY_SCOPE_GUARD(indexFileGuard, bind(&FileWriter::DeleteFileX, indexFilePath));
-
-  string const addrFilePath = platform.WritablePathForFile(
-        mwmName + "." SEARCH_ADDRESS_FILE_TAG EXTENSION_TMP);
   MY_SCOPE_GUARD(addrFileGuard, bind(&FileWriter::DeleteFileX, addrFilePath));
 
   try
@@ -418,7 +466,7 @@ bool BuildSearchIndexFromDataFile(string const & filename, bool forceRebuild)
     if (filename != WORLD_FILE_NAME && filename != WORLD_COASTS_FILE_NAME)
     {
       FileWriter writer(addrFilePath);
-      BuildAddressTable(readContainer, writer);
+      BuildAddressTable(readContainer, writer, threadsCount);
       LOG(LINFO, ("Search address table size =", writer.Size()));
     }
     {
@@ -476,7 +524,8 @@ void BuildSearchIndex(FilesContainerR & container, Writer & indexWriter)
   CategoriesHolder categoriesHolder(platform.GetReader(SEARCH_CATEGORIES_FILE_NAME));
 
   FeaturesVectorTest features(container);
-  auto codingParams = trie::GetCodingParams(features.GetHeader().GetDefCodingParams());
+  auto codingParams =
+      trie::GetGeometryCodingParams(features.GetHeader().GetDefGeometryCodingParams());
   SingleValueSerializer<Value> serializer(codingParams);
 
   vector<pair<Key, Value>> searchIndexKeyValuePairs;

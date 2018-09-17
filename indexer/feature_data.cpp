@@ -3,17 +3,21 @@
 #include "indexer/classificator.hpp"
 #include "indexer/feature.hpp"
 #include "indexer/feature_impl.hpp"
+#include "indexer/feature_visibility.hpp"
 #include "indexer/ftypes_matcher.hpp"
 
 #include "base/assert.hpp"
-#include "base/stl_add.hpp"
+#include "base/macros.hpp"
+#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
-#include "std/algorithm.hpp"
-#include "std/bind.hpp"
-#include "std/vector.hpp"
+#include <algorithm>
+#include <functional>
+#include <vector>
 
 using namespace feature;
+using namespace std;
+using namespace std::placeholders;
 
 ////////////////////////////////////////////////////////////////////////////////////
 // TypesHolder implementation
@@ -25,15 +29,14 @@ string DebugPrint(TypesHolder const & holder)
 {
   Classificator const & c = classif();
   string s;
-  for (uint32_t type : holder)
+  for (uint32_t const type : holder)
     s += c.GetReadableObjectName(type) + " ";
   if (!s.empty())
     s.pop_back();
   return s;
 }
 
-TypesHolder::TypesHolder(FeatureBase const & f)
-: m_size(0), m_geoType(f.GetFeatureType())
+TypesHolder::TypesHolder(FeatureType & f) : m_size(0), m_geoType(f.GetFeatureType())
 {
   f.ForEachType([this](uint32_t type)
   {
@@ -43,7 +46,7 @@ TypesHolder::TypesHolder(FeatureBase const & f)
 
 void TypesHolder::Remove(uint32_t type)
 {
-  UNUSED_VALUE(RemoveIf(EqualFunctor<uint32_t>(type)));
+  UNUSED_VALUE(RemoveIf(base::EqualFunctor<uint32_t>(type)));
 }
 
 bool TypesHolder::Equals(TypesHolder const & other) const
@@ -89,6 +92,7 @@ public:
       { "internet_access" },
       { "wheelchair" },
       { "sponsored" },
+      { "entrance" },
     };
 
     AddTypes(arr1);
@@ -170,13 +174,13 @@ void TypesHolder::SortBySpec()
 
   // Put "very common" types to the end of possible PP-description types.
   static UselessTypesChecker checker;
-  (void) RemoveIfKeepValid(m_types, m_types + m_size, bind<bool>(cref(checker), _1));
+  UNUSED_VALUE(base::RemoveIfKeepValid(begin(), end(), [](uint32_t t) { return checker(t); }));
 }
 
 vector<string> TypesHolder::ToObjectNames() const
 {
   vector<string> result;
-  for (auto type : *this)
+  for (auto const type : *this)
     result.push_back(classif().GetReadableObjectName(type));
   return result;
 }
@@ -225,7 +229,7 @@ namespace
 {
 
 // Most used dummy values are taken from
-// http://taginfo.openstreetmap.org/keys/addr%3Ahousename#values
+// https://taginfo.openstreetmap.org/keys/addr%3Ahousename#values
 bool IsDummyName(string const & s)
 {
   return (s.empty() ||
@@ -421,13 +425,13 @@ void FeatureParams::SetRwSubwayType(char const * cityName)
   static uint32_t const src = c.GetTypeByPath({"railway", "station"});
   uint32_t const dest = c.GetTypeByPath({"railway", "station", "subway", cityName});
 
-  for (size_t i = 0; i < m_Types.size(); ++i)
+  for (size_t i = 0; i < m_types.size(); ++i)
   {
-    uint32_t t = m_Types[i];
+    uint32_t t = m_types[i];
     ftype::TruncValue(t, 2);
     if (t == src)
     {
-      m_Types[i] = dest;
+      m_types[i] = dest;
       break;
     }
   }
@@ -437,16 +441,16 @@ void FeatureParams::AddTypes(FeatureParams const & rhs, uint32_t skipType2)
 {
   if (skipType2 == 0)
   {
-    m_Types.insert(m_Types.end(), rhs.m_Types.begin(), rhs.m_Types.end());
+    m_types.insert(m_types.end(), rhs.m_types.begin(), rhs.m_types.end());
   }
   else
   {
-    for (size_t i = 0; i < rhs.m_Types.size(); ++i)
+    for (size_t i = 0; i < rhs.m_types.size(); ++i)
     {
-      uint32_t t = rhs.m_Types[i];
+      uint32_t t = rhs.m_types[i];
       ftype::TruncValue(t, 2);
       if (t != skipType2)
-        m_Types.push_back(rhs.m_Types[i]);
+        m_types.push_back(rhs.m_types[i]);
     }
   }
 }
@@ -456,34 +460,34 @@ bool FeatureParams::FinishAddingTypes()
   static uint32_t const boundary = classif().GetTypeByPath({ "boundary", "administrative" });
 
   vector<uint32_t> newTypes;
-  newTypes.reserve(m_Types.size());
+  newTypes.reserve(m_types.size());
 
-  for (size_t i = 0; i < m_Types.size(); ++i)
+  for (size_t i = 0; i < m_types.size(); ++i)
   {
-    uint32_t candidate = m_Types[i];
+    uint32_t candidate = m_types[i];
 
     // Assume that classificator types are equal if they are equal for 2-arity dimension
     // (e.g. "place-city-capital" is equal to "place-city" and we leave the longest one "place-city-capital").
     // The only exception is "boundary-administrative" type.
 
-    uint32_t type = m_Types[i];
+    uint32_t type = m_types[i];
     ftype::TruncValue(type, 2);
     if (type != boundary)
     {
       // Find all equal types (2-arity).
-      auto j = RemoveIfKeepValid(m_Types.begin() + i + 1, m_Types.end(), [type] (uint32_t t)
+      auto j = base::RemoveIfKeepValid(m_types.begin() + i + 1, m_types.end(), [type] (uint32_t t)
       {
         ftype::TruncValue(t, 2);
         return (type == t);
       });
 
       // Choose the best type from equals by arity level.
-      for (auto k = j; k != m_Types.end(); ++k)
+      for (auto k = j; k != m_types.end(); ++k)
         if (ftype::GetLevel(*k) > ftype::GetLevel(candidate))
           candidate = *k;
 
       // Delete equal types.
-      m_Types.erase(j, m_Types.end());
+      m_types.erase(j, m_types.end());
     }
 
     newTypes.push_back(candidate);
@@ -493,49 +497,49 @@ bool FeatureParams::FinishAddingTypes()
   sort(newTypes.begin(), newTypes.end());
   newTypes.erase(unique(newTypes.begin(), newTypes.end()), newTypes.end());
 
-  m_Types.swap(newTypes);
+  m_types.swap(newTypes);
 
-  if (m_Types.size() > kMaxTypesCount)
-    m_Types.resize(kMaxTypesCount);
+  if (m_types.size() > kMaxTypesCount)
+    m_types.resize(kMaxTypesCount);
 
   // Patch fix that removes house number from localities.
-  if (!house.IsEmpty() && ftypes::IsLocalityChecker::Instance()(m_Types))
+  if (!house.IsEmpty() && ftypes::IsLocalityChecker::Instance()(m_types))
   {
-    LOG(LWARNING, ("Locality with house number", *this));
+    LOG(LINFO, ("Locality with house number", *this));
     house.Clear();
   }
 
-  return !m_Types.empty();
+  return !m_types.empty();
 }
 
 void FeatureParams::SetType(uint32_t t)
 {
-  m_Types.clear();
-  m_Types.push_back(t);
+  m_types.clear();
+  m_types.push_back(t);
 }
 
 bool FeatureParams::PopAnyType(uint32_t & t)
 {
-  CHECK(!m_Types.empty(), ());
-  t = m_Types.back();
-  m_Types.pop_back();
-  return m_Types.empty();
+  CHECK(!m_types.empty(), ());
+  t = m_types.back();
+  m_types.pop_back();
+  return m_types.empty();
 }
 
 bool FeatureParams::PopExactType(uint32_t t)
 {
-  m_Types.erase(remove(m_Types.begin(), m_Types.end(), t), m_Types.end());
-  return m_Types.empty();
+  m_types.erase(remove(m_types.begin(), m_types.end(), t), m_types.end());
+  return m_types.empty();
 }
 
 bool FeatureParams::IsTypeExist(uint32_t t) const
 {
-  return (find(m_Types.begin(), m_Types.end(), t) != m_Types.end());
+  return (find(m_types.begin(), m_types.end(), t) != m_types.end());
 }
 
 uint32_t FeatureParams::FindType(uint32_t comp, uint8_t level) const
 {
-  for (uint32_t const type : m_Types)
+  for (uint32_t const type : m_types)
   {
     uint32_t t = type;
     ftype::TruncValue(t, level);
@@ -547,7 +551,7 @@ uint32_t FeatureParams::FindType(uint32_t comp, uint8_t level) const
 
 bool FeatureParams::CheckValid() const
 {
-  CHECK(!m_Types.empty() && m_Types.size() <= kMaxTypesCount, ());
+  CHECK(!m_types.empty() && m_types.size() <= kMaxTypesCount, ());
   CHECK_NOT_EQUAL(m_geomType, 0xFF, ());
 
   return FeatureParamsBase::CheckValid();
@@ -555,7 +559,7 @@ bool FeatureParams::CheckValid() const
 
 uint8_t FeatureParams::GetHeader() const
 {
-  return CalculateHeader(m_Types.size(), GetTypeMask(), *this);
+  return CalculateHeader(m_types.size(), GetTypeMask(), *this);
 }
 
 uint32_t FeatureParams::GetIndexForType(uint32_t t)
@@ -573,8 +577,8 @@ string DebugPrint(FeatureParams const & p)
   Classificator const & c = classif();
 
   string res = "Types: ";
-  for (size_t i = 0; i < p.m_Types.size(); ++i)
-    res = res + c.GetReadableObjectName(p.m_Types[i]) + "; ";
+  for (size_t i = 0; i < p.m_types.size(); ++i)
+    res = res + c.GetReadableObjectName(p.m_types[i]) + "; ";
 
   return (res + p.DebugString());
 }

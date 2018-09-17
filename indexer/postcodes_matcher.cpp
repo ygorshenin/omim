@@ -5,15 +5,18 @@
 
 #include "base/logging.hpp"
 #include "base/macros.hpp"
-#include "base/stl_add.hpp"
+#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
-#include "std/algorithm.hpp"
-#include "std/transform_iterator.hpp"
-#include "std/unique_ptr.hpp"
-#include "std/utility.hpp"
-#include "std/vector.hpp"
+#include <algorithm>
+#include <memory>
+#include <utility>
+#include <vector>
 
+#include <boost/iterator/transform_iterator.hpp>
+
+using boost::make_transform_iterator;
+using namespace std;
 using namespace strings;
 
 namespace search
@@ -64,6 +67,7 @@ public:
     case TStringSet::Status::Prefix: return isPrefix;
     case TStringSet::Status::Full: return true;
     }
+    CHECK_SWITCH();
   }
 
   inline size_t GetMaxNumTokensInPostcode() const { return m_maxNumTokensInPostcode; }
@@ -72,7 +76,7 @@ private:
   void AddString(UniString const & s, search::Delimiters & delimiters)
   {
     vector<UniString> tokens;
-    SplitUniString(s, MakeBackInsertFunctor(tokens), delimiters);
+    SplitUniString(s, base::MakeBackInsertFunctor(tokens), delimiters);
     StringSlice slice(tokens);
 
     m_maxNumTokensInPostcode = max(m_maxNumTokensInPostcode, tokens.size());

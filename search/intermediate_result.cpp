@@ -1,6 +1,6 @@
-#include "intermediate_result.hpp"
-#include "geometry_utils.hpp"
-#include "reverse_geocoder.hpp"
+#include "search/intermediate_result.hpp"
+#include "search/geometry_utils.hpp"
+#include "search/reverse_geocoder.hpp"
 
 #include "storage/country_info_getter.hpp"
 
@@ -19,16 +19,18 @@
 #include "base/string_utils.hpp"
 #include "base/logging.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 
 #include "3party/opening_hours/opening_hours.hpp"
 
+using namespace std;
+
 namespace search
 {
 namespace
 {
-char const * const kEmptyRatingSymbol = "-";
 char const * const kPricingSymbol = "$";
 
 class SkipRegionInfo
@@ -70,10 +72,12 @@ PreRankerResult::PreRankerResult(FeatureID const & id, PreRankingInfo const & in
 }
 
 // static
-bool PreRankerResult::LessRank(PreRankerResult const & r1, PreRankerResult const & r2)
+bool PreRankerResult::LessRankAndPopularity(PreRankerResult const & r1, PreRankerResult const & r2)
 {
   if (r1.m_info.m_rank != r2.m_info.m_rank)
     return r1.m_info.m_rank > r2.m_info.m_rank;
+  if (r1.m_info.m_popularity != r2.m_info.m_popularity)
+    return r1.m_info.m_popularity > r2.m_info.m_popularity;
   return r1.m_info.m_distanceToPivot < r2.m_info.m_distanceToPivot;
 }
 
@@ -85,10 +89,27 @@ bool PreRankerResult::LessDistance(PreRankerResult const & r1, PreRankerResult c
   return r1.m_info.m_rank > r2.m_info.m_rank;
 }
 
+bool PreRankerResult::CategoriesComparator::operator()(PreRankerResult const & lhs,
+                                                       PreRankerResult const & rhs) const
+{
+  if (m_positionIsInsideViewport)
+    return lhs.GetDistance() < rhs.GetDistance();
+
+  if (m_detailedScale)
+  {
+    bool const lhsInside = m_viewport.IsPointInside(lhs.GetInfo().m_center);
+    bool const rhsInside = m_viewport.IsPointInside(rhs.GetInfo().m_center);
+    if (lhsInside && !rhsInside)
+      return true;
+    if (rhsInside && !lhsInside)
+      return false;
+  }
+  return lhs.GetPopularity() > rhs.GetPopularity();
+}
+
 // RankerResult ------------------------------------------------------------------------------------
-RankerResult::RankerResult(FeatureType const & f, m2::PointD const & center,
-                           m2::PointD const & pivot, string const & displayName,
-                           string const & fileName)
+RankerResult::RankerResult(FeatureType & f, m2::PointD const & center, m2::PointD const & pivot,
+                           string const & displayName, string const & fileName)
   : m_id(f.GetID())
   , m_types(f)
   , m_str(displayName)
@@ -131,22 +152,19 @@ bool RankerResult::IsStreet() const
   return m_geomType == feature::GEOM_LINE && ftypes::IsStreetChecker::Instance()(m_types);
 }
 
-uint32_t RankerResult::GetBestType(set<uint32_t> const * pPrefferedTypes) const
+uint32_t RankerResult::GetBestType(vector<uint32_t> const & preferredTypes) const
 {
-  if (pPrefferedTypes)
+  ASSERT(is_sorted(preferredTypes.begin(), preferredTypes.end()), ());
+  if (!preferredTypes.empty())
   {
     for (uint32_t type : m_types)
     {
-      if (pPrefferedTypes->count(type) > 0)
+      if (binary_search(preferredTypes.begin(), preferredTypes.end(), type))
         return type;
     }
   }
 
-  // Do type truncate (2-level is enough for search results) only for
-  // non-preffered types (types from categories leave original).
-  uint32_t type = m_types.GetBestType();
-  ftype::TruncValue(type, 2);
-  return type;
+  return m_types.GetBestType();
 }
 
 // RankerResult::RegionInfo ------------------------------------------------------------------------
@@ -170,7 +188,7 @@ bool RankerResult::RegionInfo::GetCountryId(storage::CountryInfoGetter const & i
 }
 
 // Functions ---------------------------------------------------------------------------------------
-void ProcessMetadata(FeatureType const & ft, Result::Metadata & meta)
+void ProcessMetadata(FeatureType & ft, Result::Metadata & meta)
 {
   if (meta.m_isInitialized)
     return;
@@ -202,8 +220,13 @@ void ProcessMetadata(FeatureType const & ft, Result::Metadata & meta)
   if (isSponsoredHotel)
   {
     auto const r = src.Get(feature::Metadata::FMD_RATING);
-    char const * const rating = r.empty() ? kEmptyRatingSymbol : r.c_str();
-    meta.m_hotelRating = rating;
+    if (!r.empty())
+    {
+      float raw;
+      if (strings::to_float(r.c_str(), raw))
+        meta.m_hotelRating = raw;
+    }
+
 
     int pricing;
     if (!strings::to_int(src.Get(feature::Metadata::FMD_PRICE_RATE), pricing))
@@ -213,6 +236,7 @@ void ProcessMetadata(FeatureType const & ft, Result::Metadata & meta)
     for (auto i = 0; i < pricing; i++)
       pricingStr.append(kPricingSymbol);
 
+    meta.m_hotelPricing = pricing;
     meta.m_hotelApproximatePricing = pricingStr;
   }
 

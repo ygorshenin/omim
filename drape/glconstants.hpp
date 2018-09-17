@@ -89,8 +89,8 @@ extern const glConst GLWrapS;
 extern const glConst GLWrapT;
 
 /// Texture Wrap Modes
-extern const glConst GLRepeate;
-extern const glConst GLMirroredRepeate;
+extern const glConst GLRepeat;
+extern const glConst GLMirroredRepeat;
 extern const glConst GLClampToEdge;
 
 /// Texture Filter Modes
@@ -117,6 +117,8 @@ extern const glConst GLIntVec4;
 
 extern const glConst GLFloatMat4;
 
+extern const glConst GLSampler2D;
+
 /// Blend Functions
 extern const glConst GLAddBlend;
 extern const glConst GLSubstractBlend;
@@ -129,10 +131,10 @@ extern const glConst GLSrcColor;
 extern const glConst GLOneMinusSrcColor;
 extern const glConst GLDstColor;
 extern const glConst GLOneMinusDstColor;
-extern const glConst GLSrcAlfa;
-extern const glConst GLOneMinusSrcAlfa;
-extern const glConst GLDstAlfa;
-extern const glConst GLOneMinusDstAlfa;
+extern const glConst GLSrcAlpha;
+extern const glConst GLOneMinusSrcAlpha;
+extern const glConst GLDstAlpha;
+extern const glConst GLOneMinusDstAlpha;
 
 /// OpenGL states
 extern const glConst GLDepthTest;

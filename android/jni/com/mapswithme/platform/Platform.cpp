@@ -3,14 +3,17 @@
 
 #include "com/mapswithme/core/jni_helper.hpp"
 
+#include "com/mapswithme/util/NetworkPolicy.hpp"
+
+#include "platform/network_policy.hpp"
 #include "platform/settings.hpp"
 
 #include "base/logging.hpp"
 #include "base/macros.hpp"
-#include "base/stl_add.hpp"
 #include "base/string_utils.hpp"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include <sys/system_properties.h>
@@ -23,6 +26,16 @@ std::string Platform::UniqueClientId() const
   static jstring const installationId = (jstring)env->CallStaticObjectMethod(g_utilsClazz, getInstallationId);
   static std::string const result = jni::ToNativeString(env, installationId);
   return result;
+}
+
+string Platform::MacAddress(bool md5Decoded) const
+{
+  JNIEnv * env = jni::GetEnv();
+  static jmethodID const getMacAddressMethod = jni::GetStaticMethodID(env, g_utilsClazz, "getMacAddress",
+                                                                      "(Z)Ljava/lang/String;");
+  jstring const macAddr = static_cast<jstring>(env->CallStaticObjectMethod(g_utilsClazz, getMacAddressMethod,
+                                                                           static_cast<jboolean>(md5Decoded)));
+  return jni::ToNativeString(env, macAddr);
 }
 
 std::string Platform::GetMemoryInfo() const
@@ -39,6 +52,26 @@ std::string Platform::GetMemoryInfo() const
   ASSERT(memInfoString, ());
 
   return jni::ToNativeString(env, memInfoString);
+}
+
+std::string Platform::DeviceName() const
+{
+  JNIEnv * env = jni::GetEnv();
+  static jmethodID const getDeviceNameId = jni::GetStaticMethodID(env, g_utilsClazz, "getDeviceName",
+                                                                  "()Ljava/lang/String;");
+  auto const deviceName = static_cast<jstring>(env->CallStaticObjectMethod(g_utilsClazz,
+                                                                           getDeviceNameId));
+  return jni::ToNativeString(env, deviceName);
+}
+
+std::string Platform::DeviceModel() const
+{
+  JNIEnv * env = jni::GetEnv();
+  static jmethodID const getDeviceModelId = jni::GetStaticMethodID(env, g_utilsClazz, "getDeviceModel",
+                                                                  "()Ljava/lang/String;");
+  auto const deviceModel = static_cast<jstring>(env->CallStaticObjectMethod(g_utilsClazz,
+                                                                            getDeviceModelId));
+  return jni::ToNativeString(env, deviceModel);
 }
 
 void Platform::RunOnGuiThread(base::TaskLoop::Task && task)
@@ -85,23 +118,44 @@ void Platform::SetGuiThread(unique_ptr<base::TaskLoop> guiThread)
   android::Platform::Instance().SetGuiThread(move(guiThread));
 }
 
+namespace platform
+{
+platform::NetworkPolicy GetCurrentNetworkPolicy()
+{
+  JNIEnv *env = jni::GetEnv();
+  return platform::NetworkPolicy(network_policy::GetCurrentNetworkUsageStatus(env));
+}
+}
+
 namespace android
 {
-void Platform::Initialize(JNIEnv * env,
-                          jobject functorProcessObject,
-                          jstring apkPath, jstring storagePath,
-                          jstring tmpPath, jstring obbGooglePath,
-                          jstring flavorName, jstring buildType,
+Platform::Platform()
+{
+  auto env = jni::GetEnv();
+  static auto const getSettingsPathId =
+      jni::GetStaticMethodID(env, g_storageUtilsClazz, "getSettingsPath", "()Ljava/lang/String;");
+
+  auto const settingsDir =
+      static_cast<jstring>(env->CallStaticObjectMethod(g_storageUtilsClazz, getSettingsPathId));
+
+  SetSettingsDir(jni::ToNativeString(env, settingsDir));
+}
+
+void Platform::Initialize(JNIEnv * env, jobject functorProcessObject, jstring apkPath,
+                          jstring storagePath, jstring privatePath, jstring tmpPath,
+                          jstring obbGooglePath, jstring flavorName, jstring buildType,
                           bool isTablet)
 {
   m_functorProcessObject = env->NewGlobalRef(functorProcessObject);
   jclass const functorProcessClass = env->GetObjectClass(functorProcessObject);
-  m_sendPushWooshTagsMethod = env->GetMethodID(functorProcessClass, "sendPushWooshTags", "(Ljava/lang/String;[Ljava/lang/String;)V");
-  m_myTrackerTrackMethod = env->GetStaticMethodID(g_myTrackerClazz, "trackEvent", "(Ljava/lang/String;)V");
+  m_sendPushWooshTagsMethod = env->GetMethodID(functorProcessClass, "sendPushWooshTags",
+      "(Ljava/lang/String;[Ljava/lang/String;)V");
+  m_sendAppsFlyerTagsMethod = env->GetMethodID(functorProcessClass, "sendAppsFlyerTags",
+      "(Ljava/lang/String;[Lcom/mapswithme/util/KeyValue;)V");
+  m_myTrackerTrackMethod = env->GetStaticMethodID(g_myTrackerClazz, "trackEvent",
+      "(Ljava/lang/String;)Z");
 
-  m_secureStorage.Init();
-
-  m_guiThread = my::make_unique<GuiThread>(m_functorProcessObject);
+  m_guiThread = std::make_unique<GuiThread>(m_functorProcessObject);
 
   std::string const flavor = jni::ToNativeString(env, flavorName);
   std::string const build = jni::ToNativeString(env, buildType);
@@ -119,6 +173,7 @@ void Platform::Initialize(JNIEnv * env,
 
   m_isTablet = isTablet;
   m_resourcesDir = jni::ToNativeString(env, apkPath);
+  m_privateDir = jni::ToNativeString(env, privatePath);
   m_tmpDir = jni::ToNativeString(env, tmpPath);
   m_writableDir = jni::ToNativeString(env, storagePath);
 
@@ -200,7 +255,8 @@ void Platform::SendPushWooshTag(std::string const & tag, std::vector<std::string
                       jni::TScopedLocalObjectArrayRef(env, jni::ToJavaStringArray(env, values)).get());
 }
 
-void Platform::SendMarketingEvent(std::string const & tag, std::map<std::string, std::string> const & params)
+void Platform::SendMarketingEvent(std::string const & tag,
+                                  std::map<std::string, std::string> const & params)
 {
   ASSERT(m_myTrackerTrackMethod, ());
 
@@ -209,8 +265,14 @@ void Platform::SendMarketingEvent(std::string const & tag, std::map<std::string,
   for (auto const & item : params)
     eventData.append("_" + item.first + "_" + item.second);
 
-  env->CallStaticVoidMethod(g_myTrackerClazz, m_myTrackerTrackMethod,
-                            jni::TScopedLocalRef(env, jni::ToJavaString(env, eventData)).get());
+  env->CallStaticBooleanMethod(g_myTrackerClazz, m_myTrackerTrackMethod,
+                               jni::TScopedLocalRef(env, jni::ToJavaString(env, eventData)).get());
+
+  ASSERT(m_functorProcessObject, ());
+  ASSERT(m_sendAppsFlyerTagsMethod, ());
+  env->CallVoidMethod(m_functorProcessObject, m_sendAppsFlyerTagsMethod,
+                      jni::TScopedLocalRef(env, jni::ToJavaString(env, tag)).get(),
+                      jni::TScopedLocalObjectArrayRef(env, jni::ToKeyValueArray(env, params)).get());
 }
 
 void Platform::SetGuiThread(unique_ptr<base::TaskLoop> guiThread)
@@ -218,10 +280,9 @@ void Platform::SetGuiThread(unique_ptr<base::TaskLoop> guiThread)
   m_guiThread = std::move(guiThread);
 }
 
-void Platform::AndroidSecureStorage::Init()
+void Platform::AndroidSecureStorage::Init(JNIEnv * env)
 {
-  JNIEnv * env = jni::GetEnv();
-  if (env == nullptr)
+  if (m_secureStorageClass != nullptr)
     return;
 
   m_secureStorageClass = jni::GetGlobalClassRef(env, "com/mapswithme/util/SecureStorage");
@@ -233,6 +294,8 @@ void Platform::AndroidSecureStorage::Save(std::string const & key, std::string c
   JNIEnv * env = jni::GetEnv();
   if (env == nullptr)
     return;
+
+  Init(env);
 
   static jmethodID const saveMethodId =
     jni::GetStaticMethodID(env, m_secureStorageClass, "save", "(Ljava/lang/String;Ljava/lang/String;)V");
@@ -247,6 +310,8 @@ bool Platform::AndroidSecureStorage::Load(std::string const & key, std::string &
   JNIEnv * env = jni::GetEnv();
   if (env == nullptr)
     return false;
+
+  Init(env);
 
   static jmethodID const loadMethodId =
     jni::GetStaticMethodID(env, m_secureStorageClass, "load", "(Ljava/lang/String;)Ljava/lang/String;");
@@ -265,6 +330,8 @@ void Platform::AndroidSecureStorage::Remove(std::string const & key)
   JNIEnv * env = jni::GetEnv();
   if (env == nullptr)
     return;
+
+  Init(env);
 
   static jmethodID const removeMethodId =
     jni::GetStaticMethodID(env, m_secureStorageClass, "remove", "(Ljava/lang/String;)V");

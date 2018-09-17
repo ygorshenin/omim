@@ -2,7 +2,7 @@
 #include "indexer/feature.hpp"
 
 #include "geometry/algorithm.hpp"
-#include "geometry/distance.hpp"
+#include "geometry/parametrized_segment.hpp"
 #include "geometry/triangle2d.hpp"
 
 #include "base/logging.hpp"
@@ -13,7 +13,7 @@ namespace feature
 /// @returns point on a feature that is the closest to f.GetLimitRect().Center().
 /// It is used by many ednities in the core of mapsme. Do not modify it's
 /// logic if you really-really know what you are doing.
-m2::PointD GetCenter(FeatureType const & f, int scale)
+m2::PointD GetCenter(FeatureType & f, int scale)
 {
   EGeomType const type = f.GetFeatureType();
   switch (type)
@@ -38,12 +38,9 @@ m2::PointD GetCenter(FeatureType const & f, int scale)
   }
 }
 
-m2::PointD GetCenter(FeatureType const & f)
-{
-  return GetCenter(f, FeatureType::BEST_GEOMETRY);
-}
+m2::PointD GetCenter(FeatureType & f) { return GetCenter(f, FeatureType::BEST_GEOMETRY); }
 
-double GetMinDistanceMeters(FeatureType const & ft, m2::PointD const & pt, int scale)
+double GetMinDistanceMeters(FeatureType & ft, m2::PointD const & pt, int scale)
 {
   double res = numeric_limits<double>::max();
   auto updateDistanceFn = [&] (m2::PointD const & p)
@@ -66,9 +63,8 @@ double GetMinDistanceMeters(FeatureType const & ft, m2::PointD const & pt, int s
     size_t const count = ft.GetPointsCount();
     for (size_t i = 1; i < count; ++i)
     {
-      m2::ProjectionToSection<m2::PointD> calc;
-      calc.SetBounds(ft.GetPoint(i - 1), ft.GetPoint(i));
-      updateDistanceFn(calc(pt));
+      m2::ParametrizedSegment<m2::PointD> segment(ft.GetPoint(i - 1), ft.GetPoint(i));
+      updateDistanceFn(segment.ClosestPointTo(pt));
     }
     break;
   }
@@ -86,11 +82,9 @@ double GetMinDistanceMeters(FeatureType const & ft, m2::PointD const & pt, int s
         return;
       }
 
-      auto fn = [&](m2::PointD const & x1, m2::PointD const & x2)
-      {
-        m2::ProjectionToSection<m2::PointD> calc;
-        calc.SetBounds(x1, x2);
-        updateDistanceFn(calc(pt));
+      auto fn = [&](m2::PointD const & x1, m2::PointD const & x2) {
+        m2::ParametrizedSegment<m2::PointD> const segment(x1, x2);
+        updateDistanceFn(segment.ClosestPointTo(pt));
       };
 
       fn(p1, p2);
@@ -104,7 +98,7 @@ double GetMinDistanceMeters(FeatureType const & ft, m2::PointD const & pt, int s
   return res;
 }
 
-double GetMinDistanceMeters(FeatureType const & ft, m2::PointD const & pt)
+double GetMinDistanceMeters(FeatureType & ft, m2::PointD const & pt)
 {
   return GetMinDistanceMeters(ft, pt, FeatureType::BEST_GEOMETRY);
 }

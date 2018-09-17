@@ -1,4 +1,5 @@
 #include "generator/booking_dataset.hpp"
+#include "generator/emitter_booking.hpp"
 #include "generator/feature_builder.hpp"
 #include "generator/opentable_dataset.hpp"
 #include "generator/osm_source.hpp"
@@ -10,8 +11,9 @@
 
 #include "coding/file_name_utils.hpp"
 
-#include "base/osm_id.hpp"
-#include "base/stl_add.hpp"
+#include "base/exception.hpp"
+#include "base/geo_object_id.hpp"
+#include "base/stl_helpers.hpp"
 #include "base/string_utils.hpp"
 
 #include <cstdlib>
@@ -26,7 +28,6 @@
 
 #include "boost/range/adaptor/map.hpp"
 #include "boost/range/algorithm/copy.hpp"
-
 
 using namespace std;
 
@@ -81,7 +82,7 @@ string PrintBuilder(FeatureBuilder1 const & fb)
 
 DECLARE_EXCEPTION(ParseError, RootException);
 
-osm::Id ReadDebuggedPrintedOsmId(string const & str)
+base::GeoObjectId ReadDebuggedPrintedOsmId(string const & str)
 {
   istringstream sstr(str);
   string type;
@@ -91,48 +92,15 @@ osm::Id ReadDebuggedPrintedOsmId(string const & str)
   if (sstr.fail())
     MYTHROW(ParseError, ("Can't make osmId from string", str));
 
-  if (type == "relation")
-    return osm::Id::Relation(id);
-  if (type == "way")
-    return osm::Id::Way(id);
   if (type == "node")
-    return osm::Id::Node(id);
+    return base::MakeOsmNode(id);
+  if (type == "way")
+    return base::MakeOsmWay(id);
+  if (type == "relation")
+    return base::MakeOsmRelation(id);
 
   MYTHROW(ParseError, ("Can't make osmId from string", str));
 }
-
-template <typename Dataset>
-class Emitter : public EmitterBase
-{
-public:
-  Emitter(Dataset const & dataset, map<osm::Id, FeatureBuilder1> & features)
-    : m_dataset(dataset)
-    , m_features(features)
-  {
-    LOG_SHORT(LINFO, ("OSM data:", FLAGS_osm));
-  }
-
-  void operator()(FeatureBuilder1 & fb) override
-  {
-    if (m_dataset.NecessaryMatchingConditionHolds(fb))
-      m_features.emplace(fb.GetMostGenericOsmId(), fb);
-  }
-
-  void GetNames(vector<string> & names) const override
-  {
-    names.clear();
-  }
-
-  bool Finish() override
-  {
-    LOG_SHORT(LINFO, ("Num of tourism elements:", m_features.size()));
-    return true;
-  }
-
-private:
-  Dataset const & m_dataset;
-  map<osm::Id, FeatureBuilder1> & m_features;
-};
 
 feature::GenerateInfo GetGenerateInfo()
 {
@@ -158,14 +126,13 @@ struct SampleItem
 
   SampleItem() = default;
 
-  SampleItem(osm::Id const & osmId, ObjectId const sponsoredId, MatchStatus const match = Uninitialized)
-   : m_osmId(osmId)
-   , m_sponsoredId(sponsoredId)
-   , m_match(match)
+  SampleItem(base::GeoObjectId const & osmId, ObjectId const sponsoredId,
+             MatchStatus match = Uninitialized)
+    : m_osmId(osmId), m_sponsoredId(sponsoredId), m_match(match)
   {
   }
 
-  osm::Id m_osmId;
+  base::GeoObjectId m_osmId;
   ObjectId m_sponsoredId = Object::InvalidObjectId();
 
   MatchStatus m_match = Uninitialized;
@@ -235,7 +202,7 @@ vector<SampleItem<Object>> ReadSampleFromFile(string const & name)
 
 template <typename Dataset, typename Object = typename Dataset::Object>
 void GenerateFactors(Dataset const & dataset,
-                     map<osm::Id, FeatureBuilder1> const & features,
+                     map<base::GeoObjectId, FeatureBuilder1> const & features,
                      vector<SampleItem<Object>> const & sampleItems, ostream & ost)
 {
   for (auto const & item : sampleItems)
@@ -274,11 +241,10 @@ enum class DatasetType
 
 template <typename Dataset, typename Object = typename Dataset::Object>
 void GenerateSample(Dataset const & dataset,
-                    map<osm::Id, FeatureBuilder1> const & features,
-                    ostream & ost)
+                    map<base::GeoObjectId, FeatureBuilder1> const & features, ostream & ost)
 {
   LOG_SHORT(LINFO, ("Num of elements:", features.size()));
-  vector<osm::Id> elementIndexes(features.size());
+  vector<base::GeoObjectId> elementIndexes(features.size());
   boost::copy(features | boost::adaptors::map_keys, begin(elementIndexes));
 
   // TODO(mgsergio): Try RandomSample (from search:: at the moment of writing).
@@ -357,11 +323,10 @@ void RunImpl(feature::GenerateInfo & info)
   Dataset dataset(dataSetFilePath);
   LOG_SHORT(LINFO, (dataset.GetStorage().Size(), "objects are loaded from a file:", dataSetFilePath));
 
-  map<osm::Id, FeatureBuilder1> features;
-  GenerateFeatures(info, [&dataset, &features](feature::GenerateInfo const & /* info */)
-  {
-    return my::make_unique<Emitter<Dataset>>(dataset, features);
-  });
+  map<base::GeoObjectId, FeatureBuilder1> features;
+  LOG_SHORT(LINFO, ("OSM data:", FLAGS_osm));
+  auto emitter = make_shared<EmitterBooking<Dataset>>(dataset, features);
+  GenerateFeatures(info, emitter);
 
   if (FLAGS_generate)
   {

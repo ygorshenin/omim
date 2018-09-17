@@ -9,6 +9,9 @@
 #include "search/token_slice.hpp"
 #include "search/utils.hpp"
 
+#include "editor/editable_data_source.hpp"
+
+#include "indexer/data_source.hpp"
 #include "indexer/feature_algo.hpp"
 #include "indexer/search_string_utils.hpp"
 
@@ -51,7 +54,7 @@ void UpdateNameScores(vector<strings::UniString> const & tokens, TSlice const & 
   bestScores.m_errorsMade = ErrorsMade::Min(bestScores.m_errorsMade, GetErrorsMade(tokens, slice));
 }
 
-NameScores GetNameScores(FeatureType const & ft, Geocoder::Params const & params,
+NameScores GetNameScores(FeatureType & ft, Geocoder::Params const & params,
                          TokenRange const & range, Model::Type type)
 {
   NameScores bestScores;
@@ -59,7 +62,7 @@ NameScores GetNameScores(FeatureType const & ft, Geocoder::Params const & params
   TokenSlice slice(params, range);
   TokenSliceNoCategories sliceNoCategories(params, range);
 
-  for (auto const & lang : params.GetLangs())
+  for (auto const lang : params.GetLangs())
   {
     string name;
     if (!ft.GetName(lang, name))
@@ -77,7 +80,7 @@ NameScores GetNameScores(FeatureType const & ft, Geocoder::Params const & params
   return bestScores;
 }
 
-ErrorsMade GetErrorsMade(FeatureType const & ft, Geocoder::Params const & params,
+ErrorsMade GetErrorsMade(FeatureType & ft, Geocoder::Params const & params,
                          TokenRange const & range, Model::Type type)
 {
   auto errorsMade = GetNameScores(ft, params, range, type).m_errorsMade;
@@ -143,6 +146,7 @@ ftypes::Type GetLocalityIndex(feature::TypesHolder const & types)
   case VILLAGE: return NONE;
   case LOCALITY_COUNT: return type;
   }
+  CHECK_SWITCH();
 }
 
 // TODO: Format street and house number according to local country's rules.
@@ -208,16 +212,16 @@ private:
 class RankerResultMaker
 {
   Ranker & m_ranker;
-  Index const & m_index;
+  DataSource const & m_dataSource;
   Geocoder::Params const & m_params;
   storage::CountryInfoGetter const & m_infoGetter;
 
-  unique_ptr<Index::FeaturesLoaderGuard> m_loader;
+  unique_ptr<FeaturesLoaderGuard> m_loader;
 
   bool LoadFeature(FeatureID const & id, FeatureType & ft)
   {
     if (!m_loader || m_loader->GetId() != id.m_mwmId)
-      m_loader = make_unique<Index::FeaturesLoaderGuard>(m_index, id.m_mwmId);
+      m_loader = make_unique<FeaturesLoaderGuard>(m_dataSource, id.m_mwmId);
     if (!m_loader->GetFeatureByIndex(id.m_index, ft))
       return false;
 
@@ -246,8 +250,8 @@ class RankerResultMaker
     return true;
   }
 
-  void InitRankingInfo(FeatureType const & ft, m2::PointD const & center,
-                       PreRankerResult const & res, search::RankingInfo & info)
+  void InitRankingInfo(FeatureType & ft, m2::PointD const & center, PreRankerResult const & res,
+                       search::RankingInfo & info)
   {
     auto const & preInfo = res.GetInfo();
 
@@ -255,6 +259,7 @@ class RankerResultMaker
 
     info.m_distanceToPivot = MercatorBounds::DistanceOnEarth(center, pivot);
     info.m_rank = preInfo.m_rank;
+    info.m_popularity = preInfo.m_popularity;
     info.m_type = preInfo.m_type;
     info.m_allTokensUsed = preInfo.m_allTokensUsed;
 
@@ -323,15 +328,14 @@ class RankerResultMaker
     case Model::TYPE_COUNTRY:
       return rank /= 1.5;
 
-    // For all other search types, rank should be zero for now.
-    default: return 0;
+    default: return rank;
     }
   }
 
 public:
-  RankerResultMaker(Ranker & ranker, Index const & index,
+  RankerResultMaker(Ranker & ranker, DataSource const & dataSource,
                     storage::CountryInfoGetter const & infoGetter, Geocoder::Params const & params)
-    : m_ranker(ranker), m_index(index), m_params(params), m_infoGetter(infoGetter)
+    : m_ranker(ranker), m_dataSource(dataSource), m_params(params), m_infoGetter(infoGetter)
   {
   }
 
@@ -356,16 +360,16 @@ public:
   }
 };
 
-Ranker::Ranker(Index const & index, CitiesBoundariesTable const & boundariesTable,
+Ranker::Ranker(DataSource const & dataSource, CitiesBoundariesTable const & boundariesTable,
                storage::CountryInfoGetter const & infoGetter, KeywordLangMatcher & keywordsScorer,
                Emitter & emitter, CategoriesHolder const & categories,
                vector<Suggest> const & suggests, VillagesCache & villagesCache,
-               my::Cancellable const & cancellable)
-  : m_reverseGeocoder(index)
+               base::Cancellable const & cancellable)
+  : m_reverseGeocoder(dataSource)
   , m_cancellable(cancellable)
   , m_keywordsScorer(keywordsScorer)
-  , m_localities(index, boundariesTable, villagesCache)
-  , m_index(index)
+  , m_localities(dataSource, boundariesTable, villagesCache)
+  , m_dataSource(dataSource)
   , m_infoGetter(infoGetter)
   , m_emitter(emitter)
   , m_categories(categories)
@@ -420,7 +424,7 @@ Result Ranker::MakeResult(RankerResult const & rankerResult, bool needAddress,
     case RankerResult::Type::TYPE_FEATURE:
     case RankerResult::Type::TYPE_BUILDING:
     {
-      auto const type = rankerResult.GetBestType(&m_params.m_preferredTypes);
+      auto const type = rankerResult.GetBestType(m_params.m_preferredTypes);
       return Result(r.GetID(), r.GetCenter(), name, address,
                     m_categories.GetReadableFeatureType(type, m_params.m_currentLocaleCode), type,
                     r.GetMetadata());
@@ -428,6 +432,7 @@ Result Ranker::MakeResult(RankerResult const & rankerResult, bool needAddress,
     case RankerResult::Type::TYPE_LATLON: return Result(r.GetCenter(), name, address);
     }
     ASSERT(false, ("Bad RankerResult type:", static_cast<size_t>(r.GetResultType())));
+    CHECK_SWITCH();
   };
 
   auto res = mk(rankerResult);
@@ -438,7 +443,7 @@ Result Ranker::MakeResult(RankerResult const & rankerResult, bool needAddress,
     m_localities.GetLocality(res.GetFeatureCenter(), [&](LocalityItem const & item) {
       string city;
       if (item.GetSpecifiedOrDefaultName(m_localeCode, city))
-        res.AppendCity(city);
+        res.PrependCity(city);
     });
   }
 
@@ -456,7 +461,7 @@ void Ranker::SuggestStrings()
 
   string prologue = DropLastToken(m_params.m_query);
 
-  for (auto const & locale : m_params.m_categoryLocales)
+  for (auto const locale : m_params.m_categoryLocales)
     MatchForSuggestions(m_params.m_prefix, locale, prologue);
 }
 
@@ -473,7 +478,7 @@ void Ranker::UpdateResults(bool lastUpdate)
   if (m_params.m_viewportSearch)
   {
     sort(m_tentativeResults.begin(), m_tentativeResults.end(),
-         my::LessBy(&RankerResult::GetDistanceToPivot));
+         base::LessBy(&RankerResult::GetDistanceToPivot));
   }
   else
   {
@@ -481,7 +486,7 @@ void Ranker::UpdateResults(bool lastUpdate)
     // but the model is lightweight enough and the slowdown
     // is negligible.
     sort(m_tentativeResults.rbegin(), m_tentativeResults.rend(),
-         my::LessBy(&RankerResult::GetLinearModelRank));
+         base::LessBy(&RankerResult::GetLinearModelRank));
     ProcessSuggestions(m_tentativeResults);
   }
 
@@ -540,7 +545,7 @@ void Ranker::LoadCountriesTree() { m_regionInfoGetter.LoadCountriesTree(); }
 void Ranker::MakeRankerResults(Geocoder::Params const & geocoderParams,
                                vector<RankerResult> & results)
 {
-  RankerResultMaker maker(*this, m_index, m_infoGetter, geocoderParams);
+  RankerResultMaker maker(*this, m_dataSource, m_infoGetter, geocoderParams);
   for (auto const & r : m_preRankerResults)
   {
     auto p = maker(r);
@@ -553,20 +558,33 @@ void Ranker::MakeRankerResults(Geocoder::Params const & geocoderParams,
       continue;
     }
 
-    if (!ResultExists(*p, results, m_params.m_minDistanceOnMapBetweenResults))
+    if (!ResultExists(*p, results, m_params.m_minDistanceBetweenResultsM))
       results.push_back(move(*p));
   };
 }
 
-void Ranker::GetBestMatchName(FeatureType const & f, string & name) const
+void Ranker::GetBestMatchName(FeatureType & f, string & name) const
 {
   KeywordLangMatcher::Score bestScore;
-  auto bestNameFinder = [&](int8_t lang, string const & s) {
+  auto updateScore = [&](int8_t lang, string const & s, bool force) {
     auto const score = m_keywordsScorer.CalcScore(lang, s);
-    if (bestScore < score)
+    if (force ? bestScore <= score : bestScore < score)
     {
       bestScore = score;
       name = s;
+    }
+  };
+
+  auto bestNameFinder = [&](int8_t lang, string const & s) {
+    updateScore(lang, s, true /* force */);
+    // Default name should be written in the regional language.
+    if (lang == StringUtf8Multilang::kDefaultCode)
+    {
+      auto const mwmInfo = f.GetID().m_mwmId.GetInfo();
+      vector<int8_t> mwmLangCodes;
+      mwmInfo->GetRegionData().GetLanguages(mwmLangCodes);
+      for (auto const l : mwmLangCodes)
+        updateScore(l, s, false /* force */);
     }
   };
   UNUSED_VALUE(f.ForEachName(bestNameFinder));
@@ -625,7 +643,7 @@ void Ranker::ProcessSuggestions(vector<RankerResult> & vec) const
 
 string Ranker::GetLocalizedRegionInfoForResult(RankerResult const & result) const
 {
-  auto const type = result.GetBestType(&m_params.m_preferredTypes);
+  auto const type = result.GetBestType(m_params.m_preferredTypes);
 
   storage::TCountryId id;
   if (!result.GetCountryId(m_infoGetter, type, id))

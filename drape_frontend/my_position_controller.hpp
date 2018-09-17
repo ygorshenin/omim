@@ -1,10 +1,13 @@
 #pragma once
 
+#include "drape_frontend/animation/animation.hpp"
+#include "drape_frontend/frame_values.hpp"
 #include "drape_frontend/drape_hints.hpp"
 #include "drape_frontend/my_position.hpp"
 
-#include "drape/gpu_program_manager.hpp"
-#include "drape/uniform_values_storage.hpp"
+#include "drape/pointers.hpp"
+
+#include "shaders/program_manager.hpp"
 
 #include "platform/location.hpp"
 
@@ -12,13 +15,14 @@
 
 #include "base/timer.hpp"
 
-#include "std/function.hpp"
+#include <cstdint>
+#include <functional>
 
 namespace df
 {
+using TAnimationCreator = std::function<drape_ptr<Animation>(ref_ptr<Animation>)>;
 
-class Animation;
-using TAnimationCreator = function<drape_ptr<Animation>(ref_ptr<Animation>)>;
+class DrapeNotifier;
 
 class MyPositionController
 {
@@ -26,19 +30,21 @@ public:
   class Listener
   {
   public:
-    virtual ~Listener() {}
+    virtual ~Listener() = default;
     virtual void PositionChanged(m2::PointD const & position, bool hasPosition) = 0;
-    /// Show map with center in "center" point and current zoom
-    virtual void ChangeModelView(m2::PointD const & center, int zoomLevel, TAnimationCreator const & parallelAnimCreator) = 0;
-    /// Change azimuth of current ModelView
-    virtual void ChangeModelView(double azimuth, TAnimationCreator const & parallelAnimCreator) = 0;
-    /// Somehow show map that "rect" will see
-    virtual void ChangeModelView(m2::RectD const & rect, TAnimationCreator const & parallelAnimCreator) = 0;
-    /// Show map where "usePos" (mercator) placed in "pxZero" on screen and map rotated around "userPos"
-    virtual void ChangeModelView(m2::PointD const & userPos, double azimuth, m2::PointD const & pxZero,
-                                 int zoomLevel, TAnimationCreator const & parallelAnimCreator) = 0;
-    virtual void ChangeModelView(double autoScale, m2::PointD const & userPos, double azimuth, m2::PointD const & pxZero,
+    // Show map with center in "center" point and current zoom.
+    virtual void ChangeModelView(m2::PointD const & center, int zoomLevel,
                                  TAnimationCreator const & parallelAnimCreator) = 0;
+    // Change azimuth of current ModelView.
+    virtual void ChangeModelView(double azimuth, TAnimationCreator const & parallelAnimCreator) = 0;
+    // Somehow show map that "rect" will see.
+    virtual void ChangeModelView(m2::RectD const & rect, TAnimationCreator const & parallelAnimCreator) = 0;
+    // Show map where "usePos" (mercator) placed in "pxZero" on screen and map rotated around "userPos".
+    virtual void ChangeModelView(m2::PointD const & userPos, double azimuth, m2::PointD const & pxZero,
+                                 int zoomLevel, Animation::TAction const & onFinishAction,
+                                 TAnimationCreator const & parallelAnimCreator) = 0;
+    virtual void ChangeModelView(double autoScale, m2::PointD const & userPos, double azimuth,
+                                 m2::PointD const & pxZero, TAnimationCreator const & parallelAnimCreator) = 0;
   };
 
   struct Params
@@ -54,7 +60,7 @@ public:
       , m_hints(hints)
       , m_isRoutingActive(isRoutingActive)
       , m_isAutozoomEnabled(isAutozoomEnabled)
-      , m_myPositionModeCallback(move(fn))
+      , m_myPositionModeCallback(std::move(fn))
     {}
 
     location::EMyPositionMode m_initMode;
@@ -65,8 +71,7 @@ public:
     location::TMyPositionModeChanged m_myPositionModeCallback;
   };
 
-  MyPositionController(Params && params);
-  ~MyPositionController();
+  MyPositionController(Params && params, ref_ptr<DrapeNotifier> notifier);
 
   void UpdatePosition();
   void OnUpdateScreen(ScreenBase const & screen);
@@ -88,7 +93,7 @@ public:
 
   void Rotated();
 
-  void ResetRoutingNotFollowTimer();
+  void ResetRoutingNotFollowTimer(bool blockTimer = false);
   void ResetBlockAutoZoomTimer();
 
   void CorrectScalePoint(m2::PointD & pt) const;
@@ -111,17 +116,15 @@ public:
   void SetTimeInBackground(double time);
 
   void OnCompassTapped();
-
   void OnLocationUpdate(location::GpsInfo const & info, bool isNavigable, ScreenBase const & screen);
   void OnCompassUpdate(location::CompassInfo const & info, ScreenBase const & screen);
 
-  void Render(ScreenBase const & screen, int zoomLevel, ref_ptr<dp::GpuProgramManager> mng,
-              dp::UniformValuesStorage const & commonUniforms);
+  void Render(ref_ptr<dp::GraphicsContext> context, ref_ptr<gpu::ProgramManager> mng,
+              ScreenBase const & screen, int zoomLevel, FrameValues const & frameValues);
 
   bool IsRotationAvailable() const { return m_isDirectionAssigned; }
   bool IsInRouting() const { return m_isInRouting; }
   bool IsRouteFollowingActive() const;
-  bool IsWaitingForTimers() const;
   bool IsModeChangeViewport() const;
 
   bool IsWaitingForLocation() const;
@@ -130,16 +133,12 @@ public:
 private:
   void ChangeMode(location::EMyPositionMode newMode);
   void SetDirection(double bearing);
-  
-  bool IsInStateWithPosition() const;
-
-  bool IsVisible() const { return m_isVisible; }
-  void SetIsVisible(bool isVisible) { m_isVisible = isVisible; }
 
   void ChangeModelView(m2::PointD const & center, int zoomLevel);
   void ChangeModelView(double azimuth);
   void ChangeModelView(m2::RectD const & rect);
-  void ChangeModelView(m2::PointD const & userPos, double azimuth, m2::PointD const & pxZero, int zoomLevel);
+  void ChangeModelView(m2::PointD const & userPos, double azimuth, m2::PointD const & pxZero, int zoomLevel,
+                       Animation::TAction const & onFinishAction = nullptr);
   void ChangeModelView(double autoScale, m2::PointD const & userPos, double azimuth, m2::PointD const & pxZero);
 
   void UpdateViewport(int zoomLevel);
@@ -153,7 +152,13 @@ private:
   bool AlmostCurrentPosition(m2::PointD const & pos) const;
   bool AlmostCurrentAzimut(double azimut) const;
 
-private:
+  void CheckIsWaitingForLocation();
+  void CheckNotFollowRouting();
+  void CheckBlockAutoZoom();
+  void CheckUpdateLocation();
+
+  ref_ptr<DrapeNotifier> m_notifier;
+
   location::EMyPositionMode m_mode;
   location::EMyPositionMode m_desiredInitMode;
   location::TMyPositionModeChanged m_modeChangeCallback;
@@ -167,11 +172,11 @@ private:
   drape_ptr<MyPosition> m_shape;
   ref_ptr<Listener> m_listener;
 
-  double m_errorRadius;  // error radius in mercator
+  double m_errorRadius;  // error radius in mercator.
   double m_horizontalAccuracy;
-  m2::PointD m_position; // position in mercator
+  m2::PointD m_position; // position in mercator.
   double m_drawDirection;
-  m2::PointD m_oldPosition; // position in mercator
+  m2::PointD m_oldPosition; // position in mercator.
   double m_oldDrawDirection;
 
   bool m_enablePerspectiveInRouting;
@@ -182,6 +187,7 @@ private:
   my::Timer m_lastGPSBearing;
   my::Timer m_pendingTimer;
   my::Timer m_routingNotFollowTimer;
+  bool m_blockRoutingNotFollowTimer = false;
   my::Timer m_blockAutoZoomTimer;
   my::Timer m_updateLocationTimer;
   double m_lastLocationTimestamp;
@@ -190,7 +196,6 @@ private:
   m2::RectD m_visiblePixelRect;
   double m_positionYOffset;
 
-  bool m_isVisible;
   bool m_isDirtyViewport;
   bool m_isDirtyAutoZoom;
   bool m_isPendingAnimation;
@@ -202,9 +207,14 @@ private:
   bool m_isCompassAvailable;
 
   bool m_positionIsObsolete;
+  bool m_allowToFollowAfterObsoletePosition;
   bool m_needBlockAutoZoom;
 
   bool m_notFollowAfterPending;
-};
 
-}
+  uint64_t m_locationWaitingNotifyId;
+  uint64_t m_routingNotFollowNotifyId;
+  uint64_t m_blockAutoZoomNotifyId;
+  uint64_t m_updateLocationNotifyId;
+};
+}  // namespace df

@@ -1,163 +1,49 @@
 #pragma once
 
-#include "partners_api/taxi_countries.hpp"
+#include "storage/index.hpp"
+
+#include "coding/serdes_json.hpp"
+
+#include "base/visitor.hpp"
+
+#include <string>
+#include <unordered_set>
+#include <vector>
 
 namespace taxi
 {
-namespace places
+class Places
 {
-// Places which are enabled for yandex taxi and in the same time are disabled for uber taxi.
-Countries const kUberDisabledPlaces = {{{"Armenia", {}},
-                                        {"Belarus", {}},
-                                        {"Georgia Region", {}},
-                                        {"Kazakhstan", {}},
-                                        {"Russian Federation", {}},
-                                        {"Ukraine", {}},
-                                        {"Moldova", {}}}};
+public:
+  friend class PlacesTest;
 
-Countries const kYandexEnabledPlaces = {
-    {{"Armenia", {"Vanadzor", "Gyumri", "Yerevan"}},
-     {"Belarus", {"Minsk"}},
-     {"Georgia Region", {"Rustavi", "Tbilisi"}},
-     {"Kazakhstan",
-      {"Aktau", "Aktobe", "Almaty", "Astana", "Atyrau", "Karaganda", "Kostanay", "Kyzylorda",
-       "Pavlodar", "Petropavlovsk", "Semipalatinsk", "Taraz", "Turkestan", "Oral",
-       "Ust-Kamenogorsk", "Shymkent"}},
-     {"Ukraine", {"Dnipro", "Kyiv", "Lviv", "Odessa", "Kharkiv"}},
-     {"Moldova", {"Kishinev"}},
-     {"Russian Federation",
-      {"Anapa",
-       "Aprelevka",
-       "Arzamas",
-       "Arkhangelsk",
-       "Astrakhan",
-       "Balakovo",
-       "Balashikha",
-       "Barnaul",
-       "Belgorod",
-       "Blagoveshchensk",
-       "Bryansk",
-       "Vidnoye",
-       "Vladivostok",
-       "Vladikavkaz",
-       "Vladimir",
-       "Volgograd",
-       "Volgodonsk",
-       "Vologda",
-       "Voronezh",
-       "Gelendzhik",
-       "Golitsyno",
-       "Dedovsk",
-       "Dzerzhinsky",
-       "Dmitrov",
-       "Dolgoprudny",
-       "Domodedovo",
-       "Dubna",
-       "Yekaterinburg",
-       "Zheleznogorsk",
-       "Zheleznodorozhny",
-       "Zhukovsky",
-       "Zelenograd",
-       "Ivanovo",
-       "Ivanteyevka",
-       "Izhevsk",
-       "Irkutsk",
-       "Yoshkar-Ola",
-       "Kazan",
-       "Kaliningrad",
-       "Kaluga",
-       "Kamensk-Uralsky",
-       "Kashira",
-       "Kemerovo",
-       "Kirov",
-       "Kislovodsk",
-       "Kolomna",
-       "Komsomolsk-on-Amur",
-       "Korolyov",
-       "Kotelniki",
-       "Krasnogorsk",
-       "Krasnodar",
-       "Krasnoznamensk",
-       "Krasnoyarsk",
-       "Kurgan",
-       "Kursk",
-       "Lipetsk",
-       "Lobnya",
-       "Lytkarino",
-       "Lyubertsy",
-       "Magnitogorsk",
-       "Makhachkala",
-       "Mozhaisk",
-       "Moscow",
-       "Murmansk",
-       "Mytishchi",
-       "Naberezhnye Chelny",
-       "Nalchik",
-       "Naro-Fominsk",
-       "Nakhabino",
-       "Nizhnekamsk",
-       "Nizhny Novgorod",
-       "Nizhny Tagil",
-       "Novokuznetsk",
-       "Novorossiysk",
-       "Novosibirsk",
-       "Novy Urengoy",
-       "Noginsk",
-       "Noyabrsk",
-       "Obninsk",
-       "Odintsovo",
-       "Ozyory",
-       "Omsk",
-       "Orenburg",
-       "Orsk",
-       "Oryol",
-       "Penza",
-       "Perm",
-       "Petrozavodsk",
-       "Podolsk",
-       "Pushkino",
-       "Pyatigorsk",
-       "Ramenskoye",
-       "Reutov",
-       "Rostov-on-Don",
-       "Rybinsk",
-       "Ryazan",
-       "Samara",
-       "Saint Petersburg",
-       "Saransk",
-       "Saratov",
-       "Sergiyev Posad",
-       "Serpukhov",
-       "Smolensk",
-       "Sochi",
-       "Stavropol",
-       "Staraya Kupavna",
-       "Sterlitamak",
-       "Stupino",
-       "Surgut",
-       "Syzran",
-       "Syktyvkar",
-       "Taganrog",
-       "Tambov",
-       "Tver",
-       "Tolyatti",
-       "Tomsk",
-       "Troitsk",
-       "Tula",
-       "Tyumen",
-       "Ulyanovsk",
-       "Ufa",
-       "Fryazino",
-       "Khabarovsk",
-       "Khimki",
-       "Cheboksary",
-       "Chelyabinsk",
-       "Cherepovets",
-       "Chekhov",
-       "Chita",
-       "Shchyolkovo",
-       "Elektrostal",
-       "Elektrougli",
-       "Yaroslavl"}}}};
-}  // namespace places
+  struct Country
+  {
+    storage::TCountryId m_id;
+    std::vector<std::string> m_cities;
+
+    DECLARE_VISITOR_AND_DEBUG_PRINT(Country, visitor(m_id, "id"), visitor(m_cities, "cities"))
+  };
+
+  bool IsCountriesEmpty() const;
+  bool IsMwmsEmpty() const;
+  bool Has(storage::TCountryId const & id, std::string const & city) const;
+  bool Has(storage::TCountryId const & mwmId) const;
+
+  DECLARE_VISITOR_AND_DEBUG_PRINT(Places, visitor(m_countries, "countries"),
+                                  visitor(m_mwmIds, "mwms"))
+
+private:
+  std::vector<Country> m_countries;
+  std::unordered_set<storage::TCountryId> m_mwmIds;
+};
+
+struct SupportedPlaces
+{
+  Places m_enabledPlaces;
+  Places m_disabledPlaces;
+
+  DECLARE_VISITOR_AND_DEBUG_PRINT(SupportedPlaces, visitor(m_enabledPlaces, "enabled"),
+                                  visitor(m_disabledPlaces, "disabled"))
+};
 }  // namespace taxi

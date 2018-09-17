@@ -35,46 +35,31 @@ struct SortVisitor
   }
 };
 
-struct IsValidVisitor
+struct CheckValidVisitor
 {
-  template<typename Cont>
-  void operator()(Cont const & c, char const * /* name */ )
+  template <typename Cont>
+  void operator()(Cont const & c, char const * name)
   {
-    m_isValid = m_isValid && ::IsValid(c);
+    CheckValid(c, name);
   }
-
-  bool IsValid() const { return m_isValid; }
-
-private:
-  bool m_isValid = true;
 };
 
-struct IsUniqueVisitor
+struct CheckUniqueVisitor
 {
-  template<typename Cont>
-  void operator()(Cont const & c, char const * /* name */)
+  template <typename Cont>
+  void operator()(Cont const & c, char const * name)
   {
-    m_isUnique = m_isUnique && (adjacent_find(c.cbegin(), c.cend()) == c.cend());
+    CheckUnique(c, name);
   }
-
-  bool IsUnique() const { return m_isUnique; }
-
-private:
-  bool m_isUnique = true;
 };
 
-struct IsSortedVisitor
+struct CheckSortedVisitor
 {
-  template<typename Cont>
-  void operator()(Cont const & c, char const * /* name */)
+  template <typename Cont>
+  void operator()(Cont const & c, char const * name)
   {
-    m_isSorted = m_isSorted && is_sorted(c.cbegin(), c.cend());
+    CheckSorted(c, name);
   }
-
-  bool IsSorted() const { return m_isSorted; }
-
-private:
-  bool m_isSorted = true;
 };
 
 template<typename T>
@@ -136,13 +121,14 @@ void UpdateItems(set<Id> const & ids, vector<Item> & items)
 }
 
 template <class Item>
-void ReadItems(uint32_t start, uint32_t end, NonOwningReaderSource & src, vector<Item> & itmes)
+void ReadItems(uint32_t start, uint32_t end, string const & name, NonOwningReaderSource & src,
+               vector<Item> & items)
 {
   Deserializer<NonOwningReaderSource> deserializer(src);
-  CHECK_EQUAL(src.Pos(), start, ("Wrong", TRANSIT_FILE_TAG, "section format."));
-  deserializer(itmes);
-  CHECK_EQUAL(src.Pos(), end, ("Wrong", TRANSIT_FILE_TAG, "section format."));
-  CHECK(IsValidSortedUnique(itmes), ());
+  CHECK_EQUAL(src.Pos(), start, ("Wrong", TRANSIT_FILE_TAG, "section format. Table name:", name));
+  deserializer(items);
+  CHECK_EQUAL(src.Pos(), end, ("Wrong", TRANSIT_FILE_TAG, "section format. Table name:", name));
+  CheckValidSortedUnique(items, name);
 }
 }  // namespace
 
@@ -182,16 +168,22 @@ void DeserializerFromJson::operator()(FeatureIdentifiers & id, char const * name
   uint64_t osmIdNum;
   CHECK(strings::to_uint64(osmIdStr, osmIdNum),
         ("Cann't convert osm id string:", osmIdStr, "to a number."));
-  osm::Id const osmId(osmIdNum);
+  base::GeoObjectId const osmId(osmIdNum);
   auto const it = m_osmIdToFeatureIds.find(osmId);
   if (it != m_osmIdToFeatureIds.cend())
   {
-    CHECK_EQUAL(it->second.size(), 1, ("Osm id:", osmId, "(encoded", osmId.EncodedId(),
-        ") from transit graph corresponds to", it->second.size(), "features."
-        "But osm id should be represented be one feature."));
+    CHECK(!it->second.empty(), ("Osm id:", osmId, "(encoded", osmId.GetEncodedId(),
+                                ") from transit graph does not correspond to any feature."));
+    if (it->second.size() != 1)
+    {
+      // Note. |osmId| corresponds to several feature ids. It may happen in case of stops,
+      // if a stop is present as a relation. It's a rare case.
+      LOG(LWARNING, ("Osm id:", osmId, "( encoded", osmId.GetEncodedId(), ") corresponds to",
+                     it->second.size(), "feature ids."));
+    }
     id.SetFeatureId(it->second[0]);
   }
-  id.SetOsmId(osmId.EncodedId());
+  id.SetOsmId(osmId.GetEncodedId());
 }
 
 void DeserializerFromJson::operator()(EdgeFlags & edgeFlags, char const * name)
@@ -222,7 +214,7 @@ void GraphData::DeserializeFromJson(my::Json const & root, OsmIdToFeatureIdsMap 
   // Note. It's possible that two stops are connected with the same line several times
   // in the same direction. It happens in Oslo metro (T-banen):
   // https://en.wikipedia.org/wiki/Oslo_Metro#/media/File:Oslo_Metro_Map.svg branch 5.
-  my::SortUnique(m_edges,
+  base::SortUnique(m_edges,
                  [](Edge const & e1, Edge const & e2) {
                    if (e1 != e2)
                      return e1 < e2;
@@ -333,14 +325,22 @@ void GraphData::Clear()
   Visit(v);
 }
 
-bool GraphData::IsValid() const
+void GraphData::CheckValidSortedUnique() const
 {
-  if (!IsSorted() || !IsUnique())
-    return false;
+  {
+    CheckSortedVisitor v;
+    Visit(v);
+  }
 
-  IsValidVisitor v;
-  Visit(v);
-  return v.IsValid();
+  {
+    CheckUniqueVisitor v;
+    Visit(v);
+  }
+
+  {
+    CheckValidVisitor v;
+    Visit(v);
+  }
 }
 
 bool GraphData::IsEmpty() const
@@ -359,7 +359,7 @@ void GraphData::Sort()
 void GraphData::ClipGraph(vector<m2::RegionD> const & borders)
 {
   Sort();
-  CHECK(IsValid(), ());
+  CheckValidSortedUnique();
   ClipLines(borders);
   ClipStops();
   ClipNetworks();
@@ -367,27 +367,13 @@ void GraphData::ClipGraph(vector<m2::RegionD> const & borders)
   ClipTransfer();
   ClipEdges();
   ClipShapes();
-  CHECK(IsValid(), ());
+  CheckValidSortedUnique();
 }
 
 void GraphData::SetGateBestPedestrianSegment(size_t gateIdx, SingleMwmSegment const & s)
 {
   CHECK_LESS(gateIdx, m_gates.size(), ());
   m_gates[gateIdx].SetBestPedestrianSegment(s);
-}
-
-bool GraphData::IsUnique() const
-{
-  IsUniqueVisitor v;
-  Visit(v);
-  return v.IsUnique();
-}
-
-bool GraphData::IsSorted() const
-{
-  IsSortedVisitor v;
-  Visit(v);
-  return v.IsSorted();
 }
 
 void GraphData::ClipLines(vector<m2::RegionD> const & borders)
@@ -529,37 +515,37 @@ void GraphData::ReadHeader(NonOwningReaderSource & src)
 
 void GraphData::ReadStops(NonOwningReaderSource & src)
 {
-  ReadItems(m_header.m_stopsOffset, m_header.m_gatesOffset, src, m_stops);
+  ReadItems(m_header.m_stopsOffset, m_header.m_gatesOffset, "stops", src, m_stops);
 }
 
 void GraphData::ReadGates(NonOwningReaderSource & src)
 {
-  ReadItems(m_header.m_gatesOffset, m_header.m_edgesOffset, src, m_gates);
+  ReadItems(m_header.m_gatesOffset, m_header.m_edgesOffset, "gates", src, m_gates);
 }
 
 void GraphData::ReadEdges(NonOwningReaderSource & src)
 {
-  ReadItems(m_header.m_edgesOffset, m_header.m_transfersOffset, src, m_edges);
+  ReadItems(m_header.m_edgesOffset, m_header.m_transfersOffset, "edges", src, m_edges);
 }
 
 void GraphData::ReadTransfers(NonOwningReaderSource & src)
 {
-  ReadItems(m_header.m_transfersOffset, m_header.m_linesOffset, src, m_transfers);
+  ReadItems(m_header.m_transfersOffset, m_header.m_linesOffset, "transfers", src, m_transfers);
 }
 
 void GraphData::ReadLines(NonOwningReaderSource & src)
 {
-  ReadItems(m_header.m_linesOffset, m_header.m_shapesOffset, src, m_lines);
+  ReadItems(m_header.m_linesOffset, m_header.m_shapesOffset, "lines", src, m_lines);
 }
 
 void GraphData::ReadShapes(NonOwningReaderSource & src)
 {
-  ReadItems(m_header.m_shapesOffset, m_header.m_networksOffset, src, m_shapes);
+  ReadItems(m_header.m_shapesOffset, m_header.m_networksOffset, "shapes", src, m_shapes);
 }
 
 void GraphData::ReadNetworks(NonOwningReaderSource & src)
 {
-  ReadItems(m_header.m_networksOffset, m_header.m_endOffset, src, m_networks);
+  ReadItems(m_header.m_networksOffset, m_header.m_endOffset, "networks", src, m_networks);
 }
 }  // namespace transit
 }  // namespace routing

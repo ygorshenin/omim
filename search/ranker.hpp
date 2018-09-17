@@ -23,13 +23,12 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 class CategoriesHolder;
-class Index;
+class DataSource;
 
 namespace storage
 {
@@ -52,7 +51,7 @@ public:
     m2::RectD m_viewport;
     m2::PointD m_position;
     string m_pivotRegion;
-    std::set<uint32_t> m_preferredTypes;
+    std::vector<uint32_t> m_preferredTypes;
     bool m_suggestsEnabled = false;
     bool m_needAddress = false;
     bool m_needHighlighting = false;
@@ -66,9 +65,9 @@ public:
 
     m2::PointD m_accuratePivotCenter = m2::PointD(0, 0);
 
-    // A minimum distance between search results in meters, needed for
+    // Minimal distance between search results in meters, needed for
     // filtering of identical search results.
-    double m_minDistanceOnMapBetweenResults = 0.0;
+    double m_minDistanceBetweenResultsM = 100.0;
 
     Locales m_categoryLocales;
 
@@ -79,11 +78,11 @@ public:
     size_t m_limit = 0;
   };
 
-  Ranker(Index const & index, CitiesBoundariesTable const & boundariesTable,
+  Ranker(DataSource const & dataSource, CitiesBoundariesTable const & boundariesTable,
          storage::CountryInfoGetter const & infoGetter, KeywordLangMatcher & keywordsScorer,
          Emitter & emitter, CategoriesHolder const & categories,
          std::vector<Suggest> const & suggests, VillagesCache & villagesCache,
-         my::Cancellable const & cancellable);
+         base::Cancellable const & cancellable);
   virtual ~Ranker() = default;
 
   void Init(Params const & params, Geocoder::Params const & geocoderParams);
@@ -117,7 +116,7 @@ private:
 
   void MakeRankerResults(Geocoder::Params const & params, std::vector<RankerResult> & results);
 
-  void GetBestMatchName(FeatureType const & f, std::string & name) const;
+  void GetBestMatchName(FeatureType & f, std::string & name) const;
   void MatchForSuggestions(strings::UniString const & token, int8_t locale,
                            std::string const & prolog);
   void ProcessSuggestions(std::vector<RankerResult> & vec) const;
@@ -127,14 +126,14 @@ private:
   Params m_params;
   Geocoder::Params m_geocoderParams;
   ReverseGeocoder const m_reverseGeocoder;
-  my::Cancellable const & m_cancellable;
+  base::Cancellable const & m_cancellable;
   KeywordLangMatcher & m_keywordsScorer;
 
   mutable LocalityFinder m_localities;
   int8_t m_localeCode;
   RegionInfoGetter m_regionInfoGetter;
 
-  Index const & m_index;
+  DataSource const & m_dataSource;
   storage::CountryInfoGetter const & m_infoGetter;
   Emitter & m_emitter;
   CategoriesHolder const & m_categories;

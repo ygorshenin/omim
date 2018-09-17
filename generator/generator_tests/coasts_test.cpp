@@ -1,50 +1,135 @@
 #include "testing/testing.hpp"
 
 #include "generator/feature_builder.hpp"
-#include "generator/feature_sorter.hpp"
 #include "generator/feature_generator.hpp"
+#include "generator/feature_helpers.hpp"
 
+#include "coding/pointd_to_pointu.hpp"
+
+#include "geometry/cellid.hpp"
 #include "geometry/mercator.hpp"
+#include "geometry/point2d.hpp"
+
 #include "indexer/cell_id.hpp"
 #include "indexer/scales.hpp"
 
-#include "geometry/cellid.hpp"
-
 #include "base/logging.hpp"
+
+#include <string>
+#include <vector>
 
 using namespace std;
 
 namespace
 {
-  inline m2::PointU D2I(double x, double y)
+m2::PointU D2I(double x, double y) { return PointDToPointU(m2::PointD(x, y), POINT_COORD_BITS); }
+
+class ProcessCoastsBase
+{
+public:
+  explicit ProcessCoastsBase(vector<string> const & vID) : m_vID(vID) {}
+
+protected:
+  bool HasID(FeatureBuilder1 const & fb) const
   {
-    return PointD2PointU(m2::PointD(x, y), POINT_COORD_BITS);
+    TEST(fb.IsCoastCell(), ());
+    return (find(m_vID.begin(), m_vID.end(), fb.GetName()) != m_vID.end());
   }
-}
+
+private:
+  vector<string> const & m_vID;
+};
+
+class DoPrintCoasts : public ProcessCoastsBase
+{
+public:
+  explicit DoPrintCoasts(vector<string> const & vID) : ProcessCoastsBase(vID) {}
+
+  void operator()(FeatureBuilder1 const & fb1, uint64_t)
+  {
+    if (HasID(fb1))
+    {
+      FeatureBuilder2 const & fb2 = reinterpret_cast<FeatureBuilder2 const &>(fb1);
+
+      // Check common params.
+      TEST(fb2.IsArea(), ());
+      int const upperScale = scales::GetUpperScale();
+      TEST(fb2.IsDrawableInRange(0, upperScale), ());
+
+      m2::RectD const rect = fb2.GetLimitRect();
+      LOG(LINFO, ("ID =", fb1.GetName(), "Rect =", rect, "Polygons =", fb2.GetGeometry()));
+
+      // Make bound rect inflated a little.
+      feature::DistanceToSegmentWithRectBounds distFn(rect);
+      m2::RectD const boundRect = m2::Inflate(rect, distFn.GetEpsilon(), distFn.GetEpsilon());
+
+      using Points = vector<m2::PointD>;
+      using Polygons = list<Points>;
+
+      Polygons const & poly = fb2.GetGeometry();
+
+      // Check that all simplifications are inside bound rect.
+      for (int level = 0; level <= upperScale; ++level)
+      {
+        TEST(fb2.IsDrawableInRange(level, level), ());
+
+        for (auto const & rawPts : poly)
+        {
+          Points pts;
+          feature::SimplifyPoints(distFn, level, rawPts, pts);
+
+          LOG(LINFO, ("Simplified. Level =", level, "Points =", pts));
+
+          for (auto const & p : pts)
+            TEST(boundRect.IsPointInside(p), (p));
+        }
+      }
+    }
+  }
+};
+
+class DoCopyCoasts : public ProcessCoastsBase
+{
+public:
+  DoCopyCoasts(string const & fName, vector<string> const & vID)
+    : ProcessCoastsBase(vID), m_collector(fName)
+  {
+  }
+
+  void operator()(FeatureBuilder1 const & fb1, uint64_t)
+  {
+    if (HasID(fb1))
+      m_collector(fb1);
+  }
+
+private:
+  feature::FeaturesCollector m_collector;
+};
+}  // namespace
 
 UNIT_TEST(CellID_CheckRectPoints)
 {
   int const level = 6;
   int const count = 1 << 2 * level;
 
-  typedef m2::CellId<19> TId;
-  typedef CellIdConverter<MercatorBounds, TId> TConverter;
+  using Id = m2::CellId<19>;
+  using Converter = CellIdConverter<MercatorBounds, Id>;
 
   for (size_t i = 0; i < count; ++i)
   {
-    TId const cell = TId::FromBitsAndLevel(i, level);
+    Id const cell = Id::FromBitsAndLevel(i, level);
     pair<uint32_t, uint32_t> const xy = cell.XY();
     uint32_t const r = 2*cell.Radius();
     uint32_t const bound = (1 << level) * r;
 
     double minX, minY, maxX, maxY;
-    TConverter::GetCellBounds(cell, minX, minY, maxX, maxY);
+    Converter::GetCellBounds(cell, minX, minY, maxX, maxY);
 
     double minX_, minY_, maxX_, maxY_;
     if (xy.first > r)
     {
-      TId neibour = TId::FromXY(xy.first - r, xy.second, level);
-      TConverter::GetCellBounds(neibour, minX_, minY_, maxX_, maxY_);
+      Id neighbour = Id::FromXY(xy.first - r, xy.second, level);
+      Converter::GetCellBounds(neighbour, minX_, minY_, maxX_, maxY_);
 
       TEST_ALMOST_EQUAL_ULPS(minX, maxX_, ());
       TEST_ALMOST_EQUAL_ULPS(minY, minY_, ());
@@ -56,8 +141,8 @@ UNIT_TEST(CellID_CheckRectPoints)
 
     if (xy.first + r < bound)
     {
-      TId neibour = TId::FromXY(xy.first + r, xy.second, level);
-      TConverter::GetCellBounds(neibour, minX_, minY_, maxX_, maxY_);
+      Id neighbour = Id::FromXY(xy.first + r, xy.second, level);
+      Converter::GetCellBounds(neighbour, minX_, minY_, maxX_, maxY_);
 
       TEST_ALMOST_EQUAL_ULPS(maxX, minX_, ());
       TEST_ALMOST_EQUAL_ULPS(minY, minY_, ());
@@ -69,8 +154,8 @@ UNIT_TEST(CellID_CheckRectPoints)
 
     if (xy.second > r)
     {
-      TId neibour = TId::FromXY(xy.first, xy.second - r, level);
-      TConverter::GetCellBounds(neibour, minX_, minY_, maxX_, maxY_);
+      Id neighbour = Id::FromXY(xy.first, xy.second - r, level);
+      Converter::GetCellBounds(neighbour, minX_, minY_, maxX_, maxY_);
 
       TEST_ALMOST_EQUAL_ULPS(minY, maxY_, ());
       TEST_ALMOST_EQUAL_ULPS(minX, minX_, ());
@@ -82,8 +167,8 @@ UNIT_TEST(CellID_CheckRectPoints)
 
     if (xy.second + r < bound)
     {
-      TId neibour = TId::FromXY(xy.first, xy.second + r, level);
-      TConverter::GetCellBounds(neibour, minX_, minY_, maxX_, maxY_);
+      Id neighbour = Id::FromXY(xy.first, xy.second + r, level);
+      Converter::GetCellBounds(neighbour, minX_, minY_, maxX_, maxY_);
 
       TEST_ALMOST_EQUAL_ULPS(maxY, minY_, ());
       TEST_ALMOST_EQUAL_ULPS(minX, minX_, ());
@@ -93,88 +178,6 @@ UNIT_TEST(CellID_CheckRectPoints)
       TEST_EQUAL(D2I(maxX, maxY), D2I(maxX_, minY_), ());
     }
   }
-}
-
-namespace
-{
-  class ProcessCoastsBase
-  {
-    vector<string> const & m_vID;
-
-  protected:
-    bool HasID(FeatureBuilder1 const & fb) const
-    {
-      TEST(fb.IsCoastCell(), ());
-      return (find(m_vID.begin(), m_vID.end(), fb.GetName()) != m_vID.end());
-    }
-
-  public:
-    ProcessCoastsBase(vector<string> const & vID) : m_vID(vID) {}
-  };
-
-  class DoPrintCoasts : public ProcessCoastsBase
-  {
-  public:
-    DoPrintCoasts(vector<string> const & vID) : ProcessCoastsBase(vID) {}
-
-    void operator() (FeatureBuilder1 const & fb1, uint64_t)
-    {
-      if (HasID(fb1))
-      {
-        FeatureBuilder2 const & fb2 = reinterpret_cast<FeatureBuilder2 const &>(fb1);
-
-        // Check common params.
-        TEST(fb2.IsArea(), ());
-        int const upperScale = scales::GetUpperScale();
-        TEST(fb2.IsDrawableInRange(0, upperScale), ());
-
-        m2::RectD const rect = fb2.GetLimitRect();
-        LOG(LINFO, ("ID = ", fb1.GetName(), "Rect = ", rect, "Polygons = ", fb2.GetGeometry()));
-
-        // Make bound rect inflated a little.
-        feature::BoundsDistance dist(rect);
-        m2::RectD const boundRect = m2::Inflate(rect, dist.GetEpsilon(), dist.GetEpsilon());
-
-        typedef vector<m2::PointD> PointsT;
-        typedef list<PointsT> PolygonsT;
-
-        PolygonsT const & poly = fb2.GetGeometry();
-
-        // Check that all simplifications are inside bound rect.
-        for (int level = 0; level <= upperScale; ++level)
-        {
-          TEST(fb2.IsDrawableInRange(level, level), ());
-
-          for (PolygonsT::const_iterator i = poly.begin(); i != poly.end(); ++i)
-          {
-            PointsT pts;
-            feature::SimplifyPoints(dist, *i, pts, level);
-
-            LOG(LINFO, ("Simplified. Level = ", level, "Points = ", pts));
-
-            for (size_t j = 0; j < pts.size(); ++j)
-              TEST(boundRect.IsPointInside(pts[j]), (pts[j]));
-          }
-        }
-      }
-    }
-  };
-
-  class DoCopyCoasts : public ProcessCoastsBase
-  {
-    feature::FeaturesCollector m_collector;
-  public:
-    DoCopyCoasts(string const & fName, vector<string> const & vID)
-      : ProcessCoastsBase(vID), m_collector(fName)
-    {
-    }
-
-    void operator() (FeatureBuilder1 const & fb1, uint64_t)
-    {
-      if (HasID(fb1))
-        m_collector(fb1);
-    }
-  };
 }
 
 /*

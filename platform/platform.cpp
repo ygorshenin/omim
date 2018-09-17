@@ -1,4 +1,5 @@
 #include "platform/platform.hpp"
+
 #include "platform/local_country_file.hpp"
 
 #include "coding/base64.hpp"
@@ -9,12 +10,15 @@
 #include "base/logging.hpp"
 #include "base/string_utils.hpp"
 
+#include <thread>
+
 #include "std/target_os.hpp"
-#include "std/thread.hpp"
 
 #include "private.h"
 
 #include <errno.h>
+
+using namespace std;
 
 namespace
 {
@@ -198,11 +202,6 @@ bool Platform::IsDirectory(string const & path)
   return fileType == FILE_TYPE_DIRECTORY;
 }
 
-string Platform::DeviceName() const
-{
-  return OMIM_OS_NAME;
-}
-
 // static
 void Platform::GetFilesRecursively(string const & directory, FilesList & filesList)
 {
@@ -271,8 +270,22 @@ unsigned Platform::CpuCores() const
 
 void Platform::ShutdownThreads()
 {
-  m_networkThread.ShutdownAndJoin();
-  m_fileThread.ShutdownAndJoin();
+  ASSERT(m_networkThread && m_fileThread && m_backgroundThread, ());
+  m_networkThread->ShutdownAndJoin();
+  m_fileThread->ShutdownAndJoin();
+  m_backgroundThread->ShutdownAndJoin();
+
+  m_networkThread.reset();
+  m_fileThread.reset();
+  m_backgroundThread.reset();
+}
+
+void Platform::RunThreads()
+{
+  ASSERT(!m_networkThread && !m_fileThread && !m_backgroundThread, ());
+  m_networkThread = make_unique<base::WorkerThread>();
+  m_fileThread = make_unique<base::WorkerThread>();
+  m_backgroundThread = make_unique<base::WorkerThread>();
 }
 
 string DebugPrint(Platform::EError err)
@@ -293,6 +306,7 @@ string DebugPrint(Platform::EError err)
   case Platform::ERR_IO_ERROR: return "An I/O error occurred.";
   case Platform::ERR_UNKNOWN: return "Unknown";
   }
+  CHECK_SWITCH();
 }
 
 string DebugPrint(Platform::ChargingStatus status)
@@ -303,4 +317,5 @@ string DebugPrint(Platform::ChargingStatus status)
   case Platform::ChargingStatus::Plugged: return "Plugged";
   case Platform::ChargingStatus::Unplugged: return "Unplugged";
   }
+  CHECK_SWITCH();
 }

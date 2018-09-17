@@ -3,13 +3,22 @@
 #include "generator/feature_merger.hpp"
 #include "generator/generate_info.hpp"
 
+#include "indexer/classificator.hpp"
+#include "indexer/scales.hpp"
+
+#include "coding/pointd_to_pointu.hpp"
+
 #include "geometry/polygon.hpp"
 #include "geometry/region2d.hpp"
 #include "geometry/tree4d.hpp"
 
-#include "indexer/scales.hpp"
-
 #include "base/logging.hpp"
+
+#include <cstdint>
+#include <map>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include "defines.hpp"
 
@@ -66,7 +75,7 @@ public:
         uint64_t numPoints = 0;
         file.Read(&numPoints, sizeof(numPoints));
 
-        vector<m2::PointD> points(numPoints);
+        std::vector<m2::PointD> points(numPoints);
         file.Read(points.data(), sizeof(m2::PointD) * numPoints);
         m_tree.Add(m2::RegionD(move(points)));
       }
@@ -93,14 +102,14 @@ public:
     Earth
   };
 
-  void ProcessBoundary(FeatureBuilder1 const & boundary, vector<FeatureBuilder1> & parts)
+  void ProcessBoundary(FeatureBuilder1 const & boundary, std::vector<FeatureBuilder1> & parts)
   {
     auto const & line = boundary.GetGeometry().front();
 
     double constexpr kExtension = 0.01;
     ProcessState state = ProcessState::Initial;
 
-    FeatureBuilder1::TPointSeq points;
+    FeatureBuilder1::PointSeq points;
 
     for (size_t i = 0; i < line.size(); ++i)
     {
@@ -189,7 +198,7 @@ class WorldMapGenerator
   class EmitterImpl : public FeatureEmitterIFace
   {
     FeatureOutT m_output;
-    map<uint32_t, size_t> m_mapTypes;
+    std::map<uint32_t, size_t> m_mapTypes;
 
   public:
     explicit EmitterImpl(feature::GenerateInfo const & info)
@@ -202,10 +211,10 @@ class WorldMapGenerator
     {
       Classificator const & c = classif();
       
-      stringstream ss;
-      ss << endl;
+      std::stringstream ss;
+      ss << std::endl;
       for (auto const & p : m_mapTypes)
-        ss << c.GetReadableObjectName(p.first) << " : " <<  p.second << endl;
+        ss << c.GetReadableObjectName(p.first) << " : " <<  p.second << std::endl;
       LOG_SHORT(LINFO, ("World types:", ss.str()));
     }
 
@@ -270,7 +279,7 @@ public:
       return;
     }
 
-    vector<FeatureBuilder1> boundaryParts;
+    std::vector<FeatureBuilder1> boundaryParts;
     m_boundaryChecker.ProcessBoundary(fb, boundaryParts);
     for (auto & f : boundaryParts)
       PushFeature(f);
@@ -306,11 +315,9 @@ public:
   void DoMerge() { m_merger.DoMerge(m_worldBucket); }
 };
 
-template <class FeatureOutT>
+template <class FeatureOut>
 class CountryMapGenerator
 {
-  FeatureOutT m_bucket;
-
 public:
   CountryMapGenerator(feature::GenerateInfo const & info) : m_bucket(info) {}
 
@@ -320,5 +327,8 @@ public:
       m_bucket(fb);
   }
 
-  inline FeatureOutT & Parent() { return m_bucket; }
+  FeatureOut & Parent() { return m_bucket; }
+
+private:
+  FeatureOut m_bucket;
 };

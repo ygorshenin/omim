@@ -72,6 +72,7 @@
 07001_atm-l
 07002_bank-l
 07003_banknote-l
+07004_office-financial-l
 08001_fuel-l
 08002_charging-station-l
 08003_car-repair-l
@@ -99,6 +100,7 @@
 09018_gym-l
 09019_equestrian-l
 09020_theme_park-l
+0_burger-king
 10001_kindergarten-l
 10002_school-l
 10003_college-l

@@ -1,7 +1,7 @@
+#include "platform/platform_ios.h"
 #include "platform/constants.hpp"
 #include "platform/gui_thread.hpp"
 #include "platform/measurement_utils.hpp"
-#include "platform/platform.hpp"
 #include "platform/platform_unix_impl.hpp"
 #include "platform/settings.hpp"
 
@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/utsname.h>
 #include <sys/xattr.h>
 
 #import "iphone/Maps/Common/MWMCommon.h"
@@ -26,9 +27,13 @@
 #import "3party/Alohalytics/src/alohalytics_objc.h"
 
 #import <CoreFoundation/CFURL.h>
-#import <CoreFoundation/CoreFoundation.h>
 #import <SystemConfiguration/SystemConfiguration.h>
+#import <UIKit/UIKit.h>
 #import <netinet/in.h>
+
+#include <sstream>
+#include <string>
+#include <utility>
 
 Platform::Platform()
 {
@@ -46,6 +51,11 @@ Platform::Platform()
   m_writableDir += "/";
   m_settingsDir = m_writableDir;
 
+  auto privatePaths = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,
+                                                          NSUserDomainMask, YES);
+  m_privateDir = privatePaths.firstObject.UTF8String;
+  m_privateDir +=  "/";
+
   NSString * tmpDir = NSTemporaryDirectory();
   if (tmpDir)
     m_tmpDir = tmpDir.UTF8String;
@@ -62,11 +72,8 @@ Platform::Platform()
         device.systemVersion);
 }
 
-// static
-bool Platform::IsCustomTextureAllocatorSupported() { return !isIOS8; }
-
 //static
-void Platform::DisableBackupForFile(string const & filePath)
+void Platform::DisableBackupForFile(std::string const & filePath)
 {
   // We need to disable iCloud backup for downloaded files.
   // This is the reason for rejecting from the AppStore
@@ -86,19 +93,19 @@ void Platform::DisableBackupForFile(string const & filePath)
 }
 
 // static
-Platform::EError Platform::MkDir(string const & dirName)
+Platform::EError Platform::MkDir(std::string const & dirName)
 {
   if (::mkdir(dirName.c_str(), 0755))
     return ErrnoToError();
   return Platform::ERR_OK;
 }
 
-void Platform::GetFilesByRegExp(string const & directory, string const & regexp, FilesList & res)
+void Platform::GetFilesByRegExp(std::string const & directory, std::string const & regexp, FilesList & res)
 {
   pl::EnumerateFilesByRegExp(directory, regexp, res);
 }
 
-bool Platform::GetFileSizeByName(string const & fileName, uint64_t & size) const
+bool Platform::GetFileSizeByName(std::string const & fileName, uint64_t & size) const
 {
   try
   {
@@ -110,7 +117,7 @@ bool Platform::GetFileSizeByName(string const & fileName, uint64_t & size) const
   }
 }
 
-unique_ptr<ModelReader> Platform::GetReader(string const & file, string const & searchScope) const
+unique_ptr<ModelReader> Platform::GetReader(std::string const & file, std::string const & searchScope) const
 {
   return make_unique<FileReader>(ReadPathForFile(file, searchScope), READER_CHUNK_LOG_SIZE,
                                  READER_CHUNK_LOG_COUNT);
@@ -119,15 +126,22 @@ unique_ptr<ModelReader> Platform::GetReader(string const & file, string const & 
 int Platform::VideoMemoryLimit() const { return 8 * 1024 * 1024; }
 int Platform::PreCachingDepth() const { return 2; }
 
-string Platform::UniqueClientId() const { return [Alohalytics installationId].UTF8String; }
+std::string Platform::UniqueClientId() const { return [Alohalytics installationId].UTF8String; }
 
-string Platform::GetMemoryInfo() const
+std::string Platform::MacAddress(bool md5Decoded) const
+{
+  // Not implemented.
+  UNUSED_VALUE(md5Decoded);
+  return {};
+}
+
+std::string Platform::GetMemoryInfo() const
 {
   struct task_basic_info info;
   mach_msg_type_number_t size = sizeof(info);
   kern_return_t const kerr =
       task_info(mach_task_self(), TASK_BASIC_INFO, (task_info_t)&info, &size);
-  stringstream ss;
+  std::stringstream ss;
   if (kerr == KERN_SUCCESS)
   {
     ss << "Memory info: Resident_size = " << info.resident_size / 1024
@@ -139,6 +153,22 @@ string Platform::GetMemoryInfo() const
     ss << "Error with task_info(): " << mach_error_string(kerr);
   }
   return ss.str();
+}
+
+std::string Platform::DeviceName() const { return UIDevice.currentDevice.name.UTF8String; }
+
+std::string Platform::DeviceModel() const
+{
+  utsname systemInfo;
+  uname(&systemInfo);
+  NSString * deviceModel = @(systemInfo.machine);
+  if (auto m = platform::kDeviceModelsBeforeMetalDriver[deviceModel])
+    deviceModel = m;
+  else if (auto m = platform::kDeviceModelsWithiOS10MetalDriver[deviceModel])
+    deviceModel = m;
+  else if (auto m = platform::kDeviceModelsWithMetalDriver[deviceModel])
+    deviceModel = m;
+  return deviceModel.UTF8String;
 }
 
 void Platform::RunOnGuiThread(base::TaskLoop::Task && task)

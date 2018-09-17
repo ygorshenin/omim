@@ -1,6 +1,7 @@
 import FBSDKCoreKit
 import FBSDKLoginKit
 import GoogleSignIn
+import SafariServices
 
 @objc(MWMAuthorizationViewController)
 final class AuthorizationViewController: MWMViewController {
@@ -20,15 +21,11 @@ final class AuthorizationViewController: MWMViewController {
     }
   }
 
-  @IBOutlet private weak var tapView: UIView! {
+  @IBOutlet private weak var contentView: UIView! {
     didSet {
-      iPadSpecific {
-        tapView?.removeFromSuperview()
-      }
+      contentView.backgroundColor = UIColor.white()
     }
   }
-
-  @IBOutlet private weak var contentView: UIView!
 
   @IBOutlet private weak var titleLabel: UILabel! {
     didSet {
@@ -48,7 +45,7 @@ final class AuthorizationViewController: MWMViewController {
     didSet {
       textLabel.font = UIFont.regular14()
       textLabel.textColor = UIColor.blackSecondaryText()
-      textLabel.text = L("profile_authorization_message")
+      textLabel.text = L("sign_message_gdpr")
     }
   }
 
@@ -61,55 +58,159 @@ final class AuthorizationViewController: MWMViewController {
       googleButton.clipsToBounds = true
       googleButton.setTitle("Google", for: .normal)
       googleButton.setTitleColor(UIColor.blackPrimaryText(), for: .normal)
+      googleButton.setTitleColor(UIColor.blackSecondaryText(), for: .disabled)
       googleButton.titleLabel?.font = UIFont.bold14()
-      let gid = GIDSignIn.sharedInstance()!
-      gid.delegate = self
-      gid.uiDelegate = self
+      googleButton.isEnabled = false
     }
   }
 
   @IBAction func googleSignIn() {
-    GIDSignIn.sharedInstance().signIn()
+    let gid = GIDSignIn.sharedInstance()!
+    if var scopes = gid.scopes {
+      scopes.append("https://www.googleapis.com/auth/plus.login")
+      gid.scopes = scopes
+    }
+    gid.delegate = self
+    gid.uiDelegate = self
+    gid.signIn()
   }
 
-  private lazy var facebookButton: FBSDKLoginButton = {
-    let button = FBSDKLoginButton()
-    button.delegate = self
-    button.loginBehavior = .systemAccount
-    button.setAttributedTitle(NSAttributedString(string: "Facebook"), for: .normal)
-    button.readPermissions = ["public_profile", "email"]
-    return button
-  }()
-
-  @IBOutlet private weak var facebookButtonHolder: UIView! {
+  @IBOutlet private weak var facebookButton: UIButton! {
     didSet {
-      facebookButton.translatesAutoresizingMaskIntoConstraints = false
-      facebookButtonHolder.addSubview(facebookButton)
-      facebookButton.removeConstraints(facebookButton.constraints)
-      addConstraints(v1: facebookButton, v2: facebookButtonHolder)
-      facebookButtonHolder.layer.cornerRadius = 8
-      facebookButtonHolder.clipsToBounds = true
+      facebookButton.layer.cornerRadius = 8
+      facebookButton.clipsToBounds = true
+      facebookButton.titleLabel?.font = UIFont.bold14()
+      facebookButton.setBackgroundColor(UIColor.facebookButtonBackground(), for: .normal)
+      facebookButton.setBackgroundColor(UIColor.facebookButtonBackgroundDisabled(), for: .disabled)
+      facebookButton.isEnabled = false
+    }
+  }
+  
+  @IBAction func facebookSignIn() {
+    let fbLoginManager = FBSDKLoginManager()
+    fbLoginManager.loginBehavior = .systemAccount
+    fbLoginManager.logIn(withReadPermissions: ["public_profile", "email"], from: self) { [weak self] (result, error) in
+      if let error = error {
+        self?.process(error: error, type: .facebook)
+      } else if let token = result?.token {
+        self?.process(token: token.tokenString, type: .facebook)
+      }
     }
   }
 
-  private let completion: (() -> Void)?
+  @IBAction private func phoneSignIn() {
+    dismiss(animated: true) {
+      let url = ViewModel.phoneAuthURL()!
+      let wv = WebViewController(authURL: url, onSuccessAuth: { (token: String?) in
+        self.process(token: token!, type: .phone)
+      }, onFailure: {
+        self.process(error: NSError(domain: kMapsmeErrorDomain, code: 0), type: .phone)
+        self.errorHandler?(.cancelled)
+      })
 
-  private func addConstraints(v1: UIView, v2: UIView) {
-    [NSLayoutAttribute.top, .bottom, .left, .right].forEach {
-      NSLayoutConstraint(item: v1, attribute: $0, relatedBy: .equal, toItem: v2, attribute: $0, multiplier: 1, constant: 0).isActive = true
+      MapViewController.topViewController().navigationController?.pushViewController(wv!, animated: true)
+    }
+  }
+  
+  @IBOutlet private weak var phoneSignInButton: UIButton! {
+    didSet {
+      phoneSignInButton.isEnabled = false
     }
   }
 
-  @objc init(barButtonItem: UIBarButtonItem?, completion: (() -> Void)? = nil) {
-    self.completion = completion
+  @IBOutlet private weak var privacyPolicyCheck: Checkmark! {
+    didSet {
+      privacyPolicyCheck.offTintColor = .blackHintText()
+      privacyPolicyCheck.onTintColor = .linkBlue()
+      privacyPolicyCheck.contentHorizontalAlignment = .left
+    }
+  }
+  
+  @IBOutlet private weak var termsOfUseCheck: Checkmark! {
+    didSet {
+      termsOfUseCheck.offTintColor = .blackHintText()
+      termsOfUseCheck.onTintColor = .linkBlue()
+      termsOfUseCheck.contentHorizontalAlignment = .left
+    }
+  }
+  
+  @IBOutlet private weak var latestNewsCheck: Checkmark! {
+    didSet {
+      latestNewsCheck.offTintColor = .blackHintText()
+      latestNewsCheck.onTintColor = .linkBlue()
+      latestNewsCheck.contentHorizontalAlignment = .left
+    }
+  }
+  
+  @IBAction func onCheck(_ sender: Checkmark) {
+    let allButtonsChecked = privacyPolicyCheck.isChecked &&
+      termsOfUseCheck.isChecked;
+    
+    googleButton.isEnabled = allButtonsChecked;
+    facebookButton.isEnabled = allButtonsChecked;
+    phoneSignInButton.isEnabled = allButtonsChecked;
+  }
+  
+  @IBOutlet private weak var privacyPolicyTextView: UITextView! {
+    didSet {
+      let htmlString = String(coreFormat: L("sign_agree_pp_gdpr"), arguments: [ViewModel.privacyPolicyLink()])
+      let attributes: [NSAttributedStringKey : Any] = [NSAttributedStringKey.font: UIFont.regular16(),
+                                                       NSAttributedStringKey.foregroundColor: UIColor.blackPrimaryText()]
+      privacyPolicyTextView.attributedText = NSAttributedString.string(withHtml: htmlString,
+                                                                       defaultAttributes: attributes)
+      privacyPolicyTextView.delegate = self
+    }
+  }
+  
+  @IBOutlet private weak var termsOfUseTextView: UITextView! {
+    didSet {
+      let htmlString = String(coreFormat: L("sign_agree_tof_gdpr"), arguments: [ViewModel.termsOfUseLink()])
+      let attributes: [NSAttributedStringKey : Any] = [NSAttributedStringKey.font: UIFont.regular16(),
+                                                       NSAttributedStringKey.foregroundColor: UIColor.blackPrimaryText()]
+      termsOfUseTextView.attributedText = NSAttributedString.string(withHtml: htmlString,
+                                                                    defaultAttributes: attributes)
+      termsOfUseTextView.delegate = self
+    }
+  }
+  
+  @IBOutlet private weak var latestNewsTextView: UITextView! {
+    didSet {
+      let text = L("sign_agree_news_gdpr")
+      let attributes: [NSAttributedStringKey : Any] = [NSAttributedStringKey.font: UIFont.regular16(),
+                                                       NSAttributedStringKey.foregroundColor: UIColor.blackPrimaryText()]
+      latestNewsTextView.attributedText = NSAttributedString(string: text, attributes: attributes)
+    }
+  }
+  
+  @IBOutlet private weak var topToContentConstraint: NSLayoutConstraint!
+
+  typealias SuccessHandler = (MWMSocialTokenType) -> Void
+  typealias ErrorHandler = (MWMAuthorizationError) -> Void
+  typealias CompletionHandler = (AuthorizationViewController) -> Void
+
+  private let sourceComponent: MWMAuthorizationSource
+  private let successHandler: SuccessHandler?
+  private let errorHandler: ErrorHandler?
+  private let completionHandler: CompletionHandler?
+
+  @objc
+  init(barButtonItem: UIBarButtonItem?, sourceComponent: MWMAuthorizationSource, successHandler: SuccessHandler? = nil, errorHandler: ErrorHandler? = nil, completionHandler: CompletionHandler? = nil) {
+    self.sourceComponent = sourceComponent
+    self.successHandler = successHandler
+    self.errorHandler = errorHandler
+    self.completionHandler = completionHandler
     transitioningManager = AuthorizationTransitioningManager(barButtonItem: barButtonItem)
     super.init(nibName: toString(type(of: self)), bundle: nil)
     transitioningDelegate = transitioningManager
     modalPresentationStyle = .custom
   }
 
-  @objc init(popoverSourceView: UIView? = nil, permittedArrowDirections: UIPopoverArrowDirection = .unknown, completion: (() -> Void)? = nil) {
-    self.completion = completion
+  @objc
+  init(popoverSourceView: UIView? = nil, sourceComponent: MWMAuthorizationSource, permittedArrowDirections: UIPopoverArrowDirection = .unknown, successHandler: SuccessHandler? = nil, errorHandler: ErrorHandler? = nil, completionHandler: CompletionHandler? = nil) {
+    self.sourceComponent = sourceComponent
+    self.successHandler = successHandler
+    self.errorHandler = errorHandler
+    self.completionHandler = completionHandler
     transitioningManager = AuthorizationTransitioningManager(popoverSourceView: popoverSourceView, permittedArrowDirections: permittedArrowDirections)
     super.init(nibName: toString(type(of: self)), bundle: nil)
     transitioningDelegate = transitioningManager
@@ -119,30 +220,47 @@ final class AuthorizationViewController: MWMViewController {
   required init?(coder _: NSCoder) {
     fatalError("init(coder:) has not been implemented")
   }
+  
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    iPadSpecific {
+      topToContentConstraint.isActive = false
+    }
+  }
 
   override func viewDidAppear(_ animated: Bool) {
     super.viewDidAppear(animated)
-
-    let fbImage = facebookButton.subviews.first(where: { $0 is UIImageView && $0.frame != facebookButton.frame })
-    fbImage?.frame = CGRect(x: 16, y: 8, width: 24, height: 24)
   }
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
-    preferredContentSize = contentView.size
+    iPadSpecific {
+      preferredContentSize = contentView.systemLayoutSizeFitting(preferredContentSize, withHorizontalFittingPriority: .fittingSizeLevel, verticalFittingPriority: .fittingSizeLevel)
+    }
   }
 
   @IBAction func onCancel() {
     Statistics.logEvent(kStatUGCReviewAuthDeclined)
-    dismiss(animated: true, completion: {
-      (UIApplication.shared.keyWindow?.rootViewController as?
-        UINavigationController)?.popToRootViewController(animated: true)
-    })
+    errorHandler?(.cancelled)
+    onClose()
+  }
+
+  private func onClose() {
+    dismiss(animated: true)
+    completionHandler?(self)
+  }
+  
+  private func getProviderStatStr(type: MWMSocialTokenType) -> String {
+    switch type {
+    case .facebook: return kStatFacebook
+    case .google: return kStatGoogle
+    case .phone: return kStatPhone
+    }
   }
 
   private func process(error: Error, type: MWMSocialTokenType) {
     Statistics.logEvent(kStatUGCReviewAuthError, withParameters: [
-      kStatProvider: type == .facebook ? kStatFacebook : kStatGoogle,
+      kStatProvider: getProviderStatStr(type: type),
       kStatError: error.localizedDescription,
     ])
     textLabel.text = L("profile_authorization_error")
@@ -150,22 +268,21 @@ final class AuthorizationViewController: MWMViewController {
   }
 
   private func process(token: String, type: MWMSocialTokenType) {
-    Statistics.logEvent(kStatUGCReviewAuthExternalRequestSuccess, withParameters: [kStatProvider: type == .facebook ? kStatFacebook : kStatGoogle])
-    ViewModel.authenticate(withToken: token, type: type)
-    dismiss(animated: true, completion: completion)
-  }
-}
-
-extension AuthorizationViewController: FBSDKLoginButtonDelegate {
-  func loginButton(_: FBSDKLoginButton!, didCompleteWith result: FBSDKLoginManagerLoginResult!, error: Error!) {
-    if let error = error {
-      process(error: error, type: .facebook)
-    } else if let token = result?.token {
-      process(token: token.tokenString, type: .facebook)
+    Statistics.logEvent(kStatUGCReviewAuthExternalRequestSuccess, withParameters: [kStatProvider: getProviderStatStr(type: type)])
+    ViewModel.authenticate(withToken: token,
+                           type: type,
+                           privacyAccepted: privacyPolicyCheck.isChecked,
+                           termsAccepted: termsOfUseCheck.isChecked,
+                           promoAccepted: latestNewsCheck.isChecked,
+                           source: sourceComponent) { success in
+      if success {
+        self.successHandler?(type)
+      } else {
+        self.errorHandler?(.passportError)
+      }
     }
+    onClose()
   }
-
-  func loginButtonDidLogOut(_: FBSDKLoginButton!) {}
 }
 
 extension AuthorizationViewController: GIDSignInUIDelegate {
@@ -178,5 +295,19 @@ extension AuthorizationViewController: GIDSignInDelegate {
     } else {
       process(token: user.authentication.idToken, type: .google)
     }
+  }
+}
+
+extension AuthorizationViewController: UITextViewDelegate {
+  func textView(_ textView: UITextView, shouldInteractWith URL: URL, in characterRange: NSRange) -> Bool {
+    let safari = SFSafariViewController(url: URL)
+    self.present(safari, animated: true, completion: nil)
+    return false;
+  }
+}
+
+extension AuthorizationViewController: UIGestureRecognizerDelegate {
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+    return !contentView.point(inside: touch.location(in: contentView), with: nil)
   }
 }

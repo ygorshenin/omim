@@ -24,7 +24,7 @@ class QueryParams
 public:
   using String = strings::UniString;
   using TypeIndices = std::vector<uint32_t>;
-  using Langs = ::base::SafeSmallSet<StringUtf8Multilang::kMaxSupportedLanguages>;
+  using Langs = base::SafeSmallSet<StringUtf8Multilang::kMaxSupportedLanguages>;
 
   struct Token
   {
@@ -36,9 +36,8 @@ public:
 
     // Calls |fn| on the original token and on synonyms.
     template <typename Fn>
-    typename std::enable_if<
-        std::is_same<typename std::result_of<Fn(String)>::type, void>::value>::type
-    ForEach(Fn && fn) const
+    std::enable_if_t<std::is_same<std::result_of_t<Fn(String)>, void>::value> ForEach(
+        Fn && fn) const
     {
       fn(m_original);
       std::for_each(m_synonyms.begin(), m_synonyms.end(), std::forward<Fn>(fn));
@@ -46,9 +45,8 @@ public:
 
     // Calls |fn| on the original token and on synonyms until |fn| return false.
     template <typename Fn>
-    typename std::enable_if<
-        std::is_same<typename std::result_of<Fn(String)>::type, bool>::value>::type
-    ForEach(Fn && fn) const
+    std::enable_if_t<std::is_same<std::result_of_t<Fn(String)>, bool>::value> ForEach(
+        Fn && fn) const
     {
       if (!fn(m_original))
         return;
@@ -91,14 +89,11 @@ public:
     m_typeIndices.resize(GetNumTokens());
   }
 
-  inline size_t GetNumTokens() const
-  {
-    return m_hasPrefix ? m_tokens.size() + 1: m_tokens.size();
-  }
+  size_t GetNumTokens() const { return m_hasPrefix ? m_tokens.size() + 1 : m_tokens.size(); }
 
-  inline bool LastTokenIsPrefix() const { return m_hasPrefix; }
+  bool LastTokenIsPrefix() const { return m_hasPrefix; }
 
-  inline bool IsEmpty() const { return GetNumTokens() == 0; }
+  bool IsEmpty() const { return GetNumTokens() == 0; }
   void Clear();
 
   bool IsCategorySynonym(size_t i) const;
@@ -114,14 +109,14 @@ public:
 
   void RemoveToken(size_t i);
 
-  inline Langs & GetLangs() { return m_langs; }
-  inline Langs const & GetLangs() const { return m_langs; }
-  inline bool LangExists(int8_t lang) const { return m_langs.Contains(lang); }
+  Langs & GetLangs() { return m_langs; }
+  Langs const & GetLangs() const { return m_langs; }
+  bool LangExists(int8_t lang) const { return m_langs.Contains(lang); }
 
-  inline void SetCategorialRequest(bool isCategorial) { m_isCategorialRequest = isCategorial; }
-  inline bool IsCategorialRequest() const { return m_isCategorialRequest; }
+  void SetCategorialRequest(bool isCategorial) { m_isCategorialRequest = isCategorial; }
+  bool IsCategorialRequest() const { return m_isCategorialRequest; }
 
-  inline int GetScale() const { return m_scale; }
+  int GetScale() const { return m_scale; }
 
 private:
   friend std::string DebugPrint(QueryParams const & params);

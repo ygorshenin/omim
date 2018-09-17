@@ -1,6 +1,6 @@
 #pragma once
 
-#include "drape_frontend/render_state.hpp"
+#include "drape_frontend/render_state_extension.hpp"
 
 #include "drape/color.hpp"
 #include "drape/drape_global.hpp"
@@ -21,8 +21,9 @@ uint32_t constexpr kStartUserMarkOverlayIndex = 1000;
 
 struct CommonViewParams
 {
-  RenderState::DepthLayer m_depthLayer = RenderState::GeometryLayer;
+  DepthLayer m_depthLayer = DepthLayer::GeometryLayer;
   float m_depth = 0.0f;
+  bool m_depthTestEnabled = true;
   int m_minVisibleScale = 0;
   uint8_t m_rank = 0;
   m2::PointD m_tileCenter;
@@ -32,7 +33,9 @@ enum class SpecialDisplacement
 {
   None,
   SpecialMode,
-  UserMark
+  UserMark,
+  HouseNumber,
+  TransitScheme
 };
 
 struct CommonOverlayViewParams : public CommonViewParams

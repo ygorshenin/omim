@@ -3,6 +3,7 @@ package com.mapswithme.maps.search;
 import android.content.res.Resources;
 import android.support.annotation.DrawableRes;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
 import android.support.annotation.StringRes;
 import android.support.v4.app.Fragment;
 import android.support.v7.widget.RecyclerView;
@@ -12,13 +13,14 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 
 import com.mapswithme.maps.R;
-import com.mapswithme.maps.widget.placepage.Sponsored;
 import com.mapswithme.util.ThemeUtils;
 import com.mapswithme.util.statistics.Statistics;
 
 class CategoriesAdapter extends RecyclerView.Adapter<CategoriesAdapter.ViewHolder>
 {
+  @StringRes
   private final int mCategoryResIds[];
+  @DrawableRes
   private final int mIconResIds[];
 
   private final LayoutInflater mInflater;
@@ -26,7 +28,7 @@ class CategoriesAdapter extends RecyclerView.Adapter<CategoriesAdapter.ViewHolde
 
   interface OnCategorySelectedListener
   {
-    void onCategorySelected(String category);
+    void onCategorySelected(@Nullable String category);
   }
 
   private OnCategorySelectedListener mListener;
@@ -47,20 +49,17 @@ class CategoriesAdapter extends RecyclerView.Adapter<CategoriesAdapter.ViewHolde
       String key = keys[i];
 
       mCategoryResIds[i] = resources.getIdentifier(key, "string", packageName);
-      if (mCategoryResIds[i] == 0)
+      PromoCategory promo = PromoCategory.findByKey(key);
+      if (promo != null)
       {
-        // TODO: remove this code after "cian" feature is obsoleted.
-        if (key.equals("cian"))
-        {
-          Statistics.INSTANCE.trackSponsoredEvent(Statistics.EventName.SEARCH_SPONSOR_CATEGORY_SHOWN,
-                                                  Sponsored.TYPE_CIAN);
-          mCategoryResIds[i] = R.string.real_estate;
-        }
-        else
-        {
-          throw new IllegalStateException("Can't get string resource id for category:" + key);
-        }
+        Statistics.INSTANCE.trackSponsoredEventForCustomProvider(
+            Statistics.EventName.SEARCH_SPONSOR_CATEGORY_SHOWN,
+            promo.getStatisticValue());
+        mCategoryResIds[i] = promo.getStringId();
       }
+
+      if (mCategoryResIds[i] == 0)
+        throw new IllegalStateException("Can't get string resource id for category:" + key);
 
       String iconId = "ic_category_" + key;
       if (isNightTheme)
@@ -79,8 +78,6 @@ class CategoriesAdapter extends RecyclerView.Adapter<CategoriesAdapter.ViewHolde
   @Override
   public int getItemViewType(int position)
   {
-    if (mCategoryResIds[position] == R.string.real_estate)
-      return R.layout.item_search_category_cian;
     return R.layout.item_search_category;
   }
 
@@ -88,9 +85,9 @@ class CategoriesAdapter extends RecyclerView.Adapter<CategoriesAdapter.ViewHolde
   public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType)
   {
     final View view;
-    if (viewType == R.layout.item_search_category_cian)
+    if (viewType == R.layout.item_search_category_luggage)
     {
-      view = mInflater.inflate(R.layout.item_search_category_cian, parent, false);
+      view = mInflater.inflate(R.layout.item_search_category_luggage, parent, false);
       return new ViewHolder(view, (TextView) view.findViewById(R.id.tv__category));
     }
 
@@ -110,10 +107,12 @@ class CategoriesAdapter extends RecyclerView.Adapter<CategoriesAdapter.ViewHolde
     return mCategoryResIds.length;
   }
 
-  private String getSuggestionFromCategory(int resId)
+  @NonNull
+  private String getSuggestionFromCategory(@StringRes int resId)
   {
-    if (resId == R.string.real_estate)
-      return "cian ";
+    PromoCategory promoCategory = PromoCategory.findByStringId(resId);
+    if (promoCategory != null)
+      return promoCategory.getKey();
     return mResources.getString(resId) + ' ';
   }
 

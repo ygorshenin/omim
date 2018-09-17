@@ -1,17 +1,17 @@
 #include "ugc/loader.hpp"
 
+#include "indexer/data_source.hpp"
 #include "indexer/feature.hpp"
-#include "indexer/index.hpp"
 
 #include "defines.hpp"
 
 namespace ugc
 {
-Loader::Loader(Index const & index) : m_index(index) {}
+Loader::Loader(DataSource const & dataSource) : m_dataSource(dataSource) {}
 
 UGC Loader::GetUGC(FeatureID const & featureId)
 {
-  auto const handle = m_index.GetMwmHandleById(featureId.m_mwmId);
+  auto const handle = m_dataSource.GetMwmHandleById(featureId.m_mwmId);
 
   if (!handle.IsAlive())
     return {};
@@ -21,17 +21,27 @@ UGC Loader::GetUGC(FeatureID const & featureId)
   if (!value.m_cont.IsExist(UGC_FILE_TAG))
     return {};
 
-  if (m_currentMwmId != featureId.m_mwmId)
+  UGC ugc;
+  EntryPtr entry;
   {
-    m_currentMwmId = featureId.m_mwmId;
-    m_d = binary::UGCDeserializer();
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = m_deserializers.find(featureId.m_mwmId);
+
+    if (it == m_deserializers.end())
+    {
+      auto const result = m_deserializers.emplace(featureId.m_mwmId, make_shared<Entry>());
+      it = result.first;
+    }
+    entry = it->second;
   }
 
-  auto readerPtr = value.m_cont.GetReader(UGC_FILE_TAG);
+  ASSERT(entry, ());
 
-  UGC ugc;
-  if (!m_d.Deserialize(*readerPtr.GetPtr(), featureId.m_index, ugc))
-    return {};
+  {
+    std::lock_guard<std::mutex> lock(entry->m_mutex);
+    auto readerPtr = value.m_cont.GetReader(UGC_FILE_TAG);
+    entry->m_deserializer.Deserialize(*readerPtr.GetPtr(), featureId.m_index, ugc);
+  }
 
   return ugc;
 }

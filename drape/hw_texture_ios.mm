@@ -1,9 +1,8 @@
-#include "hw_texture_ios.hpp"
-
-#include "base/logging.hpp"
-
+#include "drape/hw_texture_ios.hpp"
 #include "drape/glfunctions.hpp"
 #include "drape/glIncludes.hpp"
+
+#include "base/logging.hpp"
 
 #import <QuartzCore/CAEAGLLayer.h>
 
@@ -11,8 +10,17 @@
 #import <Foundation/NSValue.h>
 
 #include <boost/integer_traits.hpp>
+
+/// @todo(greshilov): delete this hack for next boost version (>1.65.0)
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wc++11-narrowing"
+#endif
 #include <boost/gil/algorithm.hpp>
 #include <boost/gil/typedefs.hpp>
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 using boost::gil::gray8c_pixel_t;
 using boost::gil::gray8_pixel_t;
@@ -28,7 +36,6 @@ using boost::gil::copy_pixels;
 
 namespace dp
 {
-
 HWTextureAllocatorApple::HWTextureAllocatorApple()
 {
   CVReturn cvRetval = CVOpenGLESTextureCacheCreate(kCFAllocatorDefault, nullptr,
@@ -43,7 +50,8 @@ HWTextureAllocatorApple::~HWTextureAllocatorApple()
   CFRelease(m_textureCache);
 }
 
-CVPixelBufferRef HWTextureAllocatorApple::CVCreatePixelBuffer(uint32_t width, uint32_t height, int format)
+CVPixelBufferRef HWTextureAllocatorApple::CVCreatePixelBuffer(uint32_t width, uint32_t height,
+                                                              dp::TextureFormat format)
 {
   NSDictionary * attrs = [NSDictionary dictionaryWithObjectsAndKeys:
                             [NSDictionary dictionary], kCVPixelBufferIOSurfacePropertiesKey,
@@ -57,10 +65,11 @@ CVPixelBufferRef HWTextureAllocatorApple::CVCreatePixelBuffer(uint32_t width, ui
   CVReturn cvRetval = 0;
   switch (format)
   {
-  case dp::RGBA8:
-    cvRetval = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA, attrsRef, &result);
+  case dp::TextureFormat::RGBA8:
+    cvRetval = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
+                                   attrsRef, &result);
     break;
-  case dp::ALPHA:
+  case dp::TextureFormat::Alpha:
     cvRetval = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_OneComponent8,
                                    attrsRef, &result);
     break;
@@ -147,10 +156,11 @@ void HWTextureApple::Create(Params const & params, ref_ptr<void> data)
 
   m_textureID = CVOpenGLESTextureGetName(m_texture);
   GLFunctions::glBindTexture(m_textureID);
-  GLFunctions::glTexParameter(gl_const::GLMinFilter, params.m_filter);
-  GLFunctions::glTexParameter(gl_const::GLMagFilter, params.m_filter);
-  GLFunctions::glTexParameter(gl_const::GLWrapS, params.m_wrapSMode);
-  GLFunctions::glTexParameter(gl_const::GLWrapT, params.m_wrapTMode);
+  auto const f = DecodeTextureFilter(params.m_filter);
+  GLFunctions::glTexParameter(gl_const::GLMinFilter, f);
+  GLFunctions::glTexParameter(gl_const::GLMagFilter, f);
+  GLFunctions::glTexParameter(gl_const::GLWrapS, DecodeTextureWrapping(params.m_wrapSMode));
+  GLFunctions::glTexParameter(gl_const::GLWrapT, DecodeTextureWrapping(params.m_wrapTMode));
 
   if (data == nullptr)
     return;
@@ -202,5 +212,4 @@ void HWTextureApple::Unlock()
   CHECK_EQUAL(CVPixelBufferUnlockBaseAddress(m_directBuffer, 0), kCVReturnSuccess, ());
   m_allocator->RiseFlushFlag();
 }
-
-}
+}  // namespace dp

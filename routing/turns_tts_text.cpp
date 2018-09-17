@@ -45,10 +45,11 @@ void GetTtsText::ForTestingSetLocaleWithJson(string const & jsonBuffer, string c
   m_getCurLang = platform::ForTestingGetTextByIdFactory(jsonBuffer, locale);
 }
 
-string GetTtsText::operator()(Notification const & notification) const
+string GetTtsText::GetTurnNotification(Notification const & notification) const
 {
   if (notification.m_distanceUnits == 0 && !notification.m_useThenInsteadOfDistance)
     return GetTextById(GetDirectionTextId(notification));
+
   if (notification.m_useThenInsteadOfDistance && notification.m_turnDir == CarDirection::None)
     return string();
 
@@ -58,6 +59,11 @@ string GetTtsText::operator()(Notification const & notification) const
 
   string const distStr = GetTextById(GetDistanceTextId(notification));
   return distStr + " " + dirStr;
+}
+
+string GetTtsText::GetSpeedCameraNotification() const
+{
+  return GetTextById("unknown_camera");
 }
 
 string GetTtsText::GetLocale() const
@@ -157,9 +163,11 @@ string GetDirectionTextId(Notification const & notification)
       return GetRoundaboutTextId(notification);
     case CarDirection::ReachedYourDestination:
       return GetYouArriveTextId(notification);
+    case CarDirection::ExitHighwayToLeft:
+    case CarDirection::ExitHighwayToRight:
+      return "exit";
     case CarDirection::StayOnRoundAbout:
     case CarDirection::StartAtEndOfStreet:
-    case CarDirection::TakeTheExit:
     case CarDirection::None:
     case CarDirection::Count:
       ASSERT(false, ());

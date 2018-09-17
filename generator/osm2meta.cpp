@@ -2,6 +2,8 @@
 
 #include "platform/measurement_utils.hpp"
 
+#include "routing/routing_helpers.hpp"
+
 #include "coding/url_encode.hpp"
 
 #include "base/logging.hpp"
@@ -11,6 +13,9 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <iostream>
+#include <sstream>
+#include <unordered_map>
 #include <unordered_set>
 
 using namespace std;
@@ -67,14 +72,6 @@ void CollapseMultipleConsecutiveCharsIntoOne(char c, string & str)
 }
 }  // namespace
 
-string MetadataTagProcessorImpl::ValidateAndFormat_maxspeed(string const & v) const
-{
-  if (!ftypes::IsSpeedCamChecker::Instance()(m_params.m_Types))
-    return string();
-
-  return v;
-}
-
 string MetadataTagProcessorImpl::ValidateAndFormat_stars(string const & v) const
 {
   if (v.empty())
@@ -108,7 +105,7 @@ string MetadataTagProcessorImpl::ValidateAndFormat_operator(string const & v) co
   auto const & isATM = ftypes::IsATMChecker::Instance();
   auto const & isFuelStation = ftypes::IsFuelStationChecker::Instance();
 
-  if (!(isATM(m_params.m_Types) || isFuelStation(m_params.m_Types)))
+  if (!(isATM(m_params.m_types) || isFuelStation(m_params.m_types)))
     return string();
 
   return v;

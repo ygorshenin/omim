@@ -1,4 +1,8 @@
 final class PlacePageArea: AvailableArea {
+  override var areaFrame: CGRect {
+    return frame
+  }
+
   override func isAreaAffectingView(_ other: UIView) -> Bool {
     return !other.placePageAreaAffectDirections.isEmpty
   }
@@ -10,7 +14,7 @@ final class PlacePageArea: AvailableArea {
   }
 
   override func notifyObserver() {
-    MWMPlacePageManagerHelper.updateAvailableArea(frame)
+    MWMPlacePageManagerHelper.updateAvailableArea(areaFrame)
   }
 }
 

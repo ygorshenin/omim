@@ -1,16 +1,17 @@
-#include "../../testing/testing.hpp"
+#include "testing/testing.hpp"
 
+#include "indexer/data_source.hpp"
 #include "indexer/features_vector.hpp"
-#include "indexer/index.hpp"
 #include "indexer/mwm_set.hpp"
 
 #include "platform/local_country_file.hpp"
 
-#include "std/map.hpp"
-#include "std/string.hpp"
-#include "std/vector.hpp"
+#include <map>
+#include <string>
+#include <vector>
 
 using namespace platform;
+using namespace std;
 
 namespace
 {
@@ -50,12 +51,12 @@ UNIT_TEST(FeaturesVectorTest_ParseMetadata)
 
   LocalCountryFile localFile = LocalCountryFile::MakeForTesting(kCountryName);
 
-  Index index;
-  auto result = index.RegisterMap(localFile);
+  FrozenDataSource dataSource;
+  auto result = dataSource.RegisterMap(localFile);
   TEST_EQUAL(result.second, MwmSet::RegResult::Success, ());
 
   auto const & id = result.first;
-  MwmSet::MwmHandle handle = index.GetMwmHandleById(id);
+  MwmSet::MwmHandle handle = dataSource.GetMwmHandleById(id);
   TEST(handle.IsAlive(), ());
 
   auto const * value = handle.GetValue<MwmValue>();

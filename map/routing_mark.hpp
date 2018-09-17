@@ -1,6 +1,6 @@
 #pragma once
 
-#include "map/user_mark_container.hpp"
+#include "map/bookmark_manager.hpp"
 
 #include <string>
 
@@ -27,17 +27,16 @@ struct RouteMarkData
 class RouteMarkPoint : public UserMark
 {
 public:
-  RouteMarkPoint(m2::PointD const & ptOrg, UserMarkContainer * container);
+  RouteMarkPoint(m2::PointD const & ptOrg);
   virtual ~RouteMarkPoint() {}
 
   bool IsVisible() const override { return m_markData.m_isVisible; }
   void SetIsVisible(bool isVisible) { m_markData.m_isVisible = isVisible; }
 
   dp::Anchor GetAnchor() const override;
-  df::RenderState::DepthLayer GetDepthLayer() const override;
+  df::DepthLayer GetDepthLayer() const override;
 
   drape_ptr<SymbolNameZoomInfo> GetSymbolNames() const override;
-  UserMark::Type GetMarkType() const override { return Type::ROUTING; }
   bool IsAvailableForSearch() const override { return !IsPassed(); }
 
   RouteMarkType GetRoutePointType() const { return m_markData.m_pointType; }
@@ -79,11 +78,12 @@ class RoutePointsLayout
 public:
   static size_t const kMaxIntermediatePointsCount;
 
-  RoutePointsLayout(UserMarksController & routeMarks);
+  RoutePointsLayout(BookmarkManager & manager);
 
-  RouteMarkPoint * AddRoutePoint(RouteMarkData && data);
-  RouteMarkPoint * GetRoutePoint(RouteMarkType type, size_t intermediateIndex = 0);
-  RouteMarkPoint * GetMyPositionPoint();
+  void AddRoutePoint(RouteMarkData && data);
+  RouteMarkPoint const * GetRoutePoint(RouteMarkType type, size_t intermediateIndex = 0) const;
+  RouteMarkPoint * GetRoutePointForEdit(RouteMarkType type, size_t intermediateIndex = 0);
+  RouteMarkPoint const * GetMyPositionPoint() const;
   std::vector<RouteMarkPoint *> GetRoutePoints();
   size_t GetRoutePointsCount() const;
   bool RemoveRoutePoint(RouteMarkType type, size_t intermediateIndex = 0);
@@ -93,29 +93,27 @@ public:
                       RouteMarkType destType, size_t destIntermediateIndex);
   void PassRoutePoint(RouteMarkType type, size_t intermediateIndex = 0);
   void SetFollowingMode(bool enabled);
-  void NotifyChanges();
 
 private:
   using TRoutePointCallback = function<void (RouteMarkPoint * mark)>;
   void ForEachIntermediatePoint(TRoutePointCallback const & fn);
-  RouteMarkPoint * GetRouteMarkForEdit(size_t index);
-  RouteMarkPoint const * GetRouteMark(size_t index);
 
-  UserMarksController & m_routeMarks;
+  BookmarkManager & m_manager;
+  BookmarkManager::EditSession m_editSession;
 };
 
 class TransitMark : public UserMark
 {
 public:
-  TransitMark(m2::PointD const & ptOrg, UserMarkContainer * container);
-  virtual ~TransitMark() {}
+  explicit TransitMark(m2::PointD const & ptOrg);
 
-  dp::Anchor GetAnchor() const override { return dp::Center; }
-  df::RenderState::DepthLayer GetDepthLayer() const override { return df::RenderState::TransitMarkLayer; }
-  UserMark::Type GetMarkType() const override { return Type::TRANSIT; }
+  df::DepthLayer GetDepthLayer() const override { return df::DepthLayer::TransitMarkLayer; }
 
   bool HasSymbolPriority() const override { return !m_symbolNames.empty() || !m_coloredSymbols.empty(); }
   bool HasTitlePriority() const override { return true; }
+
+  void SetAnchor(dp::Anchor anchor);
+  dp::Anchor GetAnchor() const override;
 
   void SetFeatureId(FeatureID featureId);
   FeatureID GetFeatureID() const override { return m_featureId; }
@@ -141,6 +139,9 @@ public:
   void SetSymbolSizes(SymbolSizes const & symbolSizes);
   drape_ptr<SymbolSizes> GetSymbolSizes() const override;
 
+  void SetSymbolOffsets(SymbolOffsets const & symbolSizes);
+  drape_ptr<SymbolOffsets> GetSymbolOffsets() const override;
+
   void AddTitle(dp::TitleDecl const & titleDecl);
   drape_ptr<TitlesInfo> GetTitleDecl() const override;
 
@@ -156,4 +157,6 @@ private:
   SymbolNameZoomInfo m_symbolNames;
   ColoredSymbolZoomInfo m_coloredSymbols;
   SymbolSizes m_symbolSizes;
+  SymbolOffsets m_symbolOffsets;
+  dp::Anchor m_anchor = dp::Center;
 };

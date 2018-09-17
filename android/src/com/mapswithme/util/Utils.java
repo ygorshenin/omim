@@ -10,6 +10,8 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.net.Uri;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.provider.Settings;
 import android.support.annotation.DimenRes;
@@ -32,8 +34,6 @@ import com.mapswithme.maps.BuildConfig;
 import com.mapswithme.maps.MwmApplication;
 import com.mapswithme.maps.R;
 import com.mapswithme.maps.activity.CustomNavigateUpListener;
-import com.mapswithme.maps.taxi.TaxiLinks;
-import com.mapswithme.maps.taxi.TaxiManager;
 import com.mapswithme.util.concurrency.UiThread;
 import com.mapswithme.util.log.Logger;
 import com.mapswithme.util.log.LoggerFactory;
@@ -42,8 +42,12 @@ import com.mapswithme.util.statistics.AlohaHelper;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
+import java.net.NetworkInterface;
+import java.security.MessageDigest;
 import java.text.NumberFormat;
+import java.util.Collections;
 import java.util.Currency;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -54,25 +58,26 @@ public class Utils
   private static final Logger LOGGER = LoggerFactory.INSTANCE.getLogger(LoggerFactory.Type.MISC);
   private static final String TAG = "Utils";
 
-  public interface Proc<T>
-  {
-    void invoke(@NonNull T param);
-  }
-
   private Utils() {}
 
-  public static void closeStream(Closeable stream)
+  public static boolean isLollipopOrLater()
   {
-    if (stream != null)
-    {
-      try
-      {
-        stream.close();
-      } catch (final IOException e)
-      {
-        LOGGER.e(TAG, "Can't close stream", e);
-      }
-    }
+    return isTargetOrLater(Build.VERSION_CODES.LOLLIPOP);
+  }
+
+  public static boolean isOreoOrLater()
+  {
+    return isTargetOrLater(Build.VERSION_CODES.O);
+  }
+
+  public static boolean isMarshmallowOrLater()
+  {
+    return isTargetOrLater(Build.VERSION_CODES.M);
+  }
+
+  private static boolean isTargetOrLater(int target)
+  {
+    return Build.VERSION.SDK_INT >= target;
   }
 
   public static boolean isAmazonDevice()
@@ -166,7 +171,7 @@ public class Utils
     return Uri.parse(uriString);
   }
 
-  public static String getDeviceModel()
+  public static String getFullDeviceModel()
   {
     String model = Build.MODEL;
     if (!model.startsWith(Build.MANUFACTURER))
@@ -227,6 +232,31 @@ public class Utils
     catch (ActivityNotFoundException e)
     {
       CrashlyticsUtils.logException(e);
+    }
+  }
+
+  @NonNull
+  public static <T> T castTo(@NonNull Object instance)
+  {
+    // Noinspection unchecked
+    return (T) instance;
+  }
+
+  public static void closeSafely(@NonNull Closeable... closeable)
+  {
+    for (Closeable each : closeable)
+    {
+      if (each != null)
+      {
+        try
+        {
+          each.close();
+        }
+        catch (IOException e)
+        {
+          LOGGER.e(TAG, "Failed to close '" + each + "'" , e);
+        }
+      }
     }
   }
 
@@ -304,7 +334,78 @@ public class Utils
     return installationId;
   }
 
-  private static boolean isAppInstalled(@NonNull Activity context, @NonNull String packageName)
+  @NonNull
+  public static String getMacAddress(boolean md5Decoded)
+  {
+    final Context context = MwmApplication.get();
+    byte[] macBytes = null;
+    String address = "";
+    try
+    {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M)
+      {
+        WifiManager manager = (WifiManager) context.getApplicationContext().
+            getSystemService(Context.WIFI_SERVICE);
+        if (manager == null)
+          return "";
+        WifiInfo info = manager.getConnectionInfo();
+        address = info.getMacAddress();
+        macBytes = address.getBytes();
+      }
+      else
+      {
+        List<NetworkInterface> all = Collections.list(NetworkInterface.getNetworkInterfaces());
+        for (NetworkInterface nif : all)
+        {
+          if (!nif.getName().equalsIgnoreCase("wlan0"))
+            continue;
+
+          macBytes = nif.getHardwareAddress();
+          if (macBytes == null)
+            return "";
+
+          StringBuilder result = new StringBuilder();
+          for (int i = 0; i < macBytes.length; i++)
+          {
+            result.append(String.format("%02X", (0xFF & macBytes[i])));
+            if (i + 1 != macBytes.length)
+              result.append(":");
+          }
+          address = result.toString();
+        }
+      }
+    }
+    catch (Exception exc)
+    {
+      return "";
+    }
+    return md5Decoded ? decodeMD5(macBytes) : address;
+  }
+
+  @NonNull
+  private static String decodeMD5(@Nullable byte[] bytes)
+  {
+    if (bytes == null || bytes.length == 0)
+      return "";
+
+    try
+    {
+      MessageDigest digest = java.security.MessageDigest.getInstance("MD5");
+      digest.update(bytes);
+      byte[] messageDigest = digest.digest();
+
+      StringBuilder hexString = new StringBuilder();
+      for (int i = 0; i < messageDigest.length; i++)
+        hexString.append(String.format("%02X", (0xFF & messageDigest[i])));
+      return hexString.toString();
+    }
+    catch (Exception e)
+    {
+      return "";
+    }
+  }
+
+  public static boolean isAppInstalled(@NonNull Context context, @NonNull String packageName)
   {
     try
     {
@@ -317,55 +418,41 @@ public class Utils
     }
   }
 
-  public static boolean isTaxiAppInstalled(@NonNull Activity context, @TaxiManager.TaxiType int type)
+  private static void launchAppDirectly(@NonNull Context context, @NonNull SponsoredLinks links)
   {
-    switch (type)
-    {
-      case TaxiManager.PROVIDER_UBER:
-        return Utils.isAppInstalled(context, "com.ubercab");
-      case TaxiManager.PROVIDER_YANDEX:
-        return Utils.isAppInstalled(context, "ru.yandex.taxi");
-      default:
-        throw new AssertionError("Unsupported taxi type: " + type);
-    }
-  }
-
-  public static void launchTaxiApp(@NonNull Activity context, @NonNull TaxiLinks links,
-                                   @TaxiManager.TaxiType int type)
-  {
-    switch (type)
-    {
-      case TaxiManager.PROVIDER_UBER:
-        launchUber(context, links, isTaxiAppInstalled(context, type));
-        break;
-      case TaxiManager.PROVIDER_YANDEX:
-        launchYandexTaxi(context, links);
-        break;
-      default:
-        throw new AssertionError("Unsupported taxi type: " + type);
-    }
-  }
-
-  private static void launchUber(@NonNull Activity context, @NonNull TaxiLinks links, boolean isAppInstalled)
-  {
-    final Intent intent = new Intent(Intent.ACTION_VIEW);
-    if (isAppInstalled)
-    {
-      intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-      intent.setData(Uri.parse(links.getDeepLink()));
-    } else
-    {
-      // No Taxi app! Open mobile website.
-      intent.setData(Uri.parse(links.getUniversalLink()));
-    }
+    Intent intent = new Intent(Intent.ACTION_VIEW);
+    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    intent.setData(Uri.parse(links.getDeepLink()));
     context.startActivity(intent);
   }
 
-  private static void launchYandexTaxi(@NonNull Activity context, @NonNull TaxiLinks links)
+  private static void launchAppIndirectly(@NonNull Context context, @NonNull SponsoredLinks links)
   {
     Intent intent = new Intent(Intent.ACTION_VIEW);
     intent.setData(Uri.parse(links.getDeepLink()));
     context.startActivity(intent);
+  }
+
+  public static void openPartner(@NonNull Context activity, @NonNull SponsoredLinks links,
+                                 @NonNull String packageName, @NonNull PartnerAppOpenMode openMode)
+  {
+    switch (openMode)
+    {
+      case  Direct:
+        if (!Utils.isAppInstalled(activity, packageName))
+        {
+          openUrl(activity, links.getUniversalLink());
+          return;
+        }
+        launchAppDirectly(activity, links);
+        break;
+      case Indirect:
+        launchAppIndirectly(activity, links);
+        break;
+      default:
+        throw new AssertionError("Unsupported partner app open mode: " + openMode +
+                                 "; Package name: " + packageName);
+    }
   }
 
   public static void sendTo(@NonNull Context context, @NonNull String email)
@@ -455,6 +542,11 @@ public class Utils
     return text;
   }
 
+  static String makeUrlSafe(@NonNull final String url)
+  {
+    return url.replaceAll("(token|password|key)=([^&]+)", "***");
+  }
+
   @StringRes
   public static int getStringIdByKey(@NonNull Context context, @NonNull String key)
   {
@@ -477,6 +569,40 @@ public class Utils
       }
     }
     return INVALID_ID;
+  }
+
+  /**
+   * Returns a string value for the specified key. If the value is not found then its key will be
+   * returned.
+   *
+   * @return string value or its key if there is no string for the specified key.
+   */
+  @NonNull
+  public static String getStringValueByKey(@NonNull Context context, @NonNull String key)
+  {
+    @StringRes
+    int id = getStringIdByKey(context, key);
+    try
+    {
+      return context.getString(id);
+    }
+    catch (Resources.NotFoundException e)
+    {
+      LOGGER.e(TAG, "Failed to get value for string '" + key + "'", e);
+    }
+    return key;
+  }
+
+  @NonNull
+  public static String getDeviceName()
+  {
+    return Build.MANUFACTURER;
+  }
+
+  @NonNull
+  public static String getDeviceModel()
+  {
+    return Build.MODEL;
   }
 
   private  static class OnZipCompletedCallback implements LoggerFactory.OnZipCompletedListener
@@ -561,5 +687,15 @@ public class Utils
       return Character.toString(Character.toLowerCase(src.charAt(0)));
 
     return Character.toLowerCase(src.charAt(0)) + src.substring(1);
+  }
+
+  public enum PartnerAppOpenMode
+  {
+    None, Direct, Indirect;
+  }
+
+  public interface Proc<T>
+  {
+    void invoke(@NonNull T param);
   }
 }

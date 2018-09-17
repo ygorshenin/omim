@@ -1,6 +1,7 @@
 #include "traffic/traffic_info.hpp"
 
 #include "platform/http_client.hpp"
+#include "platform/platform.hpp"
 
 #include "routing_common/car_model.hpp"
 
@@ -40,6 +41,7 @@ namespace
 bool ReadRemoteFile(string const & url, vector<uint8_t> & contents, int & errorCode)
 {
   platform::HttpClient request(url);
+  request.SetRawHeader("User-Agent", GetPlatform().GetAppUserAgent());
   if (!request.RunHttpRequest())
   {
     errorCode = request.ErrorCode();
@@ -181,7 +183,7 @@ SpeedGroup TrafficInfo::GetSpeedGroup(RoadSegmentId const & id) const
 void TrafficInfo::ExtractTrafficKeys(string const & mwmPath, vector<RoadSegmentId> & result)
 {
   result.clear();
-  feature::ForEachFromDat(mwmPath, [&](FeatureType const & ft, uint32_t const fid) {
+  feature::ForEachFromDat(mwmPath, [&](FeatureType & ft, uint32_t const fid) {
     if (!routing::CarModel::AllLimitsInstance().IsRoad(ft))
       return;
 
@@ -287,7 +289,7 @@ void TrafficInfo::SerializeTrafficKeys(vector<RoadSegmentId> const & keys, vecto
       UNUSED_VALUE(ok);
     }
 
-    for (auto const & val : oneWay)
+    for (auto const val : oneWay)
       bitWriter.Write(val ? 1 : 0, 1 /* numBits */);
   }
 }
@@ -451,6 +453,7 @@ TrafficInfo::ServerDataStatus TrafficInfo::ReceiveTrafficValues(string & etag, v
 
   platform::HttpClient request(url);
   request.LoadHeaders(true);
+  request.SetRawHeader("User-Agent", GetPlatform().GetAppUserAgent());
   request.SetRawHeader("If-None-Match", etag);
 
   if (!request.RunHttpRequest() || request.ErrorCode() != 200)

@@ -61,4 +61,7 @@ namespace feature
   /// - english name.
   int8_t GetNameForSearchOnBooking(RegionData const & regionData, StringUtf8Multilang const & src,
                                    string & name);
+
+  /// Returns preferred name when only the device language is available.
+  bool GetPreferredName(StringUtf8Multilang const & src, int8_t deviceLang, string & out);
 }  // namespace feature

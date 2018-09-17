@@ -5,6 +5,38 @@ class AvailableArea: UIView {
 
   var deferNotification: Bool { return true }
 
+  private(set) var orientation = UIDeviceOrientation.unknown {
+    didSet {
+      scheduleNotification()
+    }
+  }
+
+  var shouldUpdateAreaFrame: Bool {
+    if #available(iOS 11.0, *), let insets = UIApplication.shared.delegate?.window??.safeAreaInsets {
+      return insets.top > 0 || insets.left > 0 || insets.bottom > 0 || insets.right > 0
+    } else {
+      return false
+    }
+  }
+
+  var areaFrame: CGRect {
+    return alternative(iPhone: {
+      var frame = self.frame
+      if self.shouldUpdateAreaFrame {
+        switch self.orientation {
+        case .landscapeLeft:
+          frame.origin.x -= 16
+          frame.size.width += 60
+        case .landscapeRight:
+          frame.origin.x -= 44
+          frame.size.width += 60
+        default: break
+        }
+      }
+      return frame
+    }, iPad: { self.frame })()
+  }
+
   private var affectingViews = Set<UIView>()
 
   override func didMoveToSuperview() {
@@ -20,11 +52,20 @@ class AvailableArea: UIView {
   private func subscribe() {
     guard let ol = superview?.layer else { return }
     ol.addObserver(self, forKeyPath: Const.observeKeyPath, options: .new, context: nil)
+    UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+
+    let nc = NotificationCenter.default
+    nc.addObserver(forName: .UIDeviceOrientationDidChange, object: nil, queue: .main) { _ in
+      let orientation = UIDevice.current.orientation
+      guard !orientation.isFlat && orientation != .portraitUpsideDown else { return }
+      self.orientation = orientation
+    }
   }
 
   private func unsubscribe() {
     guard let ol = superview?.layer else { return }
     ol.removeObserver(self, forKeyPath: Const.observeKeyPath)
+    UIDevice.current.endGeneratingDeviceOrientationNotifications()
   }
 
   override func observeValue(forKeyPath keyPath: String?, of _: Any?, change _: [NSKeyValueChangeKey: Any]?, context _: UnsafeMutableRawPointer?) {

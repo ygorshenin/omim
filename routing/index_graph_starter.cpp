@@ -17,6 +17,12 @@ Segment GetReverseSegment(Segment const & segment)
   return Segment(segment.GetMwmId(), segment.GetFeatureId(), segment.GetSegmentIdx(),
                  !segment.IsForward());
 }
+
+void FillNumMwmIds(set<Segment> const & segments, set<NumMwmId> & mwms)
+{
+  for (auto const & s : segments)
+    mwms.insert(s.GetMwmId());
+}
 }  // namespace
 
 namespace routing
@@ -121,22 +127,33 @@ m2::PointD const & IndexGraphStarter::GetPoint(Segment const & segment, bool fro
 set<NumMwmId> IndexGraphStarter::GetMwms() const
 {
   set<NumMwmId> mwms;
-  for (auto const & s : m_start.m_real)
-    mwms.insert(s.GetMwmId());
-  for (auto const & s : m_finish.m_real)
-    mwms.insert(s.GetMwmId());
+  FillNumMwmIds(m_start.m_real, mwms);
+  FillNumMwmIds(m_finish.m_real, mwms);
+  return mwms;
+}
 
+set<NumMwmId> IndexGraphStarter::GetStartMwms() const
+{
+  set<NumMwmId> mwms;
+  FillNumMwmIds(m_start.m_real, mwms);
+  return mwms;
+}
+
+set<NumMwmId> IndexGraphStarter::GetFinishMwms() const
+{
+  set<NumMwmId> mwms;
+  FillNumMwmIds(m_finish.m_real, mwms);
   return mwms;
 }
 
 bool IndexGraphStarter::CheckLength(RouteWeight const & weight)
 {
-  // We allow 1 pass-through/non-pass-through crossing per ending located in
+  // We allow 1 pass-through/non-pass-through zone changes per ending located in
   // non-pass-through zone to allow user to leave this zone.
-  int const nonPassThroughCrossAllowed =
+  int8_t const numPassThroughChangesAllowed =
       (StartPassThroughAllowed() ? 0 : 1) + (FinishPassThroughAllowed() ? 0 : 1);
 
-  return weight.GetNonPassThroughCross() <= nonPassThroughCrossAllowed &&
+  return weight.GetNumPassThroughChanges() <= numPassThroughChangesAllowed &&
          m_graph.CheckLength(weight, m_startToFinishDistanceM);
 }
 
@@ -199,7 +216,7 @@ void IndexGraphStarter::GetEdgesList(Segment const & segment, bool isOutgoing,
     m_graph.GetEdgeList(segment, isOutgoing, edges);
   }
 
-  AddFakeEdges(segment, edges);
+  AddFakeEdges(segment, isOutgoing, edges);
 }
 
 RouteWeight IndexGraphStarter::CalcSegmentWeight(Segment const & segment) const
@@ -216,11 +233,23 @@ RouteWeight IndexGraphStarter::CalcSegmentWeight(Segment const & segment) const
     auto const partLen = MercatorBounds::DistanceOnEarth(vertex.GetPointFrom(), vertex.GetPointTo());
     auto const fullLen = MercatorBounds::DistanceOnEarth(GetPoint(real, false /* front */),
                                                          GetPoint(real, true /* front */));
-    CHECK_GREATER(fullLen, 0.0, ());
-    return partLen / fullLen * m_graph.CalcSegmentWeight(real);
+    // Note. |fullLen| == 0.0 in case of Segment(s) with the same ends.
+    if (fullLen == 0.0)
+      return 0.0 * m_graph.CalcSegmentWeight(real);
+
+    return (partLen / fullLen) * m_graph.CalcSegmentWeight(real);
   }
 
   return m_graph.CalcOffroadWeight(vertex.GetPointFrom(), vertex.GetPointTo());
+}
+
+double IndexGraphStarter::CalcSegmentETA(Segment const & segment) const
+{
+  // We don't distinguish fake segment weight and fake segment transit time.
+  if (IsFakeSegment(segment))
+    return CalcSegmentWeight(segment).GetWeight();
+
+  return m_graph.CalcSegmentETA(segment);
 }
 
 RouteWeight IndexGraphStarter::CalcRouteSegmentWeight(vector<Segment> const & route,
@@ -281,8 +310,10 @@ void IndexGraphStarter::AddEnding(FakeEnding const & thisEnding, FakeEnding cons
                                                                    otherJunction.GetPoint());
       if (distBackToThis < distBackToOther)
         frontJunction = otherJunction;
-      else
+      else if (distBackToOther < distBackToThis)
         backJunction = otherJunction;
+      else
+        frontJunction = backJunction = otherJunction;
     }
 
     FakeVertex forwardPartOfReal(isStart ? projection.m_junction : backJunction,
@@ -322,18 +353,28 @@ void IndexGraphStarter::AddFinish(FakeEnding const & finishEnding, FakeEnding co
             fakeNumerationStart);
 }
 
-void IndexGraphStarter::AddFakeEdges(Segment const & segment, vector<SegmentEdge> & edges) const
+void IndexGraphStarter::AddFakeEdges(Segment const & segment, bool isOutgoing, vector<SegmentEdge> & edges) const
 {
   vector<SegmentEdge> fakeEdges;
   for (auto const & edge : edges)
   {
     for (auto const & s : m_fake.GetFake(edge.GetTarget()))
     {
-      // Check fake segment is connected to source segment.
-      if (GetJunction(s, false /* front */) == GetJunction(segment, true) ||
-          GetJunction(s, true) == GetJunction(segment, false))
+      //     |segment|       |s|
+      //  *------------>*----------->
+      bool const sIsOutgoing =
+          GetJunction(segment, true /*front */) == GetJunction(s, false /* front */);
+
+      //        |s|       |segment|
+      //  *------------>*----------->
+      bool const sIsIngoing =
+          GetJunction(s, true /*front */) == GetJunction(segment, false /* front */);
+
+      if ((isOutgoing && sIsOutgoing) || (!isOutgoing && sIsIngoing))
       {
-        fakeEdges.emplace_back(s, edge.GetWeight());
+        // For ingoing edges we use source weight which is the same for |s| and for |edge| and is
+        // already calculated.
+        fakeEdges.emplace_back(s, isOutgoing ? CalcSegmentWeight(s) : edge.GetWeight());
       }
     }
   }

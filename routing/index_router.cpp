@@ -1,8 +1,7 @@
 #include "routing/index_router.hpp"
 
-#include "routing/base/astar_algorithm.hpp"
 #include "routing/base/astar_progress.hpp"
-#include "routing/base/routing_result.hpp"
+
 #include "routing/bicycle_directions.hpp"
 #include "routing/routing_exceptions.hpp"
 #include "routing/fake_ending.hpp"
@@ -13,7 +12,6 @@
 #include "routing/index_road_graph.hpp"
 #include "routing/pedestrian_directions.hpp"
 #include "routing/restriction_loader.hpp"
-#include "routing/road_graph_router.hpp"
 #include "routing/route.hpp"
 #include "routing/routing_helpers.hpp"
 #include "routing/single_vehicle_world_graph.hpp"
@@ -28,12 +26,14 @@
 
 #include "transit/transit_speed_limits.hpp"
 
+#include "indexer/data_source.hpp"
 #include "indexer/feature_altitude.hpp"
 
-#include "geometry/distance.hpp"
 #include "geometry/mercator.hpp"
+#include "geometry/parametrized_segment.hpp"
 #include "geometry/point2d.hpp"
 
+#include "platform/country_file.hpp"
 #include "platform/mwm_traits.hpp"
 
 #include "base/exception.hpp"
@@ -42,6 +42,8 @@
 #include <algorithm>
 #include <map>
 #include <utility>
+
+#include "defines.hpp"
 
 using namespace routing;
 using namespace std;
@@ -70,7 +72,7 @@ double CalcMaxSpeed(NumMwmIds const & numMwmIds,
   numMwmIds.ForEachId([&](NumMwmId id) {
     string const & country = numMwmIds.GetFile(id).GetName();
     double const mwmMaxSpeed =
-        vehicleModelFactory.GetVehicleModelForCountry(country)->GetMaxSpeed();
+        vehicleModelFactory.GetVehicleModelForCountry(country)->GetMaxSpeed().m_weight;
     maxSpeed = max(maxSpeed, mwmMaxSpeed);
   });
   CHECK_GREATER(maxSpeed, 0.0, ());
@@ -96,10 +98,12 @@ shared_ptr<VehicleModelFactoryInterface> CreateVehicleModelFactory(
     CHECK(false, ("Can't create VehicleModelFactoryInterface for", vehicleType));
     return nullptr;
   }
+  CHECK_SWITCH();
 }
 
 unique_ptr<IDirectionsEngine> CreateDirectionsEngine(VehicleType vehicleType,
-                                                     shared_ptr<NumMwmIds> numMwmIds, Index & index)
+                                                     shared_ptr<NumMwmIds> numMwmIds,
+                                                     DataSource & dataSource)
 {
   switch (vehicleType)
   {
@@ -108,11 +112,12 @@ unique_ptr<IDirectionsEngine> CreateDirectionsEngine(VehicleType vehicleType,
   case VehicleType::Bicycle:
   // @TODO Bicycle turn generation engine is used now. It's ok for the time being.
   // But later a special car turn generation engine should be implemented.
-  case VehicleType::Car: return make_unique<BicycleDirectionsEngine>(index, numMwmIds);
+  case VehicleType::Car: return make_unique<BicycleDirectionsEngine>(dataSource, numMwmIds);
   case VehicleType::Count:
     CHECK(false, ("Can't create DirectionsEngine for", vehicleType));
     return nullptr;
   }
+  CHECK_SWITCH();
 }
 
 shared_ptr<TrafficStash> CreateTrafficStash(VehicleType vehicleType, shared_ptr<NumMwmIds> numMwmIds,
@@ -122,28 +127,6 @@ shared_ptr<TrafficStash> CreateTrafficStash(VehicleType vehicleType, shared_ptr<
     return nullptr;
 
   return make_shared<TrafficStash>(trafficCache, numMwmIds);
-}
-
-template <typename Graph>
-IRouter::ResultCode ConvertResult(typename AStarAlgorithm<Graph>::Result result)
-{
-  switch (result)
-  {
-  case AStarAlgorithm<Graph>::Result::NoPath: return IRouter::RouteNotFound;
-  case AStarAlgorithm<Graph>::Result::Cancelled: return IRouter::Cancelled;
-  case AStarAlgorithm<Graph>::Result::OK: return IRouter::NoError;
-  }
-}
-
-template <typename Graph>
-IRouter::ResultCode FindPath(
-    typename AStarAlgorithm<Graph>::Params & params,
-    RoutingResult<typename Graph::Vertex, typename Graph::Weight> & routingResult)
-{
-  AStarAlgorithm<Graph> algorithm;
-  if (params.m_graph.GetMode() == WorldGraph::Mode::LeapsOnly)
-    return ConvertResult<Graph>(algorithm.FindPath(params, routingResult));
-  return ConvertResult<Graph>(algorithm.FindPathBidirectional(params, routingResult));
 }
 
 bool IsDeadEnd(Segment const & segment, bool isOutgoing, WorldGraph & worldGraph)
@@ -174,11 +157,11 @@ bool MwmHasRoutingData(version::MwmTraits const & traits)
   return traits.HasRoutingIndex() && traits.HasCrossMwmSection();
 }
 
-void GetOutdatedMwms(Index & index, vector<string> & outdatedMwms)
+void GetOutdatedMwms(DataSource & dataSource, vector<string> & outdatedMwms)
 {
   outdatedMwms.clear();
   vector<shared_ptr<MwmInfo>> infos;
-  index.GetMwmsInfo(infos);
+  dataSource.GetMwmsInfo(infos);
 
   for (auto const & info : infos)
   {
@@ -284,9 +267,9 @@ bool IndexRouter::BestEdgeComparator::IsAlmostCodirectional(Edge const & edge) c
 
 double IndexRouter::BestEdgeComparator::GetSquaredDist(Edge const & edge) const
 {
-  m2::DistanceToLineSquare<m2::PointD> squaredDistance;
-  squaredDistance.SetBounds(edge.GetStartJunction().GetPoint(), edge.GetEndJunction().GetPoint());
-  return squaredDistance(m_point);
+  m2::ParametrizedSegment<m2::PointD> const segment(edge.GetStartJunction().GetPoint(),
+                                                    edge.GetEndJunction().GetPoint());
+  return segment.SquaredDistanceToPoint(m_point);
 }
 
 // IndexRouter ------------------------------------------------------------------------------------
@@ -294,18 +277,18 @@ IndexRouter::IndexRouter(VehicleType vehicleType, bool loadAltitudes,
                          CountryParentNameGetterFn const & countryParentNameGetterFn,
                          TCountryFileFn const & countryFileFn, CourntryRectFn const & countryRectFn,
                          shared_ptr<NumMwmIds> numMwmIds, unique_ptr<m4::Tree<NumMwmId>> numMwmTree,
-                         traffic::TrafficCache const & trafficCache, Index & index)
+                         traffic::TrafficCache const & trafficCache, DataSource & dataSource)
   : m_vehicleType(vehicleType)
   , m_loadAltitudes(loadAltitudes)
   , m_name("astar-bidirectional-" + ToString(m_vehicleType))
-  , m_index(index)
+  , m_dataSource(dataSource)
   , m_vehicleModelFactory(CreateVehicleModelFactory(m_vehicleType, countryParentNameGetterFn))
   , m_countryFileFn(countryFileFn)
   , m_countryRectFn(countryRectFn)
   , m_numMwmIds(move(numMwmIds))
   , m_numMwmTree(move(numMwmTree))
   , m_trafficStash(CreateTrafficStash(m_vehicleType, m_numMwmIds, trafficCache))
-  , m_roadGraph(m_index,
+  , m_roadGraph(m_dataSource,
                 vehicleType == VehicleType::Pedestrian || vehicleType == VehicleType::Transit
                     ? IRoadGraph::Mode::IgnoreOnewayTag
                     : IRoadGraph::Mode::ObeyOnewayTag,
@@ -313,7 +296,7 @@ IndexRouter::IndexRouter(VehicleType vehicleType, bool loadAltitudes,
   , m_estimator(EdgeEstimator::Create(
         m_vehicleType, CalcMaxSpeed(*m_numMwmIds, *m_vehicleModelFactory, m_vehicleType),
         CalcOffroadSpeed(*m_vehicleModelFactory), m_trafficStash))
-  , m_directionsEngine(CreateDirectionsEngine(m_vehicleType, m_numMwmIds, m_index))
+  , m_directionsEngine(CreateDirectionsEngine(m_vehicleType, m_numMwmIds, m_dataSource))
 {
   CHECK(!m_name.empty(), ());
   CHECK(m_numMwmIds, ());
@@ -339,33 +322,20 @@ bool IndexRouter::FindBestSegment(m2::PointD const & point, m2::PointD const & d
                          dummy /* best segment is almost codirectional */);
 }
 
-IRouter::ResultCode IndexRouter::CalculateRoute(Checkpoints const & checkpoints,
-                                                m2::PointD const & startDirection,
-                                                bool adjustToPrevRoute,
-                                                RouterDelegate const & delegate, Route & route)
+RouterResultCode IndexRouter::CalculateRoute(Checkpoints const & checkpoints,
+                                             m2::PointD const & startDirection,
+                                             bool adjustToPrevRoute,
+                                             RouterDelegate const & delegate, Route & route)
 {
   vector<string> outdatedMwms;
-  GetOutdatedMwms(m_index, outdatedMwms);
+  GetOutdatedMwms(m_dataSource, outdatedMwms);
 
   if (!outdatedMwms.empty())
   {
-    // Backward compatibility with outdated mwm versions.
-    if (m_vehicleType == VehicleType::Pedestrian)
-    {
-      return CreatePedestrianAStarBidirectionalRouter(m_index, m_countryFileFn, m_numMwmIds)
-          ->CalculateRoute(checkpoints, startDirection, adjustToPrevRoute, delegate, route);
-    }
-
-    if (m_vehicleType == VehicleType::Bicycle)
-    {
-      return CreateBicycleAStarBidirectionalRouter(m_index, m_countryFileFn, m_numMwmIds)
-          ->CalculateRoute(checkpoints, startDirection, adjustToPrevRoute, delegate, route);
-    }
-
     for (string const & mwm : outdatedMwms)
       route.AddAbsentCountry(mwm);
 
-    return IRouter::ResultCode::FileTooOld;
+    return RouterResultCode::FileTooOld;
   }
 
   auto const & startPoint = checkpoints.GetStart();
@@ -381,7 +351,7 @@ IRouter::ResultCode IndexRouter::CalculateRoute(Checkpoints const & checkpoints,
       if (distanceToRoute <= kAdjustRangeM && distanceToFinish >= kMinDistanceToFinishM)
       {
         auto const code = AdjustRoute(checkpoints, startDirection, delegate, route);
-        if (code != IRouter::RouteNotFound)
+        if (code != RouterResultCode::RouteNotFound)
           return code;
 
         LOG(LWARNING, ("Can't adjust route, do full rebuild, prev start:",
@@ -396,13 +366,13 @@ IRouter::ResultCode IndexRouter::CalculateRoute(Checkpoints const & checkpoints,
   {
     LOG(LERROR, ("Can't find path from", MercatorBounds::ToLatLon(startPoint), "to",
       MercatorBounds::ToLatLon(finalPoint), ":\n ", e.what()));
-    return IRouter::InternalError;
+    return RouterResultCode::InternalError;
   }
 }
 
-IRouter::ResultCode IndexRouter::DoCalculateRoute(Checkpoints const & checkpoints,
-                                                  m2::PointD const & startDirection,
-                                                  RouterDelegate const & delegate, Route & route)
+RouterResultCode IndexRouter::DoCalculateRoute(Checkpoints const & checkpoints,
+                                               m2::PointD const & startDirection,
+                                               RouterDelegate const & delegate, Route & route)
 {
   m_lastRoute.reset();
 
@@ -414,16 +384,16 @@ IRouter::ResultCode IndexRouter::DoCalculateRoute(Checkpoints const & checkpoint
       LOG(LWARNING, ("For point", MercatorBounds::ToLatLon(checkpoint),
                    "CountryInfoGetter returns an empty CountryFile(). It happens when checkpoint"
                    "is put at gaps between mwm."));
-      return IRouter::InternalError;
+      return RouterResultCode::InternalError;
     }
 
     auto const country = platform::CountryFile(countryName);
-    if (!m_index.IsLoaded(country))
+    if (!m_dataSource.IsLoaded(country))
       route.AddAbsentCountry(country.GetName());
   }
 
   if (!route.GetAbsentCountries().empty())
-    return IRouter::NeedMoreMaps;
+    return RouterResultCode::NeedMoreMaps;
 
   TrafficStash::Guard guard(m_trafficStash);
   auto graph = MakeWorldGraph();
@@ -435,7 +405,7 @@ IRouter::ResultCode IndexRouter::DoCalculateRoute(Checkpoints const & checkpoint
   if (!FindBestSegment(checkpoints.GetPointFrom(), startDirection, true /* isOutgoing */, *graph,
                        startSegment, startSegmentIsAlmostCodirectionalDirection))
   {
-    return IRouter::StartPointNotFound;
+    return RouterResultCode::StartPointNotFound;
   }
 
   size_t subrouteSegmentsBegin = 0;
@@ -456,10 +426,11 @@ IRouter::ResultCode IndexRouter::DoCalculateRoute(Checkpoints const & checkpoint
                          false /* isOutgoing */, *graph, finishSegment,
                          dummy /* bestSegmentIsAlmostCodirectional */))
     {
-      return isLastSubroute ? IRouter::EndPointNotFound : IRouter::IntermediatePointNotFound;
+      return isLastSubroute ? RouterResultCode::EndPointNotFound
+                            : RouterResultCode::IntermediatePointNotFound;
     }
 
-    bool isStartSegmentStrictForward = m_vehicleType == VehicleType::Car ? true : false;
+    bool isStartSegmentStrictForward = (m_vehicleType == VehicleType::Car);
     if (isFirstSubroute)
       isStartSegmentStrictForward = startSegmentIsAlmostCodirectionalDirection;
 
@@ -469,10 +440,9 @@ IRouter::ResultCode IndexRouter::DoCalculateRoute(Checkpoints const & checkpoint
                                       isStartSegmentStrictForward, *graph);
 
     vector<Segment> subroute;
-    auto const result =
-        CalculateSubroute(checkpoints, i, startSegment, delegate, subrouteStarter, subroute);
+    auto const result = CalculateSubroute(checkpoints, i, delegate, subrouteStarter, subroute);
 
-    if (result != IRouter::NoError)
+    if (result != RouterResultCode::NoError)
       return result;
 
     IndexGraphStarter::CheckValidRoute(subroute);
@@ -497,7 +467,7 @@ IRouter::ResultCode IndexRouter::DoCalculateRoute(Checkpoints const & checkpoint
   IndexGraphStarter::CheckValidRoute(segments);
 
   auto redressResult = RedressRoute(segments, delegate, *starter, route);
-  if (redressResult != IRouter::NoError)
+  if (redressResult != RouterResultCode::NoError)
     return redressResult;
 
   m_lastRoute = make_unique<SegmentedRoute>(checkpoints.GetStart(), checkpoints.GetFinish(),
@@ -507,14 +477,14 @@ IRouter::ResultCode IndexRouter::DoCalculateRoute(Checkpoints const & checkpoint
 
   m_lastFakeEdges = make_unique<FakeEdgesContainer>(move(*starter));
 
-  return IRouter::NoError;
+  return RouterResultCode::NoError;
 }
 
-IRouter::ResultCode IndexRouter::CalculateSubroute(Checkpoints const & checkpoints,
-                                                   size_t subrouteIdx, Segment const & startSegment,
-                                                   RouterDelegate const & delegate,
-                                                   IndexGraphStarter & starter,
-                                                   vector<Segment> & subroute)
+RouterResultCode IndexRouter::CalculateSubroute(Checkpoints const & checkpoints,
+                                                size_t subrouteIdx,
+                                                RouterDelegate const & delegate,
+                                                IndexGraphStarter & starter,
+                                                vector<Segment> & subroute)
 {
   subroute.clear();
 
@@ -568,21 +538,23 @@ IRouter::ResultCode IndexRouter::CalculateSubroute(Checkpoints const & checkpoin
   AStarAlgorithm<IndexGraphStarter>::Params params(
       starter, starter.GetStartSegment(), starter.GetFinishSegment(), nullptr /* prevRoute */,
       delegate, onVisitJunction, checkLength);
-  IRouter::ResultCode const result = FindPath<IndexGraphStarter>(params, routingResult);
-  if (result != IRouter::NoError)
+
+  set<NumMwmId> const mwmIds = starter.GetMwms();
+  RouterResultCode const result = FindPath<IndexGraphStarter>(params, mwmIds, routingResult);
+  if (result != RouterResultCode::NoError)
     return result;
 
-  IRouter::ResultCode const leapsResult =
+  RouterResultCode const leapsResult =
       ProcessLeaps(routingResult.m_path, delegate, starter.GetGraph().GetMode(), starter, subroute);
-  if (leapsResult != IRouter::NoError)
+  if (leapsResult != RouterResultCode::NoError)
     return leapsResult;
 
-  return IRouter::NoError;
+  return RouterResultCode::NoError;
 }
 
-IRouter::ResultCode IndexRouter::AdjustRoute(Checkpoints const & checkpoints,
-                                             m2::PointD const & startDirection,
-                                             RouterDelegate const & delegate, Route & route)
+RouterResultCode IndexRouter::AdjustRoute(Checkpoints const & checkpoints,
+                                          m2::PointD const & startDirection,
+                                          RouterDelegate const & delegate, Route & route)
 {
   my::Timer timer;
   TrafficStash::Guard guard(m_trafficStash);
@@ -594,7 +566,9 @@ IRouter::ResultCode IndexRouter::AdjustRoute(Checkpoints const & checkpoints,
   bool bestSegmentIsAlmostCodirectional = false;
   if (!FindBestSegment(pointFrom, startDirection, true /* isOutgoing */, *graph, startSegment,
                        bestSegmentIsAlmostCodirectional))
-    return IRouter::StartPointNotFound;
+  {
+    return RouterResultCode::StartPointNotFound;
+  }
 
   auto const & lastSubroutes = m_lastRoute->GetSubroutes();
   CHECK(!lastSubroutes.empty(), ());
@@ -646,8 +620,9 @@ IRouter::ResultCode IndexRouter::AdjustRoute(Checkpoints const & checkpoints,
                                                    {} /* finalVertex */, &prevEdges, delegate,
                                                    onVisitJunction, checkLength);
   RoutingResult<Segment, RouteWeight> result;
-  auto const resultCode = ConvertResult<IndexGraphStarter>(algorithm.AdjustRoute(params, result));
-  if (resultCode != IRouter::NoError)
+  auto const resultCode =
+      ConvertResult<IndexGraphStarter>(algorithm.AdjustRoute(params, result));
+  if (resultCode != RouterResultCode::NoError)
     return resultCode;
 
   CHECK_GREATER_OR_EQUAL(result.m_path.size(), 2, ());
@@ -678,13 +653,13 @@ IRouter::ResultCode IndexRouter::AdjustRoute(Checkpoints const & checkpoints,
   route.SetSubroteAttrs(move(subroutes));
 
   auto const redressResult = RedressRoute(result.m_path, delegate, starter, route);
-  if (redressResult != IRouter::NoError)
+  if (redressResult != RouterResultCode::NoError)
     return redressResult;
 
   LOG(LINFO, ("Adjust route, elapsed:", timer.ElapsedSeconds(), ", prev start:", checkpoints,
               ", prev route:", steps.size(), ", new route:", result.m_path.size()));
 
-  return IRouter::NoError;
+  return RouterResultCode::NoError;
 }
 
 unique_ptr<WorldGraph> IndexRouter::MakeWorldGraph()
@@ -692,16 +667,16 @@ unique_ptr<WorldGraph> IndexRouter::MakeWorldGraph()
   auto crossMwmGraph = make_unique<CrossMwmGraph>(
       m_numMwmIds, m_numMwmTree, m_vehicleModelFactory,
       m_vehicleType == VehicleType::Transit ? VehicleType::Pedestrian : m_vehicleType,
-      m_countryRectFn, m_index);
+      m_countryRectFn, m_dataSource);
   auto indexGraphLoader = IndexGraphLoader::Create(
       m_vehicleType == VehicleType::Transit ? VehicleType::Pedestrian : m_vehicleType,
-      m_loadAltitudes, m_numMwmIds, m_vehicleModelFactory, m_estimator, m_index);
+      m_loadAltitudes, m_numMwmIds, m_vehicleModelFactory, m_estimator, m_dataSource);
   if (m_vehicleType != VehicleType::Transit)
   {
     return make_unique<SingleVehicleWorldGraph>(move(crossMwmGraph), move(indexGraphLoader),
                                                 m_estimator);
   }
-  auto transitGraphLoader = TransitGraphLoader::Create(m_index, m_numMwmIds, m_estimator);
+  auto transitGraphLoader = TransitGraphLoader::Create(m_dataSource, m_numMwmIds, m_estimator);
   return make_unique<TransitWorldGraph>(move(crossMwmGraph), move(indexGraphLoader),
                                         move(transitGraphLoader), m_estimator);
 }
@@ -711,7 +686,7 @@ bool IndexRouter::FindBestSegment(m2::PointD const & point, m2::PointD const & d
                                   bool & bestSegmentIsAlmostCodirectional) const
 {
   auto const file = platform::CountryFile(m_countryFileFn(point));
-  MwmSet::MwmHandle handle = m_index.GetMwmHandleByCountryFile(file);
+  MwmSet::MwmHandle handle = m_dataSource.GetMwmHandleByCountryFile(file);
   if (!handle.IsAlive())
     MYTHROW(MwmIsNotAliveException, ("Can't get mwm handle for", file));
 
@@ -726,9 +701,10 @@ bool IndexRouter::FindBestSegment(m2::PointD const & point, m2::PointD const & d
   };
 
   // Getting rid of knowingly bad candidates.
-  my::EraseIf(candidates, [&](pair<Edge, Junction> const & p) {
+  base::EraseIf(candidates, [&](pair<Edge, Junction> const & p) {
     Edge const & edge = p.first;
-    return edge.GetFeatureId().m_mwmId != mwmId || IsDeadEnd(getSegmentByEdge(edge), isOutgoing, worldGraph);
+    return edge.GetFeatureId().m_mwmId != mwmId ||
+           IsDeadEnd(getSegmentByEdge(edge), isOutgoing, worldGraph);
   });
 
   if (candidates.empty())
@@ -749,47 +725,68 @@ bool IndexRouter::FindBestSegment(m2::PointD const & point, m2::PointD const & d
   return true;
 }
 
-IRouter::ResultCode IndexRouter::ProcessLeaps(vector<Segment> const & input,
-                                              RouterDelegate const & delegate,
-                                              WorldGraph::Mode prevMode,
-                                              IndexGraphStarter & starter,
-                                              vector<Segment> & output)
+RouterResultCode IndexRouter::ProcessLeaps(vector<Segment> const & input,
+                                           RouterDelegate const & delegate,
+                                           WorldGraph::Mode prevMode,
+                                           IndexGraphStarter & starter,
+                                           vector<Segment> & output)
 {
-  output.reserve(input.size());
+  if (prevMode != WorldGraph::Mode::LeapsOnly)
+  {
+    output = input;
+    return RouterResultCode::NoError;
+  }
 
-  auto const isNotLeap = [&](Segment const & s) {
-    return prevMode != WorldGraph::Mode::LeapsOnly;
-  };
+  CHECK_GREATER_OR_EQUAL(input.size(), 4,
+                         ("Route in LeapsOnly mode must have at least start and finish leaps."));
 
   WorldGraph & worldGraph = starter.GetGraph();
 
   // For all leaps except the first leap which connects start to mwm exit in LeapsOnly mode we need
   // to drop first segment of the leap because we already have its twin from the previous mwm.
   bool dropFirstSegment = false;
-  for (size_t i = 0; i < input.size(); ++i)
+
+  // While route building in LeapOnly mode we estimate start to mwm exit distance. This estimation may
+  // be incorrect and it causes appearance of unneeded loops: route goes from start to wrongly selected mwm exit,
+  // then we have small unneeded leap in other mwm which returns us to start mwm, then we have leap in start mwm
+  // to the correct start mwm exit and then we have normal route.
+  // |input| mwm ids for such case look like
+  // { fake, startId, otherId, otherId, startId, startId, .. pairs of ids for other leaps .. , finishId, fake}.
+  // To avoid this behavior we collapse all leaps from start to last occurrence of startId to one leap and
+  // use WorldGraph with NoLeaps mode to proccess these leap. Unlike SingleMwm mode used to process ordinary leaps
+  // NoLeaps allows to use all mwms so if we really need to visit other mwm we will.
+  auto const firstMwmId = input[1].GetMwmId();
+  auto const startLeapEndReverseIt = find_if(input.rbegin() + 2, input.rend(),
+                                             [firstMwmId](Segment const & s) { return s.GetMwmId() == firstMwmId; });
+  auto const startLeapEndIt = startLeapEndReverseIt.base() - 1;
+  auto const startLeapEnd = distance(input.begin(), startLeapEndIt);
+
+  // The last leap processed the same way. See the comment above.
+  auto const lastMwmId = input[input.size() - 2].GetMwmId();
+  auto const finishLeapStartIt = find_if(startLeapEndIt, input.end(),
+                                         [lastMwmId](Segment const & s) { return s.GetMwmId() == lastMwmId; });
+  auto const finishLeapStart = static_cast<size_t>(distance(input.begin(), finishLeapStartIt));
+
+  for (size_t i = 0; i <= finishLeapStart; ++i)
   {
     auto const & current = input[i];
-    if (isNotLeap(current))
-    {
-      output.push_back(current);
-      continue;
-    }
 
     // Clear previous loaded graphs to not spend too much memory at one time.
     worldGraph.ClearCachedGraphs();
-
-    ++i;
-    CHECK_LESS(i, input.size(), ());
-    auto const & next = input[i];
 
     auto checkLength = [&starter](RouteWeight const & weight) {
       return starter.CheckLength(weight);
     };
 
-    IRouter::ResultCode result = IRouter::InternalError;
+    RouterResultCode result = RouterResultCode::InternalError;
     RoutingResult<Segment, RouteWeight> routingResult;
-    if (i == 1 || i + 1 == input.size())
+    if (i == 0 || i == finishLeapStart)
     {
+      bool const isStartLeap = i == 0;
+      i = isStartLeap ? startLeapEnd : input.size() - 1;
+      CHECK_LESS(static_cast<size_t>(i), input.size(), ());
+      auto const & next = input[i];
+
       // First start-to-mwm-exit and last mwm-enter-to-finish leaps need special processing.
       // In case of leaps from the start to its mwm transition and from finish to mwm transition
       // route calculation should be made on the world graph (WorldGraph::Mode::NoLeaps).
@@ -797,10 +794,26 @@ IRouter::ResultCode IndexRouter::ProcessLeaps(vector<Segment> const & input,
       AStarAlgorithm<IndexGraphStarter>::Params params(
           starter, current, next, nullptr /* prevRoute */, delegate,
           {} /* onVisitedVertexCallback */, checkLength);
-      result = FindPath<IndexGraphStarter>(params, routingResult);
+      set<NumMwmId> mwmIds;
+      if (isStartLeap)
+      {
+        mwmIds = starter.GetStartMwms();
+        mwmIds.insert(next.GetMwmId());
+      }
+      else
+      {
+        mwmIds = starter.GetFinishMwms();
+        mwmIds.insert(current.GetMwmId());
+      }
+
+      result = FindPath<IndexGraphStarter>(params, mwmIds, routingResult);
     }
     else
     {
+      ++i;
+      CHECK_LESS(static_cast<size_t>(i), input.size(), ());
+      auto const & next = input[i];
+
       CHECK(!IndexGraphStarter::IsFakeSegment(current), ());
       CHECK(!IndexGraphStarter::IsFakeSegment(next), ());
       CHECK_EQUAL(
@@ -814,10 +827,11 @@ IRouter::ResultCode IndexRouter::ProcessLeaps(vector<Segment> const & input,
       AStarAlgorithm<WorldGraph>::Params params(worldGraph, current, next, nullptr /* prevRoute */,
                                                 delegate, {} /* onVisitedVertexCallback */,
                                                 checkLength);
-      result = FindPath<WorldGraph>(params, routingResult);
+      set<NumMwmId> const mwmIds = {current.GetMwmId(), next.GetMwmId()};
+      result = FindPath<WorldGraph>(params, mwmIds, routingResult);
     }
 
-    if (result != IRouter::NoError)
+    if (result != RouterResultCode::NoError)
       return result;
 
     CHECK(!routingResult.m_path.empty(), ());
@@ -828,12 +842,12 @@ IRouter::ResultCode IndexRouter::ProcessLeaps(vector<Segment> const & input,
     dropFirstSegment = true;
   }
 
-  return IRouter::NoError;
+  return RouterResultCode::NoError;
 }
 
-IRouter::ResultCode IndexRouter::RedressRoute(vector<Segment> const & segments,
-                                              RouterDelegate const & delegate,
-                                              IndexGraphStarter & starter, Route & route) const
+RouterResultCode IndexRouter::RedressRoute(vector<Segment> const & segments,
+                                           RouterDelegate const & delegate,
+                                           IndexGraphStarter & starter, Route & route) const
 {
   CHECK(!segments.empty(), ());
   vector<Junction> junctions;
@@ -843,7 +857,7 @@ IRouter::ResultCode IndexRouter::RedressRoute(vector<Segment> const & segments,
   for (size_t i = 0; i < numPoints; ++i)
     junctions.emplace_back(starter.GetRouteJunction(segments, i));
 
-  IndexRoadGraph roadGraph(m_numMwmIds, starter, segments, junctions, m_index);
+  IndexRoadGraph roadGraph(m_numMwmIds, starter, segments, junctions, m_dataSource);
   starter.GetGraph().SetMode(WorldGraph::Mode::NoLeaps);
 
   Route::TTimes times;
@@ -853,7 +867,7 @@ IRouter::ResultCode IndexRouter::RedressRoute(vector<Segment> const & segments,
 
   for (size_t i = 0; i + 1 < numPoints; ++i)
   {
-    time += starter.CalcRouteSegmentWeight(segments, i).GetWeight();
+    time += starter.CalcSegmentETA(segments[i]);
     times.emplace_back(static_cast<uint32_t>(i + 1), time);
   }
 
@@ -863,18 +877,23 @@ IRouter::ResultCode IndexRouter::RedressRoute(vector<Segment> const & segments,
 
   auto & worldGraph = starter.GetGraph();
   for (auto & routeSegment : route.GetRouteSegments())
+  {
     routeSegment.SetTransitInfo(worldGraph.GetTransitInfo(routeSegment.GetSegment()));
 
-  if (!route.IsValid())
-  {
-    LOG(LERROR, ("ReconstructRoute failed. Segments:", segments.size()));
-    return IRouter::InternalError;
+    if (m_vehicleType == VehicleType::Car && routeSegment.IsRealSegment())
+      routeSegment.SetSpeedCameraInfo(worldGraph.GetSpeedCamInfo(routeSegment.GetSegment()));
   }
 
   if (delegate.IsCancelled())
-    return IRouter::Cancelled;
+    return RouterResultCode::Cancelled;
 
-  return IRouter::NoError;
+  if (!route.IsValid())
+  {
+    LOG(LERROR, ("RedressRoute failed. Segments:", segments.size()));
+    return RouterResultCode::RouteNotFoundRedressRouteError;
+  }
+
+  return RouterResultCode::NoError;
 }
 
 bool IndexRouter::AreMwmsNear(set<NumMwmId> const & mwmIds) const
@@ -888,5 +907,34 @@ bool IndexRouter::AreMwmsNear(set<NumMwmId> const & mwmIds) const
       return false;
   }
   return true;
+}
+
+bool IndexRouter::DoesTransitSectionExist(NumMwmId numMwmId) const
+{
+  CHECK(m_numMwmIds, ());
+  platform::CountryFile const & file = m_numMwmIds->GetFile(numMwmId);
+
+  MwmSet::MwmHandle handle = m_dataSource.GetMwmHandleByCountryFile(file);
+  if (!handle.IsAlive())
+    MYTHROW(RoutingException, ("Can't get mwm handle for", file));
+
+  MwmValue const & mwmValue = *handle.GetValue<MwmValue>();
+  return mwmValue.m_cont.IsExist(TRANSIT_FILE_TAG);
+}
+
+RouterResultCode IndexRouter::ConvertTransitResult(set<NumMwmId> const & mwmIds,
+                                                   RouterResultCode resultCode) const
+{
+  if (m_vehicleType != VehicleType::Transit || resultCode != RouterResultCode::RouteNotFound)
+    return resultCode;
+
+  for (auto const mwmId : mwmIds)
+  {
+    CHECK_NOT_EQUAL(mwmId, kFakeNumMwmId, ());
+    if (!DoesTransitSectionExist(mwmId))
+      return RouterResultCode::TransitRouteNotFoundNoNetwork;
+  }
+
+  return RouterResultCode::TransitRouteNotFoundTooLongPedestrian;
 }
 }  // namespace routing

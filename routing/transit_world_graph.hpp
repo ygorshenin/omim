@@ -5,6 +5,7 @@
 #include "routing/geometry.hpp"
 #include "routing/index_graph_loader.hpp"
 #include "routing/road_graph.hpp"
+#include "routing/route.hpp"
 #include "routing/segment.hpp"
 #include "routing/transit_graph_loader.hpp"
 #include "routing/transit_info.hpp"
@@ -56,9 +57,11 @@ public:
   RouteWeight CalcSegmentWeight(Segment const & segment) override;
   RouteWeight CalcLeapWeight(m2::PointD const & from, m2::PointD const & to) const override;
   RouteWeight CalcOffroadWeight(m2::PointD const & from, m2::PointD const & to) const override;
+  double CalcSegmentETA(Segment const & segment) override;
   bool LeapIsAllowed(NumMwmId mwmId) const override;
   std::vector<Segment> const & GetTransitions(NumMwmId numMwmId, bool isEnter) override;
   std::unique_ptr<TransitInfo> GetTransitInfo(Segment const & segment) override;
+  std::vector<RouteSegment::SpeedCamera> GetSpeedCamInfo(Segment const & segment) override;
 
 private:
   // WorldGraph overrides:
@@ -66,9 +69,9 @@ private:
 
   static double MaxPedestrianTimeSec(double startToFinishDistanceM)
   {
-    // @todo(tatiana-kondakova) test and adjust constants.
-    // 25 min + 3 additional minutes per 1 km for now.
-    return 25 * 60 + (startToFinishDistanceM / 1000) * 3 * 60;
+    // @todo(bykoianko) test and adjust constants.
+    // 50 min + 3 additional minutes per 1 km for now.
+    return 50 * 60 + (startToFinishDistanceM / 1000) * 3 * 60;
   }
 
   RoadGeometry const & GetRealRoadGeometry(NumMwmId mwmId, uint32_t featureId);

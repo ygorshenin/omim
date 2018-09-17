@@ -3,6 +3,7 @@
 #include "routing/geometry.hpp"
 #include "routing/index_graph.hpp"
 #include "routing/road_graph.hpp"
+#include "routing/route.hpp"
 #include "routing/segment.hpp"
 #include "routing/transit_info.hpp"
 
@@ -64,6 +65,7 @@ public:
   virtual RouteWeight CalcSegmentWeight(Segment const & segment) = 0;
   virtual RouteWeight CalcLeapWeight(m2::PointD const & from, m2::PointD const & to) const = 0;
   virtual RouteWeight CalcOffroadWeight(m2::PointD const & from, m2::PointD const & to) const = 0;
+  virtual double CalcSegmentETA(Segment const & segment) = 0;
   virtual bool LeapIsAllowed(NumMwmId mwmId) const = 0;
 
   /// \returns transitions for mwm with id |numMwmId|.
@@ -71,6 +73,8 @@ public:
 
   /// \returns transit-specific information for segment. For nontransit segments returns nullptr.
   virtual std::unique_ptr<TransitInfo> GetTransitInfo(Segment const & segment) = 0;
+
+  virtual std::vector<RouteSegment::SpeedCamera> GetSpeedCamInfo(Segment const & segment) = 0;
 
 protected:
   void GetTwins(Segment const & segment, bool isOutgoing, std::vector<SegmentEdge> & edges);

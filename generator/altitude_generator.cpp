@@ -88,7 +88,7 @@ public:
 
   TAltitude GetMinAltitude() const { return m_minAltitude; }
 
-  void operator()(FeatureType const & f, uint32_t const & id)
+  void operator()(FeatureType & f, uint32_t const & id)
   {
     if (id != m_altitudeAvailabilityBuilder.size())
     {
@@ -141,7 +141,7 @@ public:
   bool IsFeatureAltitudesSorted()
   {
     return std::is_sorted(m_featureAltitudes.begin(), m_featureAltitudes.end(),
-                          my::LessBy(&Processor::FeatureAltitude::m_featureId));
+                          base::LessBy(&Processor::FeatureAltitude::m_featureId));
   }
 
 private:

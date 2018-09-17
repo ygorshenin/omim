@@ -4,6 +4,7 @@
 #include "indexer/feature.hpp"
 
 #include "base/macros.hpp"
+#include "base/stl_helpers.hpp"
 
 using namespace ftypes;
 
@@ -12,14 +13,14 @@ namespace search
 TwoLevelPOIChecker::TwoLevelPOIChecker() : ftypes::BaseChecker(2 /* level */)
 {
   Classificator const & c = classif();
-  StringIL arr[] = {{"highway", "bus_stop"},
-                    {"highway", "speed_camera"},
-                    {"waterway", "waterfall"},
-                    {"natural", "volcano"},
-                    {"natural", "cave_entrance"},
-                    {"natural", "beach"},
-                    {"emergency", "defibrillator"},
-                    {"emergency", "fire_hydrant"}};
+  base::StringIL arr[] = {{"highway", "bus_stop"},
+                          {"highway", "speed_camera"},
+                          {"waterway", "waterfall"},
+                          {"natural", "volcano"},
+                          {"natural", "cave_entrance"},
+                          {"natural", "beach"},
+                          {"emergency", "defibrillator"},
+                          {"emergency", "fire_hydrant"}};
 
   for (size_t i = 0; i < ARRAY_SIZE(arr); ++i)
     m_types.push_back(c.GetTypeByPath(arr[i]));
@@ -52,7 +53,7 @@ public:
     return inst;
   }
 
-  bool operator()(FeatureType const & ft) const { return m_oneLevel(ft) || m_twoLevel(ft); }
+  bool operator()(FeatureType & ft) const { return m_oneLevel(ft) || m_twoLevel(ft); }
 
 private:
   OneLevelPOIChecker const m_oneLevel;
@@ -68,7 +69,7 @@ public:
     return inst;
   }
 
-  bool operator()(FeatureType const & ft) const
+  bool operator()(FeatureType & ft) const
   {
     return !ft.GetHouseNumber().empty() || IsBuildingChecker::Instance()(ft);
   }
@@ -76,41 +77,20 @@ public:
 private:
   CustomIsBuildingChecker() {}
 };
-
-class IsCianChecker
-{
-public:
-  static IsCianChecker const & Instance()
-  {
-    static const IsCianChecker instance;
-    return instance;
-  }
-
-  bool operator()(FeatureType const & ft) const
-  {
-    feature::TypesHolder th(ft);
-    return !ft.HasName() && th.Size() == 1 && th.Has(m_type);
-  }
-
-private:
-  IsCianChecker() { m_type = classif().GetTypeByPath({"building"}); }
-
-  uint32_t m_type;
-};
 }  // namespace
 
-Model::Type Model::GetType(FeatureType const & feature) const
+Model::Type Model::GetType(FeatureType & feature) const
 {
   static auto const & buildingChecker = CustomIsBuildingChecker::Instance();
-  static auto const & cianChecker = IsCianChecker::Instance();
   static auto const & streetChecker = IsStreetChecker::Instance();
   static auto const & localityChecker = IsLocalityChecker::Instance();
   static auto const & poiChecker = IsPoiChecker::Instance();
 
-  if (m_cianEnabled && cianChecker(feature))
-    return TYPE_BUILDING;
+  // Check whether object is POI first to mark POIs with address tags as POI.
+  if (poiChecker(feature))
+    return TYPE_POI;
 
-  if (!m_cianEnabled && buildingChecker(feature))
+  if (buildingChecker(feature))
     return TYPE_BUILDING;
 
   if (streetChecker(feature))
@@ -130,9 +110,6 @@ Model::Type Model::GetType(FeatureType const & feature) const
     case LOCALITY_COUNT: return TYPE_UNCLASSIFIED;
     }
   }
-
-  if (poiChecker(feature))
-    return TYPE_POI;
 
   return TYPE_UNCLASSIFIED;
 }

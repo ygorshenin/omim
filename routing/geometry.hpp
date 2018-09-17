@@ -6,16 +6,17 @@
 #include "routing_common/vehicle_model.hpp"
 
 #include "indexer/feature_altitude.hpp"
-#include "indexer/index.hpp"
 
 #include "geometry/point2d.hpp"
 
 #include "base/buffer_vector.hpp"
+#include "base/fifo_cache.hpp"
 
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <unordered_map>
+
+class DataSource;
 
 namespace routing
 {
@@ -25,14 +26,13 @@ public:
   using Points = buffer_vector<m2::PointD, 32>;
 
   RoadGeometry() = default;
-  RoadGeometry(bool oneWay, double speed, Points const & points);
+  RoadGeometry(bool oneWay, double weightSpeedKMpH, double etaSpeedKMpH, Points const & points);
 
-  void Load(VehicleModelInterface const & vehicleModel, FeatureType const & feature,
+  void Load(VehicleModelInterface const & vehicleModel, FeatureType & feature,
             feature::TAltitudes const * altitudes);
 
   bool IsOneWay() const { return m_isOneWay; }
-  // Kilometers per hour.
-  double GetSpeed() const { return m_speed; }
+  VehicleModelInterface::SpeedKMpH const & GetSpeed() const { return m_speed; }
   bool IsPassThroughAllowed() const { return m_isPassThroughAllowed; }
 
   Junction const & GetJunction(uint32_t junctionId) const
@@ -64,7 +64,7 @@ public:
 
 private:
   buffer_vector<Junction, 32> m_junctions;
-  double m_speed = 0.0;
+  VehicleModelInterface::SpeedKMpH m_speed;
   bool m_isOneWay = false;
   bool m_valid = false;
   bool m_isPassThroughAllowed = false;
@@ -78,7 +78,7 @@ public:
   virtual void Load(uint32_t featureId, RoadGeometry & road) = 0;
 
   // handle should be alive: it is caller responsibility to check it.
-  static std::unique_ptr<GeometryLoader> Create(Index const & index,
+  static std::unique_ptr<GeometryLoader> Create(DataSource const & dataSource,
                                                 MwmSet::MwmHandle const & handle,
                                                 std::shared_ptr<VehicleModelInterface> vehicleModel,
                                                 bool loadAltitudes);
@@ -89,22 +89,30 @@ public:
       std::string const & fileName, std::shared_ptr<VehicleModelInterface> vehicleModel);
 };
 
+/// \brief This class supports loading geometry of roads for routing.
+/// \note Loaded information about road geometry is kept in a fixed-size cache |m_featureIdToRoad|.
+/// On the other hand methods GetRoad() and GetPoint() return geometry information by reference.
+/// The reference may be invalid after the next call of GetRoad() or GetPoint() because the cache
+/// item which is referred by returned reference may be evicted. It's done for performance reasons.
 class Geometry final
 {
 public:
   Geometry() = default;
   explicit Geometry(std::unique_ptr<GeometryLoader> loader);
 
+  /// \note The reference returned by the method is valid until the next call of GetRoad()
+  /// of GetPoint() methods.
   RoadGeometry const & GetRoad(uint32_t featureId);
 
+  /// \note The reference returned by the method is valid until the next call of GetRoad()
+  /// of GetPoint() methods.
   m2::PointD const & GetPoint(RoadPoint const & rp)
   {
     return GetRoad(rp.GetFeatureId()).GetPoint(rp.GetPointId());
   }
 
 private:
-  // Feature id to RoadGeometry map.
-  std::unordered_map<uint32_t, RoadGeometry> m_roads;
   std::unique_ptr<GeometryLoader> m_loader;
+  std::unique_ptr<FifoCache<uint32_t, RoadGeometry>> m_featureIdToRoad;
 };
 }  // namespace routing
